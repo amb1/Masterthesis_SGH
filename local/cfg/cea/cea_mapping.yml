@@ -1,0 +1,138 @@
+cea_mapping:
+  # Allgemeine Gebäudeinformationen
+  building_id: 
+    source: "{project_config.yml:data_source}"
+    mappings:
+      citygml: "vienna_citygml_normalized:building_id"
+      wfs: "vienna_wfs_normalized:building_id"
+      geojson: "ascend_geojson_normalized:building_id"
+      osm: "osm_buildings_normalized:building_id"
+
+  REFERENCE: 
+    source: "{project_config.yml:data_source}"
+    mappings:
+      citygml: "vienna_citygml_normalized:reference"
+      wfs: "vienna_wfs_normalized:reference_id"
+      geojson: "ascend_geojson_normalized:reference"
+      osm: "osm_buildings_normalized:reference"
+
+  # Adresse
+  house_no: 
+    source: "{project_config.yml:data_source}"
+    mappings:
+      wfs: "vienna_wfs_normalized:street"
+      geojson: "ascend_geojson_normalized:house_no"
+      osm: "osm_buildings_normalized:house_no"
+  street: 
+    source: "{project_config.yml:data_source}"
+    mappings:
+      citygml: "vienna_citygml_normalized:street"
+      wfs: "vienna_wfs_normalized:street_text"
+      geojson: "ascend_geojson_normalized:street"
+      osm: "osm_buildings_normalized:street"
+  postcode: 
+    source: "{project_config.yml:data_source}"
+    mappings:
+      geojson: "ascend_geojson_normalized:postcode"
+      osm: "osm_buildings_normalized:postcode"
+  city: 
+    source: "{project_config.yml:data_source}"
+    mappings:
+      geojson: "ascend_geojson_normalized:city"
+      osm: "osm_buildings_normalized:city"
+  country: 
+    source: "{project_config.yml:data_source}"
+    mappings:
+      geojson: "ascend_geojson_normalized:country"
+      osm: "osm_buildings_normalized:country"
+
+  # Geometrie
+  floors_ag: 
+    source: "{project_config.yml:data_source}"
+    mappings:
+      citygml: "vienna_citygml_normalized:floors"
+      wfs: "vienna_wfs_normalized:floors_ag"
+      geojson: "ascend_geojson_normalized:floors_ag"
+      osm: "osm_buildings_normalized:floors_ag"
+  floors_bg: 
+    source: "{project_config.yml:data_source}"
+    mappings:
+      wfs: "vienna_wfs_normalized:floors_bg"
+      geojson: "ascend_geojson_normalized:floors_bg"
+      osm: "osm_buildings_normalized:floors_bg"
+  height_ag: 
+    source: "{project_config.yml:data_source}"
+    mappings:
+      citygml: "vienna_citygml_normalized:height"
+      wfs: "vienna_wfs_normalized:base_height"
+      geojson: "ascend_geojson_normalized:height_ag"
+      osm: "osm_buildings_normalized:building_height"
+  geometry: 
+    source: "{project_config.yml:data_source}"
+    mappings:
+      citygml: "vienna_citygml_normalized:footprint_geometry"
+      wfs: "vienna_wfs_normalized:geometry"
+      geojson: "ascend_geojson_normalized:geometry"
+      osm: "osm_buildings_normalized:geometry"
+
+  # Gebäudenutzung & Alter
+  YEAR: 
+    source: "{project_config.yml:data_source}"
+    mappings:
+      citygml: "vienna_citygml_normalized:construction_year"
+      geojson: "ascend_geojson_normalized:construction_year"
+      osm: "osm_buildings_normalized:construction_year"
+
+  # Gebäudetyp (abgeleitet aus Mapping-Tabellen in den Normalized-Dateien)
+    BUILDING_TYPE:
+    source: "{project_config.yml:data_source}"
+    mappings:
+      citygml: "vienna_citygml_normalized:building_type"
+      wfs:
+        lookup: 
+          source: "vienna_wfs_normalized:construction_type_text"
+          map: "vienna_wfs_normalized:building_type_mapping"
+      geojson: "ascend_geojson_normalized:building_type"
+
+  # Gebäudestandard (STANDARD) mit Bauperiode und Sanierungsstatus
+  STANDARD: 
+    derived: true
+    calculation:
+      inputs: ["YEAR", "BUILDING_TYPE", "renovation_status"]
+      logic: |
+        def get_period_suffix(year):
+          if year <= 1859: return "_A"
+          elif year <= 1918: return "_B"
+          elif year <= 1948: return "_C"
+          elif year <= 1957: return "_D"
+          elif year <= 1968: return "_E"
+          elif year <= 1978: return "_F"
+          elif year <= 1983: return "_G"
+          elif year <= 1994: return "_H"
+          elif year <= 2001: return "_I"
+          elif year <= 2009: return "_J"
+          elif year <= 2015: return "_K"
+          else: return "_L"
+
+        standard = BUILDING_TYPE + get_period_suffix(YEAR)
+        
+        if renovation_status and renovation_status != "Nicht saniert":
+          standard += "_NR"
+        
+        return standard
+
+  # Erweiterte Eigenschaften
+  roof_type: 
+    source: "{project_config.yml:data_source}"
+    mappings:
+      citygml: "vienna_citygml_normalized:roof_type"
+      geojson: "ascend_geojson_normalized:roof_type"
+      osm: "osm_buildings_normalized:roof_type"
+  facade_area: 
+    source: "{project_config.yml:data_source}"
+    mappings:
+      geojson: "ascend_geojson_normalized:facade_area"
+  gfa: 
+    source: "{project_config.yml:data_source}"
+    mappings:
+      geojson: "ascend_geojson_normalized:gfa"

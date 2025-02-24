@@ -1,0 +1,54 @@
+# CEA-Umgebungsvariablen
+cea_env:
+  cea_env_path: "F:/Users/ambi/Documents/CityEnergyAnalyst/dependencies/cea-env.bat"
+  weather_base: "F:/Users/ambi/Documents/CityEnergyAnalyst/CityEnergyAnalyst/cea/databases/weather"
+  database_base: "F:/Users/ambi/Documents/CityEnergyAnalyst/CityEnergyAnalyst/cea/database"
+
+# Umgebungseinstellungen
+surroundings:
+  site_buffer_distance: 100
+  surrounding_buildings_distance: 150
+  osm_defaults:
+    height: 10
+    floors: 3
+    year: 2000
+
+# Standardwerte für Gebäude
+building_defaults:
+  floor_height: 3.0
+  default_basement_floors: 1
+
+# Datenquellenwahl
+data_source: "citygml"  # oder "geojson" abhängig vom verwendeten Datensat
+
+project:
+  name: "Wien_Testgebiet"
+  location: "Wien"
+
+data_sources:
+  wfs_streams:
+    - name: "Wien Gebäudealter"
+      url: "https://data.wien.gv.at/daten/geo"
+      layer: "ogdwien:BAUGEB"
+      mapping:
+        construction_year: "BAUJAHR"
+        renovation_year: "SANIERUNG"
+        mapping_rules:
+          construction_year:
+            type: "integer"
+            default: 2000
+            validation:
+              min: 1800
+              max: 2023
+
+    - name: "Wien Gebäudenutzung"
+      url: "https://data.wien.gv.at/daten/geo"
+      layer: "ogdwien:NUTZUNGSART"
+      mapping:
+        usage_type: "NUTZUNG"
+        usage_mapping:
+          "Wohngebäude": "RESIDENTIAL"
+          "Bürogebäude": "OFFICE"
+          "Bildungseinrichtung": "SCHOOL"
+
+

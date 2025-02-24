@@ -1,0 +1,24 @@
+citygml_fields:
+  building_id: "Building/@id"
+  height_ag: "Building/measuredHeight"
+  floors_ag: "Building/numberOfFloorsAboveGround"
+  bldg_type: "Building/usage"
+  construction_year: "Building/yearOfConstruction"
+  usage: "Building/usage"
+  roof_type: "Building/roofType"
+  footprint_geometry: "Building/lod2Solid/Solid/exterior/CompositeSurface/surfaceMember/Polygon/exterior/LinearRing/posList"
+
+building_type_mapping:
+  "1000": "AB"
+  "2000": "NWG"
+
+cea_fields:
+  dbf:
+    Name: "C(50)"
+    BLDG_TYPE: "C(10)"
+    YEAR: "N(4,0)"
+    STANDARD: "C(10)"
+    USE1: "C(10)"
+    USE1_R: "N(4,2)"
+    USE2: "C(10)"
+    USE2_R: "N(4,2)"

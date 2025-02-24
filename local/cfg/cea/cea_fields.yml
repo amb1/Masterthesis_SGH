@@ -1,0 +1,35 @@
+cea_fields:
+  dbf:
+    Name: "C(50)"
+    BLDG_TYPE: "C(10)"
+    YEAR: "N(4,0)"
+    STANDARD: "C(10)"
+    USE1: "C(10)"
+    USE1_R: "N(4,2)"
+    USE2: "C(10)"
+    USE2_R: "N(4,2)"
+
+  # Adressdaten
+  house_no: ""
+  street: ""
+  postcode: ""
+  house_name: ""
+  resi_type: ""
+  city: "{{ project_location }}"
+  country: ""
+  category: "Nutzung"
+
+  # Geometrie
+  height_ag: "height_ag"
+  floors_ag: "floors_ag"
+  floors_bg: "floors_bg"
+  height_bg: "height_bg"
+
+  # Baujahr & Nutzung
+  1ST_USE: "building_type"
+  1ST_USE_R: "calculated"
+  2ND_USE: "NONE"
+  2ND_USE_R: 0.0
+
+  # Gebäudestandard
+  REFERENCE: "{{ project_name }}"  # Wird aus project_config.yml übernommen

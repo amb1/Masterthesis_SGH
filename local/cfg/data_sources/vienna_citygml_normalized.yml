@@ -1,0 +1,20 @@
+citygml_fields:
+  building_id: '@gml:id'
+  height_ag: 'measuredHeight'
+  floors_ag: 'numberOfFloorsAboveGround'
+  roof_type: 'roofType'
+
+# building_type_mapping:
+#   "Wohngebäude": "AB"
+#   "Nicht-Wohngebäude": "NWG"
+
+# cea_fields:
+#   dbf:
+#     Name: "C(50)"
+#     BLDG_TYPE: "C(10)"
+#     YEAR: "N(4,0)"
+#     STANDARD: "C(10)"
+#     USE1: "C(10)"
+#     USE1_R: "N(4,2)"
+#     USE2: "C(10)"
+#     USE2_R: "N(4,2)"

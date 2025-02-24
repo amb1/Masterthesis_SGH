@@ -1,0 +1,41 @@
+# cea_workflow.yml
+- config: user  # Verwendet die Basis-Konfiguration vom Benutzer
+  weather-helper:weather: "Zuerich-Kloten_2030_AB1_TMY.epw"
+  data-initializer:databases-path: "AT"
+
+
+# Workflow-Schritte
+- script: data-initializer
+  parameters:
+    databases: ['archetypes', 'assemblies', 'components']
+
+- script: weather-helper
+
+- script: terrain-helper
+  parameters:
+    grid-size: 30
+    buffer: 50.0
+
+- script: archetypes-mapper
+  parameters:
+    input-databases: [
+      'comfort',
+      'architecture',
+      'air-conditioning',
+      'internal-loads',
+      'supply',
+      'schedules'
+    ]
+
+- script: schedule-maker
+
+- script: radiation
+
+- script: demand
+  parameters:
+    buildings: []
+    #use-dynamic-infiltration-calculation: true
+
+- script: emissions
+
+- script: photovoltaic
