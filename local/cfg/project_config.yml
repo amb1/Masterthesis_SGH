@@ -5,50 +5,59 @@ cea_env:
   database_base: "F:/Users/ambi/Documents/CityEnergyAnalyst/CityEnergyAnalyst/cea/database"
 
 # Umgebungseinstellungen
-surroundings:
-  site_buffer_distance: 100
-  surrounding_buildings_distance: 150
+geometry:
+  site_buffer_distance: "../common_config.yml:common.spatial.site_buffer"
+  surrounding_buildings_distance: "../common_config.yml:common.spatial.surrounding_buildings"
   osm_defaults:
-    height: 10
-    floors: 3
-    year: 2000
+    inherit: "../common_config.yml:common.building_defaults"
 
 # Standardwerte für Gebäude
 building_defaults:
-  floor_height: 3.0
-  default_basement_floors: 1
+  inherit: "../common_config.yml:common.building_defaults"
 
 # Datenquellenwahl
 data_source: "citygml"  # oder "geojson" abhängig vom verwendeten Datensat
 
+# Projektinformationen
 project:
   name: "Wien_Testgebiet"
   location: "Wien"
+  description: "Testgebiet in Wien"
+  scenario: "baseline"
 
+# WFS-Konfiguration wird aus wfs_config.yml importiert
 data_sources:
-  wfs_streams:
-    - name: "Wien Gebäudealter"
-      url: "https://data.wien.gv.at/daten/geo"
-      layer: "ogdwien:BAUGEB"
-      mapping:
-        construction_year: "BAUJAHR"
-        renovation_year: "SANIERUNG"
-        mapping_rules:
-          construction_year:
-            type: "integer"
-            default: 2000
-            validation:
-              min: 1800
-              max: 2023
+  wfs:
+    inherit: "../wfs/wfs_config.yml:vienna_wfs"
 
-    - name: "Wien Gebäudenutzung"
-      url: "https://data.wien.gv.at/daten/geo"
-      layer: "ogdwien:NUTZUNGSART"
-      mapping:
-        usage_type: "NUTZUNG"
-        usage_mapping:
-          "Wohngebäude": "RESIDENTIAL"
-          "Bürogebäude": "OFFICE"
-          "Bildungseinrichtung": "SCHOOL"
+# Logging-Konfiguration wird aus common_config.yml importiert
+logging:
+  inherit: "../common_config.yml:common.logging"
 
+site_polygon:
+  buffer_distance: "../common_config.yml:common.spatial.buffer_distance"
+  simplify_tolerance: "../common_config.yml:common.spatial.intersection_tolerance"
 
+surroundings:
+  buffer_distance: "../common_config.yml:common.spatial.site_buffer"
+  building_defaults:
+    inherit: "../common_config.yml:common.building_defaults"
+
+file_formats:
+  shp_driver: "ESRI Shapefile"
+  gml_encoding: "utf-8"
+
+paths:
+  inputs:
+    citygml: "data/citygml"
+    geojson: "data/geojson"
+  outputs:
+    geometry: "geometry"
+    networks: "networks"
+    properties: "building-properties"
+    scenarios: "scenarios"
+
+defaults:
+  project_name: "CityGMLProject"
+  scenario_name: "baseline"
+  crs: "../common_config.yml:common.crs"

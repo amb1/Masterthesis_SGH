@@ -227,10 +227,50 @@ def assign_pset(element, pset):
         pset
     )
 
+def determine_wall_orientation(wall):
+    """Bestimmt die Orientierung einer Wand basierend auf ihrer Ausrichtung"""
+    # Hier müsste die geometrische Analyse der Wandausrichtung implementiert werden
+    # Vereinfachte Version: Zuweisung basierend auf einem Winkel zur Nordrichtung
+    # Returns: "North", "South", "East", "West"
+    return "North"  # Placeholder
+
 def add_thermal_properties(ifc_file_path: str):
     """Fügt thermische Eigenschaften zu Bauteilen hinzu und speichert die Datei"""
     ifc_file = ifcopenshell.open(ifc_file_path)
     
+    # Wände verarbeiten und Orientierung zuweisen
+    print("\nFüge thermische Eigenschaften und Orientierung zu Wänden hinzu...")
+    walls = ifc_file.by_type("IfcWall")
+    print(f"Gefundene Wände: {len(walls)}")
+    
+    for i, wall in enumerate(walls, 1):
+        orientation = determine_wall_orientation(wall)
+        u_value = round(random.uniform(0.2, 0.5), 2)
+        
+        # Erstelle PropertySet für Wand
+        pset = create_pset(ifc_file, "Pset_WallCommon", [
+            ("ThermalTransmittance", "IfcThermalTransmittanceMeasure", u_value),
+            ("SolarAbsorption", "IfcPositiveRatioMeasure", round(random.uniform(0.4, 0.7), 2)),
+            ("Emissivity", "IfcPositiveRatioMeasure", round(random.uniform(0.8, 0.95), 2)),
+            ("Reflectance", "IfcPositiveRatioMeasure", round(random.uniform(0.2, 0.4), 2)),
+            ("IsExternal", "IfcBoolean", True),
+            ("Orientation", "IfcLabel", orientation)
+        ])
+        assign_pset(wall, pset)
+        
+        # Fenster in dieser Wand finden und Orientierung zuweisen
+        for rel in wall.ContainsElements:
+            if rel.is_a("IfcRelContainedInSpatialStructure"):
+                for element in rel.RelatedElements:
+                    if element.is_a("IfcWindow"):
+                        window_pset = create_pset(ifc_file, "Pset_WindowCommon", [
+                            ("Orientation", "IfcLabel", orientation)
+                        ])
+                        assign_pset(element, window_pset)
+        
+        print(f"Wand {i}/{len(walls)} verarbeitet (U-Wert: {u_value}, Orientierung: {orientation})")
+    
+    # Dächer verarbeiten (bestehender Code)
     print("\nFüge thermische Eigenschaften zu Dächern hinzu...")
     roofs = ifc_file.by_type("IfcRoof")
     print(f"Gefundene Dächer: {len(roofs)}")

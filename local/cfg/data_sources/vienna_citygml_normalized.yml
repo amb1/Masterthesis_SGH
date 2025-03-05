@@ -4,17 +4,115 @@ citygml_fields:
   floors_ag: 'numberOfFloorsAboveGround'
   roof_type: 'roofType'
 
-# building_type_mapping:
-#   "Wohngebäude": "AB"
-#   "Nicht-Wohngebäude": "NWG"
+building_type_mapping:
+  "Wohngebäude": "AB"
+  "Nicht-Wohngebäude": "NWG"
 
-# cea_fields:
-#   dbf:
-#     Name: "C(50)"
-#     BLDG_TYPE: "C(10)"
-#     YEAR: "N(4,0)"
-#     STANDARD: "C(10)"
-#     USE1: "C(10)"
-#     USE1_R: "N(4,2)"
-#     USE2: "C(10)"
-#     USE2_R: "N(4,2)"
+cea_fields:
+  zone:
+    Name:
+      type: "str"
+      format: "C(50)"
+      default: ""
+    floors_ag:
+      type: "int"
+      format: "N(2,0)"
+      default: 0
+    floors_bg:
+      type: "int"
+      format: "N(2,0)"
+      default: 0
+    height_ag:
+      type: "float"
+      format: "N(5,2)"
+      default: 0.0
+    height_bg:
+      type: "float"
+      format: "N(5,2)"
+      default: 0.0
+    REFERENCE:
+      type: "str"
+      format: "C(50)"
+      default: ""
+    house_no:
+      type: "str"
+      format: "C(10)"
+      default: ""
+    street:
+      type: "str"
+      format: "C(100)"
+      default: ""
+    postcode:
+      type: "str"
+      format: "C(10)"
+      default: ""
+    house_name:
+      type: "str"
+      format: "C(100)"
+      default: ""
+    resi_type:
+      type: "str"
+      format: "C(10)"
+      default: ""
+    city:
+      type: "str"
+      format: "C(100)"
+      default: "Wien"
+    country:
+      type: "str"
+      format: "C(50)"
+      default: "Austria"
+  typology:
+    Name:
+      type: "str"
+      format: "C(50)"
+      default: ""
+    YEAR:
+      type: "int"
+      format: "N(4,0)"
+      default: 2000
+    STANDARD:
+      type: "str"
+      format: "C(10)"
+      default: "AB"
+    1ST_USE:
+      type: "str"
+      format: "C(10)"
+      default: "MULTI_RES"
+    1ST_USER:
+      type: "float"
+      format: "N(4,2)"
+      default: 1.0
+    2ND_USE:
+      type: "str"
+      format: "C(10)"
+      default: "NONE"
+    2ND_USER:
+      type: "float"
+      format: "N(4,2)"
+      default: 0.0
+    3RD_USE:
+      type: "str"
+      format: "C(10)"
+      default: "NONE"
+    3RD_USER:
+      type: "float"
+      format: "N(4,2)"
+      default: 0.0
+    REFERENCE:
+      type: "str"
+      format: "C(50)"
+      default: ""
+
+file_formats:
+  shp_driver: "ESRI Shapefile"
+  gml_encoding: "utf-8"
+
+crs: "EPSG:31256"  # Wien GK East - das korrekte Koordinatensystem für Wien
+
+paths:
+  outputs:
+    geometry: "geometry"
+    properties: "building-properties"
+    networks: "networks"
+    scenarios: "scenarios"

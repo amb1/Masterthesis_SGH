@@ -3,16 +3,21 @@ from pathlib import Path
 import yaml
 import sys
 import os
-from utils.data_processing.create_site_polygon import create_site_polygon, save_site_polygon
-from utils.data_sources.fetch_geojson_buildings import GeoJSONBuildingProcessor
-from utils.CEA.process_citygml_buildings import process_citygml_buildings
-from simpledbf import Dbf5
-import geopandas as gpd
 import pandas as pd
+import geopandas as gpd
+from simpledbf import Dbf5
+import time
+from shapely.geometry import Point
 
-# Füge Projektverzeichnis zum Python-Path hinzu
-project_root = Path(__file__).resolve().parent
-sys.path.append(str(project_root))
+# Füge das lokale Verzeichnis zum Python-Path hinzu
+local_dir = Path(__file__).resolve().parent
+sys.path.append(str(local_dir))
+
+from utils.data_processing.create_site_polygon import create_site_polygon, save_site_polygon
+from utils.data_sources.fetch_citygml_buildings import fetch_citygml_buildings
+from utils.CEA.run_cea_workflow import run_cea_workflow
+from utils.data_sources.fetch_wfs_data import ViennaWFS
+from utils.data_processing.cea_building_processor import CEABuildingProcessor
 
 def get_project_info(args=None):
     """
@@ -103,13 +108,18 @@ def setup_project_structure(project_path, scenario_path):
                     yaml.dump(config, dst, allow_unicode=True)
         else:
             raise FileNotFoundError(f"Template-Konfigurationsdatei nicht gefunden unter: {config_path}")
+    
+    return config
 
 def create_site_polygon(zone_path):
     """Erstellt ein Site-Polygon aus der Zone"""
     try:
         zone_gdf = gpd.read_file(zone_path)
         site_polygon = zone_gdf.unary_union.convex_hull
-        return gpd.GeoDataFrame(geometry=[site_polygon], crs=zone_gdf.crs)
+        site_gdf = gpd.GeoDataFrame(geometry=[site_polygon])
+        site_path = os.path.join(zone_path.parent, "site.shp")
+        site_gdf.to_file(site_path)
+        return site_path
     except Exception as e:
         print(f"Fehler beim Erstellen des Site-Polygons: {str(e)}")
         raise
@@ -119,10 +129,14 @@ def check_required_files(geometry_path, properties_path):
     required_files = {
         'geometry': [
             geometry_path / 'zone.shp',
-            geometry_path / 'site.shp'
+            geometry_path / 'site.shp',
+            geometry_path / 'surroundings.shp'
         ],
         'properties': [
-            properties_path / 'typology.dbf'
+            properties_path / 'typology.shp'
+        ],
+        'networks': [
+            geometry_path.parent / 'networks' / 'streets.shp'
         ]
     }
     
@@ -140,144 +154,155 @@ def check_required_files(geometry_path, properties_path):
     
     return True
 
-def main():
+def convert_csv_to_shp(csv_path: Path, shp_path: Path, config: dict) -> None:
+    """Konvertiert eine CSV-Datei in ein Shapefile mit den definierten Feldern."""
     try:
-        # Projekt und Szenario Eingabe
-        project = input("Bitte Projekt eingeben (default: ): ")
-        scenario = input("Bitte Szenario eingeben (default: ): ") 
-        print(f"\nVerarbeite Projekt: {project}, Szenario: {scenario}")
+        # Lade die CSV-Datei
+        df = pd.read_csv(csv_path)
+        
+        # Erstelle leere Geometrien für jedes Gebäude
+        empty_geometry = [Point(0, 0) for _ in range(len(df))]
+        
+        # Erstelle GeoDataFrame mit den definierten Feldern
+        gdf = gpd.GeoDataFrame(
+            df,
+            geometry=empty_geometry,
+            crs="EPSG:4326"
+        )
+        
+        # Stelle sicher, dass das Zielverzeichnis existiert
+        shp_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Speichere als Shapefile mit den definierten Feldern
+        gdf.to_file(shp_path, driver='ESRI Shapefile')
+        
+        # Kurze Verzögerung, um sicherzustellen, dass die Datei geschrieben wurde
+        time.sleep(0.1)
+        
+        # Überprüfe, ob die Datei existiert
+        if not shp_path.exists():
+            raise FileNotFoundError(f"Shapefile konnte nicht erstellt werden: {shp_path}")
+            
+    except Exception as e:
+        raise Exception(f"Fehler beim Konvertieren der CSV-Datei in Shapefile: {str(e)}")
 
-        # Lade Konfiguration
-        config_path = project_root / "cfg" / "cea_config.yml"
-        with open(config_path) as f:
+def load_config(config_path: Path) -> dict:
+    """Lädt die Konfigurationsdateien."""
+    try:
+        print(f"Lade Konfiguration: {config_path}")
+        if not config_path.exists():
+            raise FileNotFoundError(f"Konfigurationsdatei nicht gefunden: {config_path}")
+            
+        with open(config_path, encoding='utf-8') as f:
             config = yaml.safe_load(f)
+            
+        if config is None:
+            raise ValueError(f"Konfigurationsdatei ist leer: {config_path}")
+            
+        return config
         
-        # Erstelle Projekt-Verzeichnisstruktur
-        project_path = project_root / 'projects' / project / scenario
-        input_path = project_path / 'inputs'
-        
-        # Erstelle alle benötigten Unterverzeichnisse
-        geometry_path = input_path / 'building-geometry'
-        properties_path = input_path / 'building-properties'
-        networks_path = input_path / 'networks'
-        technology_path = input_path / 'technology'
-        
-        for path in [geometry_path, properties_path, networks_path, technology_path]:
-            path.mkdir(parents=True, exist_ok=True)
-        
-        input_format = config['paths']['input'].get('format', 'citygml')
-        input_file = project_root / config['paths']['input']['files'][input_format]
-        
-        print(f"\nInput Format: {input_format}")
-        print(f"Input File: {input_file}")
-        
+    except Exception as e:
+        print(f"❌ Fehler beim Laden der Konfiguration {config_path}: {str(e)}")
+        return None
+
+def process_citygml(config, geometry_path, properties_path):
+    """Verarbeitet CityGML Datei"""
+    try:
+        # Definiere project_root
+        project_root = Path(__file__).resolve().parent
+
+        # Lade CityGML Konfiguration
+        citygml_config = load_config(project_root / "cfg" / "data_sources" / "vienna_citygml_normalized.yml")
+        if not citygml_config:
+            raise Exception("Fehler beim Laden der CityGML Konfiguration")
+
+        # Lade CEA Konfiguration
+        cea_config = load_config(project_root / "cfg" / "cea" / "cea_fields.yml")
+        if not cea_config:
+            raise Exception("Fehler beim Laden der CEA Konfiguration")
+
+        # Lade Projekt Konfiguration
+        project_config = load_config(project_root / "cfg" / "project_config.yml")
+        if not project_config:
+            raise Exception("Fehler beim Laden der Projekt Konfiguration")
+
+        # Verarbeite CityGML
+        input_file = project_root / project_config['paths']['inputs']['citygml'] / "099082.gml"
         if not input_file.exists():
-            raise FileNotFoundError(f"Eingabedatei nicht gefunden: {input_file}")
-        
-        if input_format == 'citygml':
-            from utils.CEA.process_citygml_buildings import process_enriched_citygml, enrich_citygml_with_wfs
-            
-            print("\nPhase 1: Anreichern der CityGML mit WFS-Daten...")
-            enriched_gml = enrich_citygml_with_wfs(input_file, config)
-            print(f"✓ Enriched GML erstellt: {enriched_gml}")
-            
-            print("\nPhase 2: Erstelle CEA-Dateien aus enriched GML...")
-            process_enriched_citygml(enriched_gml, geometry_path, properties_path, config)
-            print("✓ CEA-Dateien erstellt")
-            
-        else:  # geojson
-            from utils.data_sources.fetch_geojson_buildings import process_geojson_buildings
-            result = process_geojson_buildings(
-                geojson_path=input_file,
-                geometry_path=geometry_path,
-                properties_path=properties_path,
-                config=config
-            )
-            
-            processor = GeoJSONBuildingProcessor(config)
-            processor.create_variant_scenarios(
-                result['gdf'], 
-                result['buildings_df'], 
-                project_path
-            )
+            raise FileNotFoundError(f"CityGML Datei nicht gefunden: {input_file}")
 
-        # Überprüfe ob alle notwendigen Dateien existieren
-        if not check_required_files(geometry_path, properties_path):
-            raise FileNotFoundError("Nicht alle erforderlichen Dateien wurden erstellt")
-        
-        print("\n✅ Gebäudedaten erfolgreich verarbeitet")
-        print(f"\nErstellte Dateien in:")
-        print(f"- Geometrien: {geometry_path}")
-        print(f"- Eigenschaften: {properties_path}")
-        print(f"- Netzwerke: {networks_path}")
-        print(f"- Technologie: {technology_path}")
-        
-        # Verwende das zone.shp für das site polygon
-        site_polygon = create_site_polygon(geometry_path / 'zone.shp')
-        
-        print("\n2. Erstelle Site Polygon...")
-        site_polygon = create_site_polygon(geometry_path / 'zone.shp')
-        save_site_polygon(site_polygon, geometry_path / 'site.shp')
-
-        print("\n3. Hole OSM Gebäude...")
-        from utils.data_sources.fetch_osm_buildings import (
-            fetch_surrounding_buildings,
-            process_osm_buildings,
-            save_surrounding_buildings
+        print(f"Verarbeite CityGML: {input_file}")
+        buildings_gdf = fetch_citygml_buildings(
+            citygml_path=input_file,
+            config=citygml_config,
+            cea_config=cea_config
         )
-        
-        # Stelle sicher, dass osm_defaults in der Konfiguration existiert
-        if 'osm_defaults' not in config:
-            print("Warnung: Keine OSM-Defaults in Konfiguration gefunden, verwende Standard-Werte")
-            osm_defaults = {
-                'building_height': 12,
-                'floor_height': 3,
-                'floors_ag': 4,
-                'floors_bg': 1,
-                'default_floors': 4,
-                'building_type': "MFH",
-                'building_use': "MULTI_RES",
-                'construction_year': 1970,
-                'protection_level': 0,
-                'category': "MFH",
-                'REFERENCE': "OSM",
-                'building_type_mapping': {
-                    'residential': ["MFH", "MULTI_RES"],
-                    'apartments': ["MFH", "MULTI_RES"],
-                    'house': ["SFH", "SINGLE_RES"],
-                    'commercial': ["OFFICE", "OFFICE"],
-                    'retail': ["RETAIL", "RETAIL"]
-                }
-            }
-        else:
-            osm_defaults = config['osm_defaults']
-            
-        print(f"Verwende OSM-Defaults: {osm_defaults}")
-        
-        osm_buildings = fetch_surrounding_buildings(site_polygon)
-        processed_buildings = process_osm_buildings(osm_buildings, osm_defaults)
-        save_surrounding_buildings(processed_buildings, geometry_path / 'surroundings.shp')
 
-        print("\n4. Hole OSM Straßen...")
-        from utils.data_sources.fetch_osm_streets import (
-            fetch_streets_within_site,
-            process_streets,
-            save_streets
-        )
-        streets = fetch_streets_within_site(site_polygon, config)
-        processed_streets = process_streets(streets)
-        save_streets(processed_streets, networks_path / 'streets.shp')
+        if buildings_gdf is None:
+            raise Exception("Keine Gebäude in der CityGML-Datei gefunden")
 
-        print("\n5. Starte CEA Workflow...")
-        from utils.CEA.run_cea_workflow import run_cea_workflow
-        run_cea_workflow(project_path)
+        # Speichere Ergebnisse
+        buildings_gdf.to_file(geometry_path / "zone.shp", driver="ESRI Shapefile")
+        print(f"✅ Geometrien gespeichert in: {geometry_path / 'zone.shp'}")
 
-        print("\nVerarbeitung abgeschlossen!")
-        print(f"Daten wurden in {project_path} gespeichert.")
-        print("CEA Workflow wurde erfolgreich ausgeführt.")
+        # Erstelle Properties DataFrame
+        properties_df = buildings_gdf.drop(columns=['geometry'])
+        properties_df.to_csv(properties_path / "typology.csv", index=False)
+        print(f"✅ Eigenschaften gespeichert in: {properties_path / 'typology.csv'}")
+
+        return buildings_gdf
 
     except Exception as e:
-        print(f"Fehler: {str(e)}")
+        raise Exception(f"Fehler bei der Verarbeitung der CityGML-Datei: {str(e)}")
+
+def main():
+    """Hauptfunktion zum Ausführen des CEA-Workflows."""
+    try:
+        # Hole Projektinformationen
+        project_name, scenario_name, project_path, scenario_path = get_project_info()
+        
+        # Erstelle Projektstruktur
+        config = setup_project_structure(project_path, scenario_path)
+        
+        # Definiere Pfade
+        properties_path = scenario_path / "inputs" / "building-properties"
+        geometry_path = scenario_path / "inputs" / "building-geometry"
+        
+        # Lade Konfiguration
+        config = load_config(local_dir / "cfg" / "data_sources" / "vienna_citygml_normalized.yml")
+        
+        # Initialisiere CEA Building Processor
+        cea_processor = CEABuildingProcessor(config)
+        
+        # Verarbeite Gebäude
+        buildings = process_citygml(config, geometry_path, properties_path)
+        
+        # Verarbeite Gebäude für CEA
+        processed_buildings = []
+        for building in buildings:
+            processed = cea_processor.process_building(building)
+            processed_buildings.append(processed)
+            
+        # Erstelle DataFrames für die Shapefiles
+        zone_df = pd.DataFrame(processed_buildings)
+        typology_df = pd.DataFrame(processed_buildings)
+        
+        # Speichere als CSV
+        zone_csv = properties_path / 'zone.csv'
+        typology_csv = properties_path / 'typology.csv'
+        zone_df.to_csv(zone_csv, index=False)
+        typology_df.to_csv(typology_csv, index=False)
+        
+        # Konvertiere zu Shapefiles
+        zone_shp = properties_path / 'zone.shp'
+        typology_shp = properties_path / 'typology.shp'
+        convert_csv_to_shp(zone_csv, zone_shp, config)
+        convert_csv_to_shp(typology_csv, typology_shp, config)
+        
+        print("✓ CEA-Dateien erstellt")
+
+    except Exception as e:
+        print(f"❌ Fehler beim Ausführen des CEA-Workflows: {str(e)}")
         raise
 
 if __name__ == "__main__":

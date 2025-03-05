@@ -7,22 +7,21 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-def fetch_surrounding_buildings(site_gdf, distance=100):
+def fetch_surrounding_buildings(site_gdf, config):
     """Holt Gebäude aus OpenStreetMap im Umkreis des Standorts"""
     try:
+        distance = config['surroundings']['buffer_distance']
+        building_defaults = config['surroundings']['building_defaults']
+        
         logger.info(f"📡 OSM-Abfrage: Gebäude im Umkreis von {distance}m")
 
         if site_gdf.empty:
             raise ValueError("⚠️ Fehler: Das übergebene Standortpolygon ist leer!")
 
         site_polygon = site_gdf.geometry.iloc[0]
-
-        # Erstelle äußeren Buffer für Umgebungssuche
         outer_buffer = site_polygon.buffer(distance)
         buffer_gdf = gpd.GeoDataFrame(geometry=[outer_buffer], crs=site_gdf.crs)
         buffer_wgs84 = buffer_gdf.to_crs("EPSG:4326")
-
-        logger.debug(f"🔍 OSM-Suchbereich (WGS84 Bounds): {buffer_wgs84.total_bounds}")
 
         # Hole Gebäude aus OSM
         tags = {'building': True}
@@ -32,10 +31,14 @@ def fetch_surrounding_buildings(site_gdf, distance=100):
             logger.warning("⚠️ Keine OSM-Gebäude gefunden!")
             return gpd.GeoDataFrame(geometry=[], crs=site_gdf.crs)
 
-        # Konvertiere zurück zum ursprünglichen CRS
-        buildings_gdf = buildings_gdf.to_crs(site_gdf.crs)
+        # Setze Standardwerte für fehlende Attribute
+        buildings_gdf['height'] = buildings_gdf.get('height', building_defaults['height'])
+        buildings_gdf['floors'] = buildings_gdf.get('building:levels', building_defaults['floors'])
+        buildings_gdf['year'] = buildings_gdf.get('start_date', building_defaults['year'])
 
-        # Filtere Gebäude, die sich außerhalb des Standorts befinden
+        buildings_gdf = buildings_gdf.to_crs(site_gdf.crs)
+        
+        # Filtere Gebäude
         outside_site = ~buildings_gdf.geometry.within(site_polygon)
         within_search_area = buildings_gdf.geometry.intersects(outer_buffer)
         buildings_gdf = buildings_gdf[outside_site & within_search_area]
@@ -114,7 +117,7 @@ def fetch_osm_buildings(site_gdf, distance=100, config=None):
     """Lädt OSM-Gebäude im Umkreis des Standorts"""
     try:
         logger.info(f"🔍 Hole OSM-Gebäude mit {distance}m Abstand")
-        buildings_gdf = fetch_surrounding_buildings(site_gdf, distance)
+        buildings_gdf = fetch_surrounding_buildings(site_gdf, config)
 
         if buildings_gdf.empty:
             logger.warning("⚠️ Keine OSM-Gebäude gefunden!")

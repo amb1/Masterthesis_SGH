@@ -3,7 +3,6 @@
   weather-helper:weather: "Zuerich-Kloten_2030_AB1_TMY.epw"
   data-initializer:databases-path: "AT"
 
-
 # Workflow-Schritte
 - script: data-initializer
   parameters:
@@ -34,7 +33,6 @@
 - script: demand
   parameters:
     buildings: []
-    #use-dynamic-infiltration-calculation: true
 
 - script: emissions
 

@@ -3,6 +3,8 @@ import sys
 from pathlib import Path
 import yaml
 import pandas as pd
+import xml.etree.ElementTree as ET
+import logging
 
 # Füge Projekt-Root zum Python-Path hinzu
 sys.path.append(str(Path(__file__).parent.parent.parent))
@@ -17,19 +19,68 @@ import geopandas as gpd
 from shapely.geometry import Polygon, Point, MultiPolygon
 from shapely.ops import unary_union
 
+# Konfiguriere Logger
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+handler = logging.StreamHandler()
+handler.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+handler.setFormatter(formatter)
+logger.addHandler(handler)
+
 class CityGMLBuildingProcessor(BaseBuildingProcessor):
-    """CityGML-spezifische Verarbeitung"""
-    def __init__(self, config, cea_config=None):
-        super().__init__(config, cea_config)  
-        self.citygml_mapping = config.get("citygml_fields", {})
-        self.building_type_mapping = config.get("building_type_mapping", {})
-        self.usage_type_mapping = config.get("usage_type_mapping", {})
+    """Verarbeitet Gebäude aus CityGML-Dateien"""
+    
+    def __init__(self, config: dict):
+        """Initialisiert den CityGML Building Processor.
+        
+        Args:
+            config (dict): Die Konfiguration
+        """
+        super().__init__(config)
+        self.citygml_fields = config.get('citygml_fields', {})
+        
+        # Definiere Namespaces
         self.ns = {
             'core': 'http://www.opengis.net/citygml/1.0',
             'bldg': 'http://www.opengis.net/citygml/building/1.0',
             'gen': 'http://www.opengis.net/citygml/generics/1.0',
             'gml': 'http://www.opengis.net/gml'
         }
+        
+    def process_building(self, building: dict) -> dict:
+        """Verarbeitet ein einzelnes Gebäude aus CityGML.
+        
+        Args:
+            building (dict): Die Gebäudeinformationen
+            
+        Returns:
+            dict: Die verarbeiteten Gebäudeinformationen
+        """
+        processed = {
+            'building_id': building.get(self.citygml_fields.get('building_id', '@gml:id'), ''),
+            'floors_ag': building.get(self.citygml_fields.get('floors_ag', 'numberOfFloorsAboveGround'), 1),
+            'floors_bg': 0,  # Standardwert
+            'height_ag': building.get(self.citygml_fields.get('height_ag', 'measuredHeight'), 0.0),
+            'height_bg': 0.0,  # Standardwert
+            'geometry': building.geometry,
+            'year': 2020,  # Standardwert
+            'standard': '',  # Standardwert
+            '1st_use': '',  # Standardwert
+            '1st_user': 1.0,  # Standardwert
+            '2nd_use': '',  # Standardwert
+            '2nd_user': 0.0,  # Standardwert
+            '3rd_use': '',  # Standardwert
+            '3rd_user': 0.0,  # Standardwert
+            'house_no': '',  # Standardwert
+            'street': '',  # Standardwert
+            'postcode': '',  # Standardwert
+            'house_name': '',  # Standardwert
+            'resi_type': '',  # Standardwert
+            'city': '',  # Standardwert
+            'country': ''  # Standardwert
+        }
+        return processed
 
     def extract_building_attributes(self, building):
         """Extrahiert alle relevanten Attribute eines Gebäudes"""
@@ -41,7 +92,7 @@ class CityGMLBuildingProcessor(BaseBuildingProcessor):
             attributes['Name'] = gml_id if gml_id else str(uuid.uuid4())
             
             # Extrahiere CityGML-spezifische Attribute
-            for field, xpath in self.citygml_mapping.items():
+            for field, xpath in self.citygml_fields.items():
                 print(f"\nVersuche Extraktion von {field} mit XPath: {xpath}")
                 # Behandle @-Attribute speziell
                 if xpath.startswith('@'):
@@ -65,6 +116,28 @@ class CityGMLBuildingProcessor(BaseBuildingProcessor):
                     print(f"Element-Wert für {xpath}: {value}")
                     attributes[field] = value if value else ""
             
+            # Versuche verschiedene XPath-Varianten für Stockwerke
+            floors_paths = [
+                './/bldg:numberOfFloorsAboveGround',
+                './/bldg:storeysAboveGround',
+                './/bldg:storeys'
+            ]
+            
+            for xpath in floors_paths:
+                floors = building.find(xpath, self.ns)
+                if floors is not None and floors.text:
+                    attributes['floors_ag'] = int(floors.text)
+                    break
+            
+            # Wenn keine Stockwerke gefunden, aus Höhe schätzen
+            if 'floors_ag' not in attributes:
+                height = building.find('.//bldg:measuredHeight', self.ns)
+                if height is not None and height.text:
+                    # Schätze Stockwerke (3m pro Stockwerk)
+                    estimated_floors = max(1, round(float(height.text) / 3.0))
+                    attributes['floors_ag'] = estimated_floors
+                    self.logger.info(f"⚠️ Stockwerke geschätzt aus Höhe: {estimated_floors}")
+            
             return attributes
 
         except Exception as e:
@@ -77,60 +150,65 @@ class CityGMLBuildingProcessor(BaseBuildingProcessor):
             print(f"Verarbeite CityGML: {Path(citygml_path).name}")
             
             # Parse CityGML
-            tree = etree.parse(citygml_path)
+            tree = ET.parse(citygml_path)
             root = tree.getroot()
             
-            buildings = root.findall('.//bldg:Building', self.ns)
-            print(f"\n=== Starte Verarbeitung von {len(buildings)} Gebäuden ===")
+            buildings_data = []
             
-            building_data = []
-            geometries = []
-            geometry_stats = {
-                'success': 0,
-                'failed': 0,
-                'total_area': 0,
-                'min_area': float('inf'),
-                'max_area': 0
-            }
-            
-            for building in buildings:
-                # Erst Geometrie extrahieren
-                footprint = self.extract_building_footprint(building)
-                if footprint:
-                    area = footprint.area
-                    geometry_stats['success'] += 1
-                    geometry_stats['total_area'] += area
-                    geometry_stats['min_area'] = min(geometry_stats['min_area'], area)
-                    geometry_stats['max_area'] = max(geometry_stats['max_area'], area)
-                else:
-                    geometry_stats['failed'] += 1
-                    continue
+            # Finde alle Gebäude
+            for building in root.findall('.//bldg:Building', self.ns):
+                try:
+                    # Suche nach dem Grundriss (footprint)
+                    footprint = building.find('.//bldg:lod0FootPrint//gml:Polygon', self.ns)
+                    if footprint is None:
+                        # Fallback: Suche nach anderen Grundriss-Definitionen
+                        footprint = building.find('.//bldg:boundedBy//bldg:GroundSurface//gml:Polygon', self.ns)
+                    
+                    if footprint is not None:
+                        # Extrahiere Koordinaten
+                        coords = footprint.findall('.//gml:pos', self.ns)
+                        if not coords:
+                            coords = footprint.findall('.//gml:coordinates', self.ns)
+                        
+                        if coords:
+                            # Konvertiere zu Polygon
+                            points = []
+                            for coord in coords:
+                                x, y, z = map(float, coord.text.split())
+                                points.append((x, y))  # Ignoriere z-Koordinate für 2D-Grundriss
+                            
+                            # Stelle sicher, dass der Polygon geschlossen ist
+                            if points[0] != points[-1]:
+                                points.append(points[0])
+                                
+                            polygon = Polygon(points)
+                            
+                            # Sammle weitere Attribute
+                            building_data = {
+                                'geometry': polygon,
+                                'id': building.get('{http://www.opengis.net/gml}id'),
+                                # ... weitere Attribute ...
+                            }
+                            buildings_data.append(building_data)
                 
-                # Dann Attribute extrahieren
-                building_data.append(self.extract_building_attributes(building))
-                geometries.append(footprint)
-
-            # Ausgabe der Geometrie-Statistiken
-            print("\n=== Geometrie-Verarbeitung Zusammenfassung ===")
-            print(f"Erfolgreich: {geometry_stats['success']} Gebäude")
-            print(f"Fehlgeschlagen: {geometry_stats['failed']} Gebäude")
-            if geometry_stats['success'] > 0:
-                avg_area = geometry_stats['total_area'] / geometry_stats['success']
-                print(f"Durchschnittliche Grundfläche: {avg_area:.1f}m²")
-                print(f"Kleinste Grundfläche: {geometry_stats['min_area']:.1f}m²")
-                print(f"Größte Grundfläche: {geometry_stats['max_area']:.1f}m²")
+                except Exception as e:
+                    self.logger.warning(f"⚠️ Fehler bei Gebäude {building.get('{http://www.opengis.net/gml}id')}: {str(e)}")
+                    continue
             
             # Erstelle GeoDataFrame
-            buildings_gdf = gpd.GeoDataFrame(
-                building_data,
-                geometry=geometries,
-                crs="EPSG:31256"
-            )
+            buildings_gdf = gpd.GeoDataFrame(buildings_data, crs=self.config['crs'])
             
+            # Validiere Geometrien
+            invalid_geoms = buildings_gdf[~buildings_gdf.geometry.is_valid]
+            if not invalid_geoms.empty:
+                self.logger.warning(f"⚠️ {len(invalid_geoms)} ungültige Geometrien gefunden, versuche Reparatur...")
+                buildings_gdf.geometry = buildings_gdf.geometry.buffer(0)
+            
+            self.logger.info(f"✅ {len(buildings_gdf)} Gebäudegrundrisse extrahiert")
             return buildings_gdf
-            
+
         except Exception as e:
-            print(f"❌ Fehler bei CityGML-Verarbeitung: {str(e)}")
+            self.logger.error(f"❌ Fehler bei der CityGML-Verarbeitung: {str(e)}")
             raise
 
     def create_buildings_dataframe(self, citygml_path):
@@ -250,14 +328,38 @@ class CityGMLBuildingProcessor(BaseBuildingProcessor):
             return buildings_gdf
 
 
-def fetch_citygml_buildings(citygml_path, config, cea_config):
-    """Lädt und verarbeitet CityGML Gebäudedaten"""
+def fetch_citygml_buildings(citygml_path: Path, config: dict, cea_config: dict, logger=None) -> gpd.GeoDataFrame:
+    """Verarbeitet CityGML-Datei und erstellt CEA-kompatible Dateien"""
     try:
-        processor = CityGMLBuildingProcessor(config, cea_config)
-        buildings_df = processor.process_citygml(citygml_path)
-        return buildings_df
+        if logger is None:
+            logger = logging.getLogger(__name__)
+            logger.setLevel(logging.INFO)
+            handler = logging.StreamHandler()
+            handler.setFormatter(logging.Formatter('%(message)s'))
+            logger.addHandler(handler)
+
+        # Initialisiere Processor
+        processor = CityGMLBuildingProcessor(config)
+        
+        # Verarbeite CityGML
+        buildings_gdf = processor.create_buildings_dataframe(citygml_path)
+        
+        if buildings_gdf.empty:
+            logger.warning("Keine Gebäude in der CityGML-Datei gefunden")
+            return None
+        
+        logger.info(f"📊 Gefundene Gebäude: {len(buildings_gdf)}")
+        
+        # Reichere mit WFS-Daten an
+        buildings_gdf = processor.enrich_with_wfs(buildings_gdf)
+        logger.info("✅ WFS-Anreicherung abgeschlossen")
+        
+        return buildings_gdf
+        
     except Exception as e:
-        print(f"Fehler beim Verarbeiten der CityGML Daten: {str(e)}")
+        if logger:
+            logger.error(f"❌ Fehler bei der CityGML-Verarbeitung: {str(e)}")
+        print(f"❌ Fehler bei der CityGML-Verarbeitung: {str(e)}")
         raise
 
 def main():
@@ -279,7 +381,7 @@ def main():
             return
 
         # CityGML Verarbeiten
-        processor = CityGMLBuildingProcessor(citygml_config, cea_config)
+        processor = CityGMLBuildingProcessor(citygml_config)
         data = processor.process_citygml(test_file)
 
         if data is not None and not data.empty:

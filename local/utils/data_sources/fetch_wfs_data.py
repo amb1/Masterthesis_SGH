@@ -16,22 +16,39 @@ console_handler.setFormatter(formatter)
 logger.addHandler(console_handler)
 
 class ViennaWFS:
-    """Klasse für den Zugriff auf WFS-Dienste der Stadt Wien"""
-
-    def __init__(self, wfs_config=None):
-        """Initialisiert die Verbindung zum WFS-Service"""
-        self.wfs_url = 'https://data.wien.gv.at/daten/geo'
-        self.wfs_version = '1.1.0'
-        self.crs = 'urn:x-ogc:def:crs:EPSG:31256'
-        self.wfs = WebFeatureService(url=self.wfs_url, version=self.wfs_version)
+    """Klasse für den Zugriff auf den Wiener WFS-Service."""
+    
+    def __init__(self, config: dict):
+        """Initialisiert den WFS-Service.
         
-        # Lade die normalisierte WFS-Konfiguration
-        config_path = Path(__file__).resolve().parent.parent.parent / "cfg" / "data_sources" / "vienna_wfs_normalized.yml"
-        with open(config_path, "r", encoding="utf-8") as file:
-            self.base_config = yaml.safe_load(file)
+        Args:
+            config (dict): WFS-Konfiguration
+        """
+        if not isinstance(config, dict):
+            raise ValueError("config muss ein Dictionary sein")
+            
+        if 'vienna_wfs' not in config:
+            raise ValueError("config muss einen 'vienna_wfs' Schlüssel haben")
+            
+        self.config = config['vienna_wfs']
+        self.url = self.config.get('url', 'https://data.wien.gv.at/daten/geo')
+        self.version = self.config.get('version', '2.0.0')
+        self.timeout = self.config.get('timeout', 30)
+        self.retries = self.config.get('retries', 3)
+        self.crs = "urn:x-ogc:def:crs:EPSG:31256"  # Korrigiertes CRS-Format
+        self.merge_fields = self.config.get('merge_fields', {})
+        self.layers = self.config.get('layers', {})
+        self.field_mapping = self.config.get('field_mapping', {})
+        self.streams = self.config.get('streams', [])
         
-        self.wfs_config = wfs_config or []
-        logger.info(f"WFS-Service initialisiert: {self.wfs_url}")
+        # Initialisiere WFS-Client
+        self.wfs = WebFeatureService(
+            self.url,
+            version=self.version,
+            timeout=self.timeout
+        )
+        
+        logger.info(f"✅ WFS-Service initialisiert: {self.url}")
 
     def fetch_building_model(self, bbox) -> Optional[gpd.GeoDataFrame]:
         """Lädt das Baukörpermodell"""
@@ -83,42 +100,51 @@ class ViennaWFS:
         except Exception as e:
             logger.error(f"❌ Fehler beim Laden der Gebäudetypologie: {str(e)}", exc_info=True)
             return None
+
+    def enrich_with_wfs(self, buildings_gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+        """Reichert die Gebäude mit WFS-Daten an.
         
-
-    def enrich_buildings(self, site_gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
-        """Erweitert Gebäudedaten mit WFS-Daten und behält die Geometrie."""
+        Args:
+            buildings_gdf (gpd.GeoDataFrame): GeoDataFrame mit den Gebäuden
+            
+        Returns:
+            gpd.GeoDataFrame: Angereichertes GeoDataFrame
+        """
         try:
-            bbox = tuple(site_gdf.total_bounds)
-            building_model = self.fetch_building_model(bbox)
-            building_typology = self.fetch_building_typology(bbox)
-
-            if building_model is not None and not building_model.empty:
-                if 'geometry' not in building_model.columns:
-                    print("❌ Fehler: 'geometry' fehlt in WFS-Building Model")
-                    return site_gdf  # Rückgabe der Originaldaten mit Geometrie
-
-                enriched_gdf = building_model.copy()
-
-                if building_typology is not None and not building_typology.empty:
-                    enriched_gdf = enriched_gdf.merge(building_typology, left_on="FMZK_ID", right_on="OBJECTID", how="left")
-
-                # Sicherstellen, dass Geometrie erhalten bleibt
-                enriched_gdf = gpd.GeoDataFrame(enriched_gdf, geometry='geometry', crs=site_gdf.crs)
-
-                return enriched_gdf  # Rückgabe mit Geometrie
-
-            return site_gdf  # Falls nichts geladen wurde, das Original zurückgeben
-
+            # Hole WFS-Daten für alle konfigurierten Streams
+            for stream in self.streams:
+                layer_name = stream['layer']
+                mapping = stream.get('mapping', {})
+                
+                # Hole die WFS-Daten
+                wfs_data = self.fetch_layer(layer_name, buildings_gdf.total_bounds)
+                if not wfs_data.empty:
+                    # Konvertiere zu GeoDataFrame falls nötig
+                    if not isinstance(wfs_data, gpd.GeoDataFrame):
+                        wfs_data = gpd.GeoDataFrame(wfs_data, crs=self.crs)
+                    
+                    # Führe die Daten zusammen
+                    buildings_gdf = buildings_gdf.merge(
+                        wfs_data,
+                        on='building_id',
+                        how='left'
+                    )
+            
+            return buildings_gdf
+            
         except Exception as e:
-            print(f"❌ Fehler bei der WFS-Anreicherung: {str(e)}")
-            return site_gdf  # Fehler -> Rückgabe der Originaldaten mit Geometrie
-
+            logger.error(f"❌ Fehler bei der WFS-Anreicherung: {str(e)}")
+            return buildings_gdf
 
     def fetch_layer(self, layer_name, bbox=None) -> Optional[gpd.GeoDataFrame]:
         """Lädt einen WFS Layer und validiert Geometrie"""
         try:
             logger.info(f"Lade WFS Layer: {layer_name}")
             typename = layer_name if "ogdwien:" in layer_name else f"ogdwien:{layer_name}"
+            
+            # Konvertiere bbox in das richtige Format
+            if bbox is not None:
+                bbox = [float(x) for x in bbox]
             
             response = self.wfs.getfeature(
                 typename=typename,
@@ -143,44 +169,41 @@ class ViennaWFS:
 
 
 def fetch_wfs_data(site_polygon, layer_name, config):
-    """Lädt WFS-Daten basierend auf der Konfiguration"""
+    """Holt WFS-Daten für einen bestimmten Layer"""
     try:
-        logger.info(f"🔄 Starte WFS-Datenabruf für Layer: {layer_name}")
-
-        # Initialisiere WFS-Service
-        wfs = ViennaWFS(config.get('wfs_streams', []))
-
-        # Stream-Konfiguration abrufen
-        stream_config = next((s for s in wfs.wfs_config if s['layer'] == layer_name), None)
+        # Hole WFS-Streams aus der wfs_config.yml
+        wfs_config = config.get('wfs', {})
+        streams = wfs_config.get('streams', [])
+        stream_config = next((s for s in streams if s['layer'] == layer_name), None)
+        
         if not stream_config:
-            raise ValueError(f"⚠️ Keine Konfiguration gefunden für Layer: {layer_name}")
-
-        logger.info(f"✅ WFS-Stream: {stream_config['name']}")
-
-        # Lade WFS-Daten
-        data = wfs.fetch_layer(layer_name, site_polygon.total_bounds if site_polygon is not None else None)
-
-        if data is None or data.empty:
-            logger.warning("⚠️ Keine WFS-Daten erhalten")
-            return gpd.GeoDataFrame(geometry=[], crs="EPSG:31256")
-
-        if 'geometry' not in data.columns:
-            logger.error("❌ Fehler: 'geometry' fehlt in WFS-DataFrame")
-            return gpd.GeoDataFrame(geometry=[], crs="EPSG:31256")
-
-        return data
-
+            logger.warning(f"⚠️ Keine Stream-Konfiguration gefunden für Layer: {layer_name}")
+            return None
+            
+        # Hole die WFS-Daten
+        wfs = ViennaWFS(wfs_config)
+        return wfs.fetch_layer(layer_name, site_polygon.total_bounds)
+        
     except Exception as e:
-        logger.error(f"❌ Fehler beim WFS-Abruf: {str(e)}", exc_info=True)
-        return gpd.GeoDataFrame(geometry=[], crs="EPSG:31256")
+        logger.error(f"❌ Fehler beim WFS-Datenabruf: {str(e)}")
+        return None
 
 
 if __name__ == "__main__":
     print("🔎 WFS Daten Test-Modus")
     try:
+        # Lade Projekt-Konfiguration
         config_path = Path(__file__).resolve().parent.parent.parent / "cfg" / "project_config.yml"
         with open(config_path, 'r', encoding="utf-8") as f:
             config = yaml.safe_load(f)
+
+        # Lade WFS-Konfiguration
+        wfs_config_path = Path(__file__).resolve().parent.parent.parent / "cfg" / "wfs" / "wfs_config.yml"
+        with open(wfs_config_path, 'r', encoding="utf-8") as f:
+            wfs_config = yaml.safe_load(f)
+
+        # Kombiniere Konfigurationen
+        config['vienna_wfs'] = wfs_config['vienna_wfs']
 
         from shapely.geometry import box
         test_bounds = (16.35, 48.20, 16.37, 48.22)
@@ -189,7 +212,7 @@ if __name__ == "__main__":
 
         for stream in config.get('data_sources', {}).get('wfs_streams', []):
             try:
-                data = fetch_wfs_data(test_gdf, stream['layer'], config['data_sources'])
+                data = fetch_wfs_data(test_gdf, stream['layer'], config)
                 if data is not None:
                     print(f"✅ Stream-Test erfolgreich: {stream['name']}")
             except Exception as e:

@@ -14,29 +14,44 @@ if str(project_root) not in sys.path:
 from utils.setup_project_paths import setup_project_paths
 from utils.data_sources.fetch_citygml_buildings import fetch_citygml_buildings, CityGMLBuildingProcessor
 from utils.data_sources.fetch_wfs_data import ViennaWFS
-from utils.data_sources.fetch_osm_buildings import fetch_osm_buildings
+from utils.data_sources.fetch_osm_buildings import fetch_surrounding_buildings
 from utils.data_sources.fetch_osm_streets import fetch_osm_streets
 from utils.data_processing.create_site_polygon import create_site_polygon
 from utils.data_processing.cea_building_processor import CEABuildingProcessor
 
-def setup_logger():
-    """Initialisiert einen Logger"""
-    log_dir = project_root / "logs"
+def setup_logger(config_path: Path):
+    """Initialisiert einen Logger basierend auf Konfiguration"""
+    with open(config_path, 'r') as f:
+        log_config = yaml.safe_load(f)
+    
+    log_dir = project_root / log_config['logging']['log_dir']
     log_dir.mkdir(exist_ok=True, parents=True)
 
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    log_file = log_dir / f'citygml_processing_{timestamp}.log'
+    log_file = log_dir / log_config['logging']['filename_pattern'].format(
+        process_name='citygml_processing',
+        timestamp=timestamp
+    )
 
     logger = logging.getLogger('CityGMLProcessor')
     logger.setLevel(logging.DEBUG)
 
-    file_handler = logging.FileHandler(log_file, encoding='utf-8')
-    file_handler.setLevel(logging.DEBUG)
-    file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+    # File Handler
+    file_handler = logging.FileHandler(
+        log_file, 
+        encoding=log_config['logging']['file']['encoding']
+    )
+    file_handler.setLevel(log_config['logging']['file']['level'])
+    file_handler.setFormatter(
+        logging.Formatter(log_config['logging']['file']['format'])
+    )
 
+    # Console Handler
     console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.INFO)
-    console_handler.setFormatter(logging.Formatter('%(message)s'))
+    console_handler.setLevel(log_config['logging']['console']['level'])
+    console_handler.setFormatter(
+        logging.Formatter(log_config['logging']['console']['format'])
+    )
 
     logger.addHandler(file_handler)
     logger.addHandler(console_handler)
@@ -59,20 +74,29 @@ def load_config(config_path: Path, logger):
 def process_citygml(citygml_path: Path, project_name: str, scenario_name: str, logger):
     """Verarbeitet CityGML Daten und erstellt vollständiges CEA Projekt"""
     try:
+        # Lade alle Konfigurationen
+        configs = {
+            'project': load_config(project_root / "cfg" / "project_config.yml", logger),
+            'geometry': load_config(project_root / "cfg" / "geometry" / "geometry_config.yml", logger),
+            'wfs': load_config(project_root / "cfg" / "wfs" / "wfs_config.yml", logger),
+            'citygml': load_config(project_root / "cfg" / "data_sources" / "vienna_citygml_normalized.yml", logger),
+            'cea': load_config(project_root / "cfg" / "cea" / "cea_fields.yml", logger),
+            'osm': load_config(project_root / "cfg" / "data_sources" / "osm_config.yml", logger)
+        }
+
         logger.info("\n=== 🏗 CityGML Verarbeitung gestartet ===")
 
-        # 1. Lade Konfigurationen
-        citygml_config = load_config(project_root / "cfg" / "data_sources" / "vienna_citygml_normalized.yml", logger)
-        cea_config = load_config(project_root / "cfg" / "cea" / "cea_fields.yml", logger)
-        project_config = load_config(project_root / "cfg" / "project_config.yml", logger)
-        osm_config = load_config(project_root / "cfg" / "data_sources" / "osm_config.yml", logger)
-
         # 2. Initialisiere CEA Processor & Projektstruktur
-        cea_processor = CEABuildingProcessor(citygml_config, cea_config)
+        cea_processor = CEABuildingProcessor(configs['citygml'], configs['cea'])
         project_paths = cea_processor.setup_project_structure(project_name, scenario_name, project_root)
 
         # 3. Verarbeite CityGML zu GeoDataFrame
-        buildings_gdf = fetch_citygml_buildings(citygml_path, citygml_config, cea_config)
+        buildings_gdf = fetch_citygml_buildings(
+            citygml_path, 
+            configs['citygml'], 
+            configs['cea'],
+            logger=logger
+        )
         logger.info(f"✅ CityGML verarbeitet: {len(buildings_gdf)} Gebäude")
 
         if 'geometry' not in buildings_gdf.columns:
@@ -80,44 +104,53 @@ def process_citygml(citygml_path: Path, project_name: str, scenario_name: str, l
             logger.info(buildings_gdf.head())  # Debug-Ausgabe
             return None
                 
-        # 4. WFS Anreicherung
-        wfs = ViennaWFS()
-        buildings_gdf = wfs.enrich_buildings(buildings_gdf)
+        # 4. Erstelle zuerst Site Polygon für WFS-Abfrage
+        site_polygon = create_site_polygon(
+            buildings_gdf, 
+            buffer_distance=configs['geometry']['site_polygon']['buffer_distance']
+        )
+        logger.info("✅ Site Polygon erstellt für WFS-Abfrage")
 
-        if 'geometry' not in buildings_gdf.columns:
-            logger.error("❌ FEHLER: buildings_gdf hat KEINE 'geometry'-Spalte mehr nach WFS-Anreicherung!")
-            logger.info(buildings_gdf.head())  # Debug-Ausgabe
-            return None
+        # 5. WFS Anreicherung mit Site Polygon
+        wfs = ViennaWFS(configs['wfs'])
+        enriched_buildings_gdf = wfs.enrich_buildings(buildings_gdf, site_polygon)
+        logger.info("✅ WFS-Anreicherung abgeschlossen")
 
-        logger.info("✅ WFS Anreicherung abgeschlossen")
-
-        # 5. Erstelle Site Polygon
-        site_polygon = create_site_polygon(buildings_gdf, buffer_distance=project_config['geometry']['site_buffer_distance'])
-
-        # 🛑 TEST: Enthält site_polygon eine Geometrie?
-        if site_polygon.empty or 'geometry' not in site_polygon.columns:
-            logger.error("❌ FEHLER: site_polygon konnte nicht erstellt werden!")
-            logger.info(site_polygon)
-            return None
+        # Überprüfung der Geometrien nach WFS-Anreicherung
+        if 'geometry' not in enriched_buildings_gdf.columns:
+            logger.error("❌ FEHLER: Geometrien nach WFS-Anreicherung verloren gegangen")
+            # Fallback auf original buildings_gdf
+            enriched_buildings_gdf = buildings_gdf
+            logger.info("⚠️ Verwende originale Gebäudedaten für site_polygon")
 
         # 6. Hole OSM Gebäude
-        osm_buildings = fetch_osm_buildings(
+        osm_buildings = fetch_surrounding_buildings(
             site_polygon,
-            distance=project_config['geometry']['surrounding_buildings_distance']
+            config=configs['geometry']
         )
         logger.info(f"✅ OSM Gebäude geladen: {len(osm_buildings)}")
 
         # 7. Hole OSM Straßen
-        street_types = osm_config.get('streets', [])
-        logger.info(f"📍 Hole OSM-Straßen für Kategorien: {street_types}")
-        osm_streets = fetch_osm_streets(site_polygon, street_types=street_types)
+        osm_streets = fetch_osm_streets(
+            site_polygon,
+            config={
+                'osm': configs['osm'],
+                'geometry': configs['geometry']
+            }
+        )
         logger.info(f"✅ OSM Straßen geladen: {len(osm_streets)}")
 
         # 8. Speichere Ergebnisse
         cea_processor.save_zone_shapefile(buildings_gdf, project_paths)
         cea_processor.save_typology_shapefile(buildings_gdf, project_paths)
 
-        osm_buildings.to_file(project_paths['geometry'] / "surroundings.shp", driver="ESRI Shapefile")
+        if not osm_buildings.empty:
+            geometry_type = osm_buildings.geometry.iloc[0].geom_type
+            osm_buildings.to_file(
+                project_paths['geometry'] / "surroundings.shp",
+                driver="ESRI Shapefile",
+                geometry_type=geometry_type
+            )
         site_polygon.to_file(project_paths['geometry'] / "site.shp", driver="ESRI Shapefile")
         osm_streets.to_file(project_paths['networks'] / "streets.shp", driver="ESRI Shapefile")
 
@@ -135,7 +168,7 @@ def process_citygml(citygml_path: Path, project_name: str, scenario_name: str, l
 
 def main():
     """Hauptfunktion"""
-    logger = setup_logger()
+    logger = setup_logger(project_root / "cfg" / "logging" / "logging_config.yml")
     logger.info("🚀 Starte CityGML Verarbeitung")
 
     citygml_path = project_root / "data/citygml/099082.gml"

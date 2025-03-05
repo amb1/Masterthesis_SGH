@@ -7,37 +7,24 @@ import yaml
 import sys
 
 def create_site_polygon(buildings_gdf: gpd.GeoDataFrame, buffer_distance: float = 3) -> gpd.GeoDataFrame:
-    """
-    Erstellt ein einzelnes Polygon, das alle Gebäude umschließt mit definiertem Abstand.
-    
-    Args:
-        buildings_gdf: GeoDataFrame mit Gebäudegeometrien
-        buffer_distance: Abstand in Metern (default 3m)
-
-    Returns:
-        site_gdf: GeoDataFrame mit einem einzigen Polygon für den Standort
-    """
+    """Erstellt ein einzelnes Polygon, das alle Gebäude umschließt"""
     if 'geometry' not in buildings_gdf.columns or buildings_gdf.geometry.isnull().all():
-        print("⚠️ Warnung: buildings_gdf enthält keine gültigen Geometrien, Standortpolygon wird aus Bounding Box erstellt.")
-        site_polygon = box(*buildings_gdf.total_bounds)  # Falls keine gültigen Gebäude vorhanden sind
+        print("⚠️ Warnung: buildings_gdf enthält keine gültigen Geometrien")
+        site_polygon = box(*buildings_gdf.total_bounds)
     else:
         print("📐 Erstelle äußere Hülle um alle Gebäude")
         all_buildings = unary_union(buildings_gdf.geometry)
-
+        
         print(f"🔲 Erstelle Buffer mit Abstand {buffer_distance}m")
         site_polygon = all_buildings.convex_hull.buffer(buffer_distance)
-
-        # Optional: Vereinfache das Polygon leicht für eine glattere Form
         site_polygon = site_polygon.simplify(tolerance=0.5)
 
-    # Erstelle GeoDataFrame mit dem Site-Polygon
     site_gdf = gpd.GeoDataFrame(
         {'Name': ['Site'],
          'geometry': [site_polygon]},
         crs=buildings_gdf.crs
     )
 
-    # Debug-Ausgabe der Polygon-Eigenschaften
     print("✅ Standortpolygon erstellt:")
     print(f"- Fläche: {site_polygon.area:.2f} m²")
     print(f"- Umfang: {site_polygon.length:.2f} m")
@@ -85,7 +72,7 @@ def main():
         # Erstelle Site-Polygon
         site_gdf = create_site_polygon(
             zone_path,
-            buffer_distance=config['surroundings']['site_buffer_distance']
+            config
         )
         
         # Speichere Site-Polygon

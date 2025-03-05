@@ -5,6 +5,9 @@ from shapely.ops import transform
 from pyproj import Transformer
 from pathlib import Path
 import yaml
+import logging
+
+logger = logging.getLogger(__name__)
 
 def fetch_streets_within_site(site_gdf, config):
     """
@@ -110,41 +113,41 @@ def load_config():
         print(f"Fehler beim Laden der OSM Konfiguration: {str(e)}")
         return None
 
-def fetch_osm_streets(site_polygon, street_types=None):
-    """Lädt OSM-Straßendaten für den gegebenen Bereich"""
+def fetch_osm_streets(site_polygon: gpd.GeoDataFrame, config: dict) -> gpd.GeoDataFrame:
+    """Holt Straßendaten aus OpenStreetMap"""
     try:
-        print("Hole OSM-Straßen")
+        street_types = config.get('osm', {}).get('street_types', [])
+        buffer_distance = config['geometry']['surroundings']['buffer_distance']
         
-        streets_df = gpd.GeoDataFrame(geometry=[], crs=site_polygon.crs)
+        logger.info(f"📡 OSM-Abfrage: Straßen im Umkreis von {buffer_distance}m")
         
-        if site_polygon is None or site_polygon.empty:
-            print("❌ Fehler: Kein gültiges Site-Polygon")
-            return streets_df
-        
-        # Konvertiere zu WGS84 für OSM
-        site_wgs84 = site_polygon.to_crs("EPSG:4326")
+        # Erstelle Buffer für Suche
+        search_area = site_polygon.geometry.buffer(buffer_distance).unary_union
+        search_gdf = gpd.GeoDataFrame(geometry=[search_area], crs=site_polygon.crs)
+        search_wgs84 = search_gdf.to_crs("EPSG:4326")
         
         # Hole Straßen von OSM
-        try:
-            streets = ox.features_from_polygon(
-                site_wgs84.geometry.iloc[0],
-                tags={'highway': True}
-            )
+        tags = {'highway': street_types} if street_types else {'highway': True}
+        streets_gdf = ox.features_from_polygon(
+            search_wgs84.geometry.iloc[0],
+            tags=tags
+        )
+        
+        if streets_gdf.empty:
+            logger.warning("⚠️ Keine OSM-Straßen gefunden!")
+            return gpd.GeoDataFrame(geometry=[], crs=site_polygon.crs)
             
-            if not streets.empty:
-                # Konvertiere zurück zum ursprünglichen CRS
-                streets_df = streets.to_crs(site_polygon.crs)
-                print(f"✅ {len(streets_df)} Straßen geladen")
-            else:
-                print("⚠️ Keine Straßen gefunden")
-                
-        except Exception as e:
-            print(f"Fehler beim OSM-Straßen Abruf: {str(e)}")
-            
-        return streets_df
+        # Konvertiere zum ursprünglichen CRS
+        streets_gdf = streets_gdf.to_crs(site_polygon.crs)
+        
+        # Filtere Straßen im Suchbereich
+        streets_gdf = streets_gdf[streets_gdf.geometry.intersects(search_area)]
+        
+        logger.info(f"✅ OSM-Straßen gefunden: {len(streets_gdf)}")
+        return streets_gdf
         
     except Exception as e:
-        print(f"Fehler beim OSM-Straßen Abruf: {str(e)}")
+        logger.error(f"❌ Fehler beim OSM-Straßen Abruf: {str(e)}", exc_info=True)
         return gpd.GeoDataFrame(geometry=[], crs=site_polygon.crs)
 
 def main():
@@ -154,12 +157,6 @@ def main():
         if not config:
             raise ValueError("Keine gültige OSM Konfiguration gefunden")
             
-        # Weitere Verarbeitung...
-        
-        # Lade Konfiguration
-        config = load_config()
-        print("Konfiguration geladen")
-        
         # Erstelle Pfade
         geometry_path = Path(config['paths']['output']['geometry'])
         networks_path = Path(config['paths']['output']['networks'])

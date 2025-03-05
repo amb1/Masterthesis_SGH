@@ -1,0 +1,10 @@
+logging:
+  file:
+    level: DEBUG
+    format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    encoding: 'utf-8'
+  console:
+    level: INFO
+    format: '%(message)s'
+  log_dir: 'logs'
+  filename_pattern: '{process_name}_{timestamp}.log' 

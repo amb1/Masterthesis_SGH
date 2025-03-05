@@ -1,0 +1,314 @@
+vienna_wfs:
+  # Basis-Konfiguration wird aus common_config.yml importiert
+  inherit: "../common_config.yml:common.wfs"
+  crs: "../common_config.yml:common.crs"
+
+  # WFS Streams
+  streams:
+    - name: "Wien Gebäudealter"
+      layer: "ogdwien:GEBAEUDETYPOGD"
+      mapping:
+        construction_year: "BAUJAHR"
+        renovation_year: "SANIERUNG"
+        mapping_rules:
+          construction_year:
+            type: "integer"
+            default: "../common_config.yml:common.building_defaults.construction_year"
+            validation:
+              min: 1800
+              max: 2023
+
+    - name: "Wien Gebäudenutzung"
+      layer: "ogdwien:REALNUT2022OGD"
+      mapping:
+        usage_type: "NUTZUNG"
+        usage_mapping:
+          "Wohngebäude": "RESIDENTIAL"
+          "Bürogebäude": "OFFICE"
+          "Bildungseinrichtung": "SCHOOL"
+
+    - name: "Wien Gebäudeinfo"
+      layer: "ogdwien:GEBAEUDEINFOOGD"
+      mapping:
+        building_id: "OBJECTID"
+        construction_year: "BAUJAHR"
+        usage: "L_NUTZUNG"
+        type: "L_BAUTYP"
+        floors: "GESCH_ANZ"
+        foundation_type: "BASIS_INV"
+
+    - name: "Wien Energie"
+      layer: "ogdwien:ENERGIERAUMPLANOGD"
+      mapping:
+        energy_id: "OBJECTID"
+        measurement_date: "BEARB_DATUM"
+        energy_class: "BEZNR"
+        energy_label: "ERPLABEL"
+        energy_performance: "FL_ERP"
+        building_id: "GEBID"
+
+    - name: "Wien Solarpotential"
+      layer: "ogdwien:PVPOTENZIALEOGD"
+      mapping:
+        solar_id: "OBJECTID"
+        potential_class: "EIGNUNGSKLASSE"
+
+  # Merge-Felder für die Zusammenführung der Daten
+  merge_fields:
+    buildings:
+      - building_id
+      - construction_year
+      - usage
+      - type
+      - floors
+      - foundation_type
+    energy:
+      - energy_id
+      - measurement_date
+      - energy_class
+      - energy_label
+      - energy_performance
+    solar_potential:
+      - solar_id
+      - potential_class
+    green_spaces:
+      - green_id
+      - type
+      - area
+    land_use:
+      - landuse_id
+      - designation_class
+      - designation_class_text
+      - designation
+      - designation_text
+      - area
+    noise_protection:
+      - noise_id
+      - description
+      - length
+      - area
+      - min_height
+      - max_height
+    typology:
+      - typology_id
+      - reference
+      - structure
+      - structure_text
+      - structure2
+      - structure2_text
+      - building_type
+      - building_type_text
+      - asc
+      - cad_data
+    building_model:
+      - model_id
+      - reference
+      - structure
+      - structure_text
+      - structure2
+      - structure2_text
+      - building_type
+      - building_type_text
+      - asc
+      - cad_data
+      - area
+      - volume
+      - floors
+      - construction_year
+
+  # Layer-Definitionen
+  layers:
+    buildings:
+      name: "ogdwien:GEBAEUDEINFOOGD"
+      attributes:
+        - OBJECTID
+        - BAUJAHR
+        - L_NUTZUNG
+        - L_BAUTYP
+        - GESCH_ANZ
+        - BASIS_INV
+        - L_BAUJ
+    
+    energy:
+      name: "ogdwien:ENERGIERAUMPLANOGD"
+      attributes:
+        - OBJECTID
+        - BEARB_DATUM
+        - BEZNR
+        - ERPLABEL
+        - FL_ERP
+        - GEBID
+    
+    solar_potential:
+      name: "ogdwien:PVPOTENZIALEOGD"
+      attributes:
+        - OBJECTID
+        - EIGNUNGSKLASSE
+    
+    green_spaces:
+      name: "ogdwien:GRUENFREIFLOGD"
+      attributes:
+        - OBJECTID
+        - LANDSCHAFT
+        - FLAECHE
+    
+    land_use:
+      name: "ogdwien:GENFLWIDMUNGOGD"
+      attributes:
+        - OBJECTID
+        - WIDMUNGSKLASSE
+        - WIDMUNGSKLASSE_TXT
+        - WIDMUNG
+        - WIDMUNG_TXT
+        - FLAECHE
+    
+    noise_protection:
+      name: "ogdwien:LAERMSCHUTZOGD"
+      attributes:
+        - OBJECTID
+        - BESCHREIBUNG
+        - LAENGE
+        - FLAECHE
+        - HMIN
+        - HMAX
+
+    typology:
+      name: "ogdwien:GEBAEUDETYPOGD"
+      attributes:
+        - OBJECTID
+        - BEZUG
+        - OBJ_STR
+        - OBJ_STR_TXT
+        - OBJ_STR2
+        - OBJ_STR2_TXT
+        - BAUTYP
+        - BAUTYP_TXT
+        - ASC
+        - SE_ANNO_CAD_DATA
+
+    building_model:
+      name: "ogdwien:FMZKBKMOGD"
+      attributes:
+        - OBJECTID
+        - BEZUG
+        - OBJ_STR
+        - OBJ_STR_TXT
+        - OBJ_STR2
+        - OBJ_STR2_TXT
+        - BAUTYP
+        - BAUTYP_TXT
+        - ASC
+        - SE_ANNO_CAD_DATA
+        - FLAECHE
+        - VOLUMEN
+        - GESCH_ANZ
+        - BAUJAHR
+
+  # Feld-Mapping für die Normalisierung
+  field_mapping:
+    buildings:
+      OBJECTID: "building_id"
+      BAUJAHR: "construction_year"
+      L_NUTZUNG: "usage"
+      L_BAUTYP: "type"
+      GESCH_ANZ: "floors"
+      BASIS_INV: "foundation_type"
+      L_BAUJ: "construction_year"
+    
+    energy:
+      OBJECTID: "energy_id"
+      BEARB_DATUM: "measurement_date"
+      BEZNR: "energy_class"
+      ERPLABEL: "energy_label"
+      FL_ERP: "energy_performance"
+      GEBID: "energy_id"
+    
+    solar_potential:
+      OBJECTID: "solar_id"
+      EIGNUNGSKLASSE: "potential_class"
+    
+    green_spaces:
+      OBJECTID: "green_id"
+      LANDSCHAFT: "type"
+      FLAECHE: "area"
+    
+    land_use:
+      OBJECTID: "landuse_id"
+      WIDMUNGSKLASSE: "designation_class"
+      WIDMUNGSKLASSE_TXT: "designation_class_text"
+      WIDMUNG: "designation"
+      WIDMUNG_TXT: "designation_text"
+      FLAECHE: "area"
+    
+    noise_protection:
+      OBJECTID: "noise_id"
+      BESCHREIBUNG: "description"
+      LAENGE: "length"
+      FLAECHE: "area"
+      HMIN: "min_height"
+      HMAX: "max_height"
+
+    typology:
+      OBJECTID: "typology_id"
+      BEZUG: "reference"
+      OBJ_STR: "structure"
+      OBJ_STR_TXT: "structure_text"
+      OBJ_STR2: "structure2"
+      OBJ_STR2_TXT: "structure2_text"
+      BAUTYP: "building_type"
+      BAUTYP_TXT: "building_type_text"
+      ASC: "asc"
+      SE_ANNO_CAD_DATA: "cad_data"
+
+    building_model:
+      OBJECTID: "model_id"
+      BEZUG: "reference"
+      OBJ_STR: "structure"
+      OBJ_STR_TXT: "structure_text"
+      OBJ_STR2: "structure2"
+      OBJ_STR2_TXT: "structure2_text"
+      BAUTYP: "building_type"
+      BAUTYP_TXT: "building_type_text"
+      ASC: "asc"
+      SE_ANNO_CAD_DATA: "cad_data"
+      FLAECHE: "area"
+      VOLUMEN: "volume"
+      GESCH_ANZ: "floors"
+      BAUJAHR: "construction_year"
+
+  # Bauperioden-Mapping
+  periods:
+    "1848 - 1918": 
+      categories: ["_A", "_B"]
+    "1919 - 1945": 
+      categories: ["_C"]
+    "nach 1945":
+      categories: ["_D", "_E", "_F", "_G", "_H", "_I", "_J", "_K", "_L"]
+
+  # Gebäudetypen-Mapping
+  building_types:
+    "10.-Kaufhäuser": "AB"
+    "11.-Einkaufszentren": "AB"
+    "12.-Gewerbebetriebe": "AB"
+    "13.-Industriebauten": "AB"
+    "14.-Bauten des öffentlichen und privaten Verkehrs": "TH"
+    "15.-Bauten der öffentlichen und privaten Wohlfahrt": "TH"
+    "W1.1.-bäuerl.dom.Baustrukt.-Streck- u. Hakenhof": "SFH"
+    "W1.2.-bäuerl.dom.Baustrukt.-Zwerchh.u.Gassenfrontenhaus": "SFH"
+    "W2.1.-Bürgerhaus-kleine Haustypen ohne Hof": "MFH"
+    "W2.2.-Bürgerhaus-Haus auf tiefer,schmaler Parzelle,ohne Hof": "MFH"
+    "W3.1.-Mieth.s.d.Gründerzeit-Straßentrakter": "AB"
+    "W3.2.-Mieth.s.d.Gründerzeit-Seitenflügelhaus": "AB"
+    "W3.3.-Mieth.s.d.Gründerzeit-Doppeltrakter mit Verbindungstr.": "AB"
+    "W4.1.-soz.u.gemeinn.Wohnb.-Baulückenbebauungen": "MFH"
+    "W4.2.-soz.u.gemeinn.Wohnb.-Hofbebauungen/Superblocks": "AB"
+    "W4.3.-soz.u.gemeinn.Wohnb.-Siedlungen in Zeilenbauweise": "MFH"
+    "W4.4.-soz.u.gemeinn.Wohnb.-Siedlungen,1-,2-u.Mehrfamilienh.": "SFH"
+    "W5.1.-freist.1-,2-u.Mehrfamilienh.-Villen in Randbebauung": "SFH"
+    "W5.2.-freist.1-,2-u.Mehrfamilienh.-freistehende Villen": "SFH"
+    "W6.1.-Sonderwohnbauten-Hotel und Pension": "HR"
+    "W6.2.-Sonderwohnbauten-Heim,Pflegeanstalt,Spitalsbauten": "TH"
+
+  # Räumliche Operationen
+  spatial_operations:
+    inherit: "../common_config.yml:common.spatial" 

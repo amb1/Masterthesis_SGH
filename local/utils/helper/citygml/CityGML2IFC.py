@@ -37,17 +37,24 @@ class CityGML2IFC:
         self.model_context = None
         self.body_context = None
         
-        # Vereinfachtes Mapping
-        self.mapping = {
-            'building': {
-                'type': 'IfcBuilding',
-                'properties': {
-                    'height': 'Height',
-                    'storeys': 'NumberOfStoreys',
-                    'area': 'GrossFloorArea'
+        # Lade Mapping-Konfiguration
+        try:
+            config_path = Path(__file__).resolve().parent.parent.parent.parent / 'cfg' / 'data_sources' / 'vienna_citygml_normalized.yml'
+            with open(config_path, 'r', encoding='utf-8') as f:
+                self.mapping = yaml.safe_load(f)
+        except Exception as e:
+            print(f"Warnung: Mapping-Konfiguration konnte nicht geladen werden: {str(e)}")
+            # Fallback auf Standard-Mapping
+            self.mapping = {
+                'building': {
+                    'type': 'IfcBuilding',
+                    'properties': {
+                        'height': 'Height',
+                        'storeys': 'NumberOfStoreys',
+                        'area': 'GrossFloorArea'
+                    }
                 }
             }
-        }
         
         self.ns = {
             'core': 'http://www.opengis.net/citygml/1.0',

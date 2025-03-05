@@ -16,13 +16,41 @@ from utils.data_processing.create_site_polygon import create_site_polygon
 from utils.data_processing.cea_building_processor import CEABuildingProcessor
 
 class BaseBuildingProcessor:
-    """Grundlegende Funktionalität für alle Building Processors"""
+    """Basis-Klasse für die Verarbeitung von Gebäuden"""
     
-    def __init__(self, config, cea_config):
+    def __init__(self, config: dict):
+        """Initialisiert den Building Processor.
+        
+        Args:
+            config (dict): Die Konfiguration
+        """
         self.config = config
-        self.cea_config = cea_config
+        self.file_formats = config.get('file_formats', {})
+        self.paths = config.get('paths', {})
         self.setup_logger()
 
+    def process_building(self, building: dict) -> dict:
+        """Verarbeitet ein einzelnes Gebäude.
+        
+        Args:
+            building (dict): Die Gebäudeinformationen
+            
+        Returns:
+            dict: Die verarbeiteten Gebäudeinformationen
+        """
+        raise NotImplementedError("Diese Methode muss von der Unterklasse implementiert werden")
+        
+    def validate_building(self, building: dict) -> bool:
+        """Überprüft, ob ein Gebäude gültig ist.
+        
+        Args:
+            building (dict): Die Gebäudeinformationen
+            
+        Returns:
+            bool: True wenn das Gebäude gültig ist, False sonst
+        """
+        required_fields = ['building_id', 'geometry']
+        return all(field in building for field in required_fields)
 
     def process_buildings(self, input_path, output_path, input_format="geojson"):
         """Zentrale Methode zur Verarbeitung von Gebäudedaten"""

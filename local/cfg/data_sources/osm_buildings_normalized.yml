@@ -10,16 +10,9 @@ osm_fields:
   protection_level: "heritage"
   geometry: "geometry"
 
-  # Standardwerte falls Werte nicht in OSM enthalten sind
+  # Standardwerte werden aus common_config.yml importiert
   defaults:
-    building_height: 12
-    floor_height: 3
-    floors_ag: 4
-    floors_bg: 1
-    construction_year: 1970
-    protection_level: 0
-    building_type: "MFH"
-    building_use: "MULTI_RES"
+    inherit: "../common_config.yml:common.building_defaults"
 
   # Mapping für Gebäudetypen in CEA
   building_type_mapping:

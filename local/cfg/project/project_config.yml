@@ -1,0 +1,10 @@
+project:
+  name: "vienna_test"
+  scenario: "base"
+  root: "projects"
+  description: "Testprojekt für die Verarbeitung von CityGML-Daten in Wien"
+  version: "1.0.0"
+  author: "SGH"
+  date: "2024-03-05"
+
+// ... existing code ...

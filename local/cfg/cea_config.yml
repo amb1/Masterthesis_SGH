@@ -1,0 +1,41 @@
+paths:
+  input:
+    format: citygml
+    files:
+      citygml: "data/citygml/099082.gml"
+      geojson: "data/input/buildings.geojson"
+  scenario_folders:
+    inputs:
+      building-geometry: "inputs/building-geometry"
+      building-properties: "inputs/building-properties"
+      networks: "inputs/networks"
+      technology: "inputs/technology"
+    outputs:
+      results: "outputs/results"
+      plots: "outputs/plots"
+
+cea_settings:
+  scenario_path: ""
+  weather_file: "weather.epw"
+  reference_case: "reference-case"
+  sensitivity_analysis: false
+  optimization: false
+
+osm_defaults:
+  building_height: 12
+  floor_height: 3
+  floors_ag: 4
+  floors_bg: 1
+  default_floors: 4
+  building_type: "MFH"
+  building_use: "MULTI_RES"
+  construction_year: 1970
+  protection_level: 0
+  category: "MFH"
+  REFERENCE: "OSM"
+  building_type_mapping:
+    residential: ["MFH", "MULTI_RES"]
+    apartments: ["MFH", "MULTI_RES"]
+    house: ["SFH", "SINGLE_RES"]
+    commercial: ["OFFICE", "OFFICE"]
+    retail: ["RETAIL", "RETAIL"] 
