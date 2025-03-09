@@ -138,12 +138,12 @@ class CEABuildingProcessor(BuildingProcessorInterface):
             # Erstelle CEA-Dateien
             self.create_cea_files(project_dir)
             
-            return True
-            
+        return True
+
         except Exception as e:
             self.logger.error(f"❌ Fehler bei der CEA-Datenverarbeitung: {str(e)}")
             return False
-    
+
     def create_cea_files(self, project_dir: Path) -> bool:
         """Erstellt die CEA-Dateien (zone.shp und typology.dbf).
         
@@ -327,6 +327,6 @@ class CEABuildingProcessor(BuildingProcessorInterface):
             
             return processed_data
             
-        except Exception as e:
+    except Exception as e:
             self.logger.warning(f"⚠️ Fehler bei der Gebäudeverarbeitung: {str(e)}")
             return building_data 

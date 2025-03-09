@@ -66,9 +66,9 @@ class CityGMLBuildingProcessor:
         # Namespace-Mapping für verschiedene CityGML-Versionen
         self.namespace_mapping = {
             '1.0': {
-                'bldg': 'http://www.opengis.net/citygml/building/1.0',
+            'bldg': 'http://www.opengis.net/citygml/building/1.0',
                 'gml': 'http://www.opengis.net/gml',
-                'gen': 'http://www.opengis.net/citygml/generics/1.0',
+            'gen': 'http://www.opengis.net/citygml/generics/1.0',
                 'xAL': 'urn:oasis:names:tc:ciq:xsdschema:xAL:2.0'
             },
             '2.0': {
@@ -144,9 +144,8 @@ class CityGMLBuildingProcessor:
             for surface in surfaces:
                 coords = self._extract_coordinates(surface)
                 if coords and len(coords) >= 3:
-                    # Skaliere die Koordinaten
-                    scaled_coords = [(x/1000000, y/1000000) for x, y in coords]
-                    polygons.append(Polygon(scaled_coords))
+                    # Behalte die originalen Koordinaten bei
+                    polygons.append(Polygon(coords))
             
             if not polygons:
                 return None
@@ -167,29 +166,23 @@ class CityGMLBuildingProcessor:
     def _extract_multisurface_geometry(self, multisurface) -> Optional[Polygon]:
         """Extrahiert die Geometrie aus einer MultiSurface."""
         try:
-            # Finde alle Surface Members
             surfaces = multisurface.findall('.//{http://www.opengis.net/gml}surfaceMember//{http://www.opengis.net/gml}Polygon', namespaces=self.ns)
             if not surfaces:
                 return None
             
-            # Extrahiere Koordinaten aus jeder Surface
             polygons = []
             for surface in surfaces:
                 coords = self._extract_coordinates(surface)
                 if coords and len(coords) >= 3:
-                    # Skaliere die Koordinaten
-                    scaled_coords = [(x/1000000, y/1000000) for x, y in coords]
-                    polygons.append(Polygon(scaled_coords))
+                    polygons.append(Polygon(coords))
             
             if not polygons:
                 return None
             
-            # Vereinige alle Polygone
             union = unary_union(polygons)
             if isinstance(union, Polygon):
                 return union
             elif isinstance(union, MultiPolygon):
-                # Nimm das größte Polygon
                 return max(union.geoms, key=lambda p: p.area)
             
             return None
@@ -204,7 +197,7 @@ class CityGMLBuildingProcessor:
             pos_list = polygon.find('.//{http://www.opengis.net/gml}posList', namespaces=self.ns)
             if pos_list is not None and pos_list.text:
                 coords = [float(x) for x in pos_list.text.split()]
-                # Berücksichtige 3D-Koordinaten (x,y,z)
+                # Behalte die originale Reihenfolge (x,y) bei
                 return [(coords[i], coords[i+1]) for i in range(0, len(coords), 3)]
             
             # Versuche dann coordinates
@@ -214,6 +207,7 @@ class CityGMLBuildingProcessor:
                 for coord in coordinates.text.split():
                     xyz = coord.split(',')
                     if len(xyz) >= 2:
+                        # Behalte die originale Reihenfolge (x,y) bei
                         coord_list.append((float(xyz[0]), float(xyz[1])))
                 return coord_list
             
@@ -225,6 +219,7 @@ class CityGMLBuildingProcessor:
                     if pos.text:
                         coords = [float(x) for x in pos.text.split()]
                         if len(coords) >= 2:
+                            # Behalte die originale Reihenfolge (x,y) bei
                             coord_list.append((coords[0], coords[1]))
                 return coord_list
             
@@ -344,7 +339,7 @@ class CityGMLBuildingProcessor:
                     self.logger.debug(f"⚠️ Fehler beim Extrahieren der Adresse: {str(e)}")
             
             return attributes
-
+            
         except Exception as e:
             self.logger.warning(f"⚠️ Fehler beim Extrahieren der Attribute: {str(e)}")
             return attributes
@@ -352,59 +347,49 @@ class CityGMLBuildingProcessor:
     def _process_building(self, building) -> Optional[dict]:
         """Verarbeitet ein einzelnes Gebäude."""
         try:
-            # Extrahiere Basis-Attribute
             building_data = {
                 'gml_id': building.get(f'{{{self.ns["gml"]}}}id'),
                 'building_parent_id': None,
                 'is_building_part': False
             }
             
-            # Extrahiere Geometrie
             geometry = self._extract_geometry(building)
             if geometry is None:
                 return None
-            
+
             building_data['geometry'] = geometry
-            
-            # Extrahiere Attribute
             building_data.update(self._extract_generic_attributes(building))
             
-            # Verarbeite BuildingParts
             building_parts = building.findall('.//bldg:BuildingPart', namespaces=self.ns)
             if building_parts:
                 building_data['has_building_parts'] = True
                 building_data['building_parts_count'] = len(building_parts)
                 
-                # Sammle Geometrien und Attribute der BuildingParts
                 part_geometries = []
                 part_heights = []
                 
                 for part in building_parts:
                     part_geom = self._extract_geometry(part)
                     if part_geom is not None:
-                        # Füge BuildingPart-Geometrie hinzu, auch wenn sie das Hauptgebäude überlappt
                         part_geometries.append(part_geom)
                     
                     part_attrs = self._extract_generic_attributes(part)
                     if 'measuredHeight' in part_attrs:
                         part_heights.append(part_attrs['measuredHeight'])
                 
-                # Füge BuildingPart-Geometrien hinzu
                 if part_geometries:
                     all_geometries = [geometry] + part_geometries
-                    # Vereinige überlappende Geometrien
                     union = unary_union(all_geometries)
                     if isinstance(union, Polygon):
                         building_data['geometry'] = union
                     else:
                         building_data['geometry'] = MultiPolygon(all_geometries)
                 
-                # Berechne durchschnittliche Höhe der BuildingParts
                 if part_heights:
                     building_data['part_measuredHeight_avg'] = sum(part_heights) / len(part_heights)
             
             return building_data
-        
+            
         except Exception as e:
             self.logger.warning(f"⚠️ Fehler bei der Verarbeitung eines Gebäudes: {str(e)}")
             return None
@@ -431,14 +416,14 @@ class CityGMLBuildingProcessor:
                             source_crs = f"EPSG:{epsg_code}"
                         except ValueError:
                             self.logger.warning(f"⚠️ Ungültiger EPSG-Code in CityGML: {epsg_code}")
-                    elif "31256" in srs_name:
+                    elif "31256" in srs_name or "MGI" in srs_name:
                         source_crs = "EPSG:31256"
                     else:
                         self.logger.warning(f"⚠️ Unbekanntes CRS-Format: {srs_name}")
 
             if not source_crs:
-                source_crs = self.config.get('crs', 'EPSG:31256')
-                self.logger.info(f"ℹ️ Verwende Standard-CRS: {source_crs}")
+                source_crs = "EPSG:31256"  # Für Wien immer MGI/Austria GK East
+                self.logger.info(f"ℹ️ Verwende Standard-CRS für Wien: {source_crs}")
 
             # Verarbeite Gebäude
             processed_buildings = []
@@ -457,13 +442,9 @@ class CityGMLBuildingProcessor:
             # Erstelle GeoDataFrame
             gdf = gpd.GeoDataFrame(processed_buildings)
             
-            # Setze CRS und transformiere zu WGS84
-            gdf.set_crs(source_crs, inplace=True)
+            # Setze CRS auf MGI/Austria GK East
+            gdf.set_crs(source_crs, inplace=True, allow_override=True)
             self.logger.info(f"✅ CRS gesetzt auf: {source_crs}")
-            
-            # Transformiere zu WGS84 (EPSG:4326)
-            gdf = gdf.to_crs('EPSG:4326')
-            self.logger.info("✅ Koordinaten zu WGS84 (EPSG:4326) transformiert")
 
             # Validiere Geometrien
             invalid_geoms = gdf[~gdf.geometry.is_valid]
@@ -513,7 +494,7 @@ if __name__ == "__main__":
     # Beispielaufruf
     from utils.data_processing.config_loader import load_config
 
-    # Lade Konfiguration
+        # Lade Konfiguration
     config_path = Path(__file__).resolve().parent.parent.parent / "cfg" / "project_config.yml"
     config = load_config(config_path)
     
