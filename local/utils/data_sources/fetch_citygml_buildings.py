@@ -5,7 +5,7 @@ import logging
 from typing import Dict, Any, Optional
 from lxml import etree
 import geopandas as gpd
-from shapely.geometry import Polygon
+from shapely.geometry import Polygon, MultiPolygon
 
 # Füge das Root-Verzeichnis zum Python-Path hinzu
 root_dir = Path(__file__).resolve().parent.parent.parent
@@ -54,6 +54,14 @@ class CityGMLBuildingProcessor:
         self.config = config
         self.ns = config.get('citygml', {}).get('namespaces', {})
         
+        # Initialisiere Logger
+        self.logger = logging.getLogger(__name__)
+        self.logger.setLevel(logging.INFO)
+        if not self.logger.handlers:
+            handler = logging.StreamHandler()
+            handler.setFormatter(logging.Formatter('%(message)s'))
+            self.logger.addHandler(handler)
+        
         # Namespace-Mapping für verschiedene CityGML-Versionen
         self.namespace_mapping = {
             '1.0': {
@@ -101,7 +109,7 @@ class CityGMLBuildingProcessor:
             return "1.0"
             
         except Exception as e:
-            logger.warning(f"⚠️ Fehler bei der CityGML-Version-Erkennung: {str(e)}")
+            self.logger.warning(f"⚠️ Fehler bei der CityGML-Version-Erkennung: {str(e)}")
             return "1.0"
             
     def _extract_geometry(self, building: etree.Element) -> Optional[Polygon]:
@@ -162,20 +170,20 @@ class CityGMLBuildingProcessor:
                                 polygon = Polygon(coord_pairs)
                                 if not polygon.is_valid:
                                     polygon = polygon.buffer(0)  # Versuche Polygon zu reparieren
-                                    logger.info(f"🔧 Polygon für LOD{lod} repariert")
+                                    self.logger.info(f"🔧 Polygon für LOD{lod} repariert")
                                 
                                 if polygon.is_valid:
-                                    logger.info(f"✅ Gültige Geometrie in LOD{lod} gefunden")
+                                    self.logger.info(f"✅ Gültige Geometrie in LOD{lod} gefunden")
                                     return polygon
                                 
                         except (ValueError, IndexError) as e:
                             continue
             
-            logger.warning("⚠️ Keine gültige Geometrie in allen LODs gefunden")
+            self.logger.warning("⚠️ Keine gültige Geometrie in allen LODs gefunden")
             return None
 
         except Exception as e:
-            logger.warning(f"⚠️ Fehler bei der Geometrieextraktion: {str(e)}")
+            self.logger.warning(f"⚠️ Fehler bei der Geometrieextraktion: {str(e)}")
             return None
             
     def _extract_generic_attributes(self, building: etree.Element) -> Dict[str, Any]:
@@ -190,34 +198,108 @@ class CityGMLBuildingProcessor:
         attributes = {}
         
         try:
-            # Extrahiere alle Attribute mit Werten
-            for element in building.iter():
-                # Überspringe Elemente ohne Text
-                if element.text is None or not element.text.strip():
-                    continue
+            # CityGML-spezifische Attribute
+            attribute_paths = {
+                'measuredHeight': ['.//bldg:measuredHeight', './/bldg:height'],
+                'storeysAboveGround': ['.//bldg:storeysAboveGround', './/bldg:numberOfFloorsAboveGround'],
+                'storeysBelowGround': ['.//bldg:storeysBelowGround', './/bldg:numberOfFloorsBelowGround'],
+                'function': ['.//bldg:function', './/bldg:buildingFunction'],
+                'usage': ['.//bldg:usage', './/bldg:buildingUsage'],
+                'class': ['.//bldg:class', './/bldg:buildingClass'],
+                'yearOfConstruction': ['.//bldg:yearOfConstruction', './/bldg:constructionYear'],
+                'roofType': ['.//bldg:roofType', './/bldg:roofForm'],
+                'materialOfWall': ['.//bldg:materialOfWall', './/bldg:wallMaterial'],
+                'materialOfRoof': ['.//bldg:materialOfRoof', './/bldg:roofMaterial'],
+                'storeyHeightsAboveGround': ['.//bldg:storeyHeightsAboveGround'],
+                'storeyHeightsBelowGround': ['.//bldg:storeyHeightsBelowGround']
+            }
+            
+            # Extrahiere spezifische Attribute
+            for attr_name, xpaths in attribute_paths.items():
+                for xpath in xpaths:
+                    elements = building.findall(xpath, namespaces=self.ns)
+                    if elements:
+                        # Bei mehreren Werten, nehme den ersten nicht-leeren
+                        for element in elements:
+                            if element is not None and element.text and element.text.strip():
+                                try:
+                                    # Versuche Konvertierung zu float/int
+                                    value = float(element.text)
+                                    if value.is_integer() and attr_name not in ['measuredHeight']:
+                                        value = int(value)
+                                    attributes[attr_name] = value
+                                    break
+                                except ValueError:
+                                    value = element.text.strip()
+                                    attributes[attr_name] = value
+                                    break
+                        # Wenn wir einen Wert gefunden haben, brechen wir die XPath-Schleife ab
+                        if attr_name in attributes:
+                            break
+            
+            # Extrahiere generische Attribute
+            generic_paths = {
+                'stringAttribute': str,
+                'intAttribute': int,
+                'doubleAttribute': float,
+                'dateAttribute': str,
+                'uriAttribute': str,
+                'measureAttribute': float
+            }
+            
+            for attr_type, converter in generic_paths.items():
+                xpath = f'.//gen:{attr_type}'
+                generic_attributes = building.findall(xpath, namespaces=self.ns)
                 
-                # Hole lokalen Namen ohne Namespace
-                local_name = etree.QName(element).localname
-                
-                # Versuche den Wert zu konvertieren
+                for attr in generic_attributes:
+                    try:
+                        name = attr.get('name')
+                        if name:
+                            value_element = attr.find('.//gen:value', namespaces=self.ns)
+                            if value_element is not None and value_element.text:
+                                try:
+                                    value = converter(value_element.text.strip())
+                                    attributes[name] = value
+                                except (ValueError, TypeError):
+                                    self.logger.debug(f"⚠️ Konvertierungsfehler für Attribut {name}")
+                    except Exception as e:
+                        self.logger.debug(f"⚠️ Fehler beim Extrahieren des generischen Attributs: {str(e)}")
+            
+            # Extrahiere Address-Informationen
+            address = building.find('.//bldg:address//xAL:AddressDetails', namespaces=self.ns)
+            if address is not None:
                 try:
-                    # Versuche float Konvertierung
-                    value = float(element.text)
-                    # Wenn es eine ganze Zahl ist, konvertiere zu int
-                    if value.is_integer():
-                        value = int(value)
-                except ValueError:
-                    # Wenn keine Zahl, behalte String
-                    value = element.text.strip()
-                
-                # Speichere Attribut
-                if local_name not in ['id', 'geometry']:
-                    attributes[local_name] = value
+                    # Straße
+                    street = address.find('.//xAL:ThoroughfareName', namespaces=self.ns)
+                    if street is not None and street.text:
+                        attributes['street'] = street.text.strip()
+                    
+                    # Hausnummer
+                    number = address.find('.//xAL:BuildingNumber', namespaces=self.ns)
+                    if number is not None and number.text:
+                        attributes['houseNumber'] = number.text.strip()
+                    
+                    # PLZ
+                    postal = address.find('.//xAL:PostalCode', namespaces=self.ns)
+                    if postal is not None and postal.text:
+                        attributes['postalCode'] = postal.text.strip()
+                    
+                    # Stadt
+                    city = address.find('.//xAL:LocalityName', namespaces=self.ns)
+                    if city is not None and city.text:
+                        attributes['city'] = city.text.strip()
+                    
+                    # Land
+                    country = address.find('.//xAL:CountryName', namespaces=self.ns)
+                    if country is not None and country.text:
+                        attributes['country'] = country.text.strip()
+                except Exception as e:
+                    self.logger.debug(f"⚠️ Fehler beim Extrahieren der Adresse: {str(e)}")
             
             return attributes
-            
+
         except Exception as e:
-            logger.warning(f"⚠️ Fehler beim Extrahieren der generischen Attribute: {str(e)}")
+            self.logger.warning(f"⚠️ Fehler beim Extrahieren der Attribute: {str(e)}")
             return attributes
 
     def extract_buildings(self, citygml_path: str) -> Optional[gpd.GeoDataFrame]:
@@ -230,94 +312,91 @@ class CityGMLBuildingProcessor:
             Optional[gpd.GeoDataFrame]: GeoDataFrame mit allen Gebäudeinformationen
         """
         try:
-            # Erstelle Parser mit Entity-Resolver
+            # Parse CityGML und setze Namespaces
             parser = etree.XMLParser(resolve_entities=True)
             resolver = XMLResolver()
             parser.resolvers.add(resolver)
-            
-            # Parse CityGML
             tree = etree.parse(citygml_path, parser=parser)
             root = tree.getroot()
             
-            # Detektiere CityGML-Version und setze Namespaces
             version = self._detect_citygml_version(root)
-            logger.info(f"📊 CityGML-Version: {version}")
-            
-            # Setze Namespaces basierend auf Version
             if version in self.namespace_mapping:
                 self.ns = self.namespace_mapping[version]
-            logger.info(f"🔍 Verwende Namespaces: {self.ns}")
             
-            # Suche nach Gebäuden und BuildingParts
+            # Suche nach Gebäuden
             buildings = root.findall('.//bldg:Building', namespaces=self.ns)
-            building_parts = root.findall('.//bldg:BuildingPart', namespaces=self.ns)
+            self.logger.info(f"🏢 {len(buildings)} Hauptgebäude gefunden")
             
-            if not buildings and not building_parts:
-                logger.warning("⚠️ Keine Gebäude oder BuildingParts gefunden")
-                return None
-
-            logger.info(f"✅ {len(buildings)} Gebäude und {len(building_parts)} BuildingParts gefunden")
-            
-            # Verarbeite gefundene Gebäude und BuildingParts
             processed_buildings = []
+            building_parts_count = 0
             
-            # Verarbeite Hauptgebäude
+            # Verarbeite jedes Hauptgebäude
             for building in buildings:
                 try:
+                    # Extrahiere Basis-Attribute
+                    building_data = {
+                        'gml_id': building.get(f'{{{self.ns["gml"]}}}id'),
+                        'building_parent_id': None,  # Hauptgebäude haben keine Parent-ID
+                        'is_building_part': False
+                    }
+                    
                     # Extrahiere Geometrie
                     geometry = self._extract_geometry(building)
                     if geometry is None:
                         continue
-                        
-                    # Extrahiere alle verfügbaren Attribute
-                    building_data = {
-                        'gml_id': building.get(f'{{{self.ns["gml"]}}}id'),
-                        'geometry': geometry,
-                        'type': 'Building'
-                    }
                     
-                    # Füge alle generischen Attribute hinzu
+                    building_data['geometry'] = geometry
+                    
+                    # Extrahiere alle Attribute
                     building_data.update(self._extract_generic_attributes(building))
                     
+                    # Suche nach BuildingParts
+                    building_parts = building.findall('.//bldg:BuildingPart', namespaces=self.ns)
+                    if building_parts:
+                        building_parts_count += len(building_parts)
+                        building_data['has_building_parts'] = True
+                        building_data['building_parts_count'] = len(building_parts)
+                        
+                        # Verarbeite jedes BuildingPart
+                        part_geometries = []
+                        part_attributes = []
+                        
+                        for part in building_parts:
+                            part_geom = self._extract_geometry(part)
+                            if part_geom is not None:
+                                part_geometries.append(part_geom)
+                                
+                            part_attrs = self._extract_generic_attributes(part)
+                            if part_attrs:
+                                part_attributes.append(part_attrs)
+                        
+                        # Füge BuildingPart-Geometrien zum Hauptgebäude hinzu
+                        if part_geometries:
+                            all_geometries = [geometry] + part_geometries
+                            building_data['geometry'] = MultiPolygon(all_geometries)
+                        
+                        # Aggregiere BuildingPart-Attribute
+                        for attr_dict in part_attributes:
+                            for key, value in attr_dict.items():
+                                if key not in building_data:
+                                    building_data[f'part_{key}'] = value
+                                elif isinstance(value, (int, float)):
+                                    # Bei numerischen Werten: Summe oder Durchschnitt
+                                    if key in ['measuredHeight', 'storeysAboveGround', 'storeysBelowGround']:
+                                        building_data[f'part_{key}_avg'] = value
+                                    else:
+                                        building_data[f'part_{key}_sum'] = value
+                
                     processed_buildings.append(building_data)
                     
                 except Exception as e:
-                    logger.warning(f"⚠️ Fehler bei der Verarbeitung eines Gebäudes: {str(e)}")
-                    continue
-            
-            # Verarbeite BuildingParts
-            for part in building_parts:
-                try:
-                    # Extrahiere Geometrie
-                    geometry = self._extract_geometry(part)
-                    if geometry is None:
-                        continue
-                        
-                    # Finde Parent-Building ID
-                    parent = part.getparent()
-                    parent_id = parent.get(f'{{{self.ns["gml"]}}}id') if parent is not None else None
-                    
-                    # Extrahiere alle verfügbaren Attribute
-                    part_data = {
-                        'gml_id': part.get(f'{{{self.ns["gml"]}}}id'),
-                        'parent_id': parent_id,
-                        'geometry': geometry,
-                        'type': 'BuildingPart'
-                    }
-                    
-                    # Füge alle generischen Attribute hinzu
-                    part_data.update(self._extract_generic_attributes(part))
-                    
-                    processed_buildings.append(part_data)
-                    
-                except Exception as e:
-                    logger.warning(f"⚠️ Fehler bei der Verarbeitung eines BuildingParts: {str(e)}")
+                    self.logger.warning(f"⚠️ Fehler bei der Verarbeitung eines Gebäudes: {str(e)}")
                     continue
             
             if not processed_buildings:
-                logger.error("❌ Keine Gebäude erfolgreich verarbeitet")
+                self.logger.error("❌ Keine Gebäude erfolgreich verarbeitet")
                 return None
-
+            
             # Erstelle GeoDataFrame
             gdf = gpd.GeoDataFrame(processed_buildings)
             
@@ -325,11 +404,11 @@ class CityGMLBuildingProcessor:
             if 'crs' in self.config:
                 gdf.set_crs(self.config['crs'], inplace=True)
             
-            logger.info(f"✅ GeoDataFrame mit {len(gdf)} Gebäuden/BuildingParts erstellt")
+            self.logger.info(f"✅ GeoDataFrame mit {len(gdf)} Gebäuden erstellt (inkl. {building_parts_count} BuildingParts)")
             return gdf
             
         except Exception as e:
-            logger.error(f"❌ Fehler beim Verarbeiten der CityGML-Datei: {str(e)}")
+            self.logger.error(f"❌ Fehler beim Verarbeiten der CityGML-Datei: {str(e)}")
             return None
 
 def fetch_citygml_buildings(citygml_path: str, config: Dict[str, Any]) -> Optional[gpd.GeoDataFrame]:
