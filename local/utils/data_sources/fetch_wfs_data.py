@@ -1,13 +1,15 @@
 from owslib.wfs import WebFeatureService
 import geopandas as gpd
 import yaml
-from typing import Optional
+from typing import Optional, Dict, Any, List
 from pathlib import Path
 import logging
 import io
 import pandas as pd
 from pyproj import Transformer
 import requests
+from lxml import etree
+from shapely.geometry import box
 
 # Logger einrichten
 logger = logging.getLogger("ViennaWFS")
@@ -19,129 +21,187 @@ formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 console_handler.setFormatter(formatter)
 logger.addHandler(console_handler)
 
+# XML Entity Resolver
+class XMLResolver(etree.Resolver):
+    def __init__(self):
+        self.entities = {
+            'uuml': 'ü',
+            'auml': 'ä',
+            'ouml': 'ö',
+            'szlig': 'ß',
+            'Auml': 'Ä',
+            'Ouml': 'Ö',
+            'Uuml': 'Ü'
+        }
+
+    def resolve(self, system_url, public_id, context):
+        if system_url in self.entities:
+            return self.resolve_string(self.entities[system_url], context)
+        return None
+
 class ViennaWFS:
     """Klasse für den Zugriff auf den Wiener WFS-Service."""
     
-    def __init__(self, config: dict):
-        """Initialisiert den WFS-Service.
+    def __init__(self, config_path: str = "local/cfg/wfs/wfs_config.yml"):
+        """Initialisiert den WFS-Client mit der angegebenen Konfiguration."""
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config = yaml.safe_load(f)
+            
+        wfs_config = config.get('vienna_wfs', {})
+        self.url = wfs_config.get('url')
+        self.version = wfs_config.get('version', '1.1.0')
+        self.timeout = wfs_config.get('timeout', 30)
+        self.streams = wfs_config.get('streams', [])
+        self.layers = wfs_config.get('layers', {})
+        
+        if not self.url:
+            raise ValueError("❌ WFS URL nicht in der Konfiguration gefunden")
+            
+        try:
+            self.wfs = WebFeatureService(url=self.url, version=self.version, timeout=self.timeout)
+            logging.info("✅ WFS-Verbindung erfolgreich hergestellt")
+        except Exception as e:
+            logging.error(f"❌ Fehler bei WFS-Verbindung: {str(e)}")
+            raise
+
+    def test_connection(self) -> bool:
+        """Testet die WFS-Verbindung."""
+        try:
+            self.wfs.getcapabilities()
+            logging.info("✅ WFS-Verbindung erfolgreich getestet")
+            return True
+        except Exception as e:
+            logging.error(f"❌ WFS-Verbindungstest fehlgeschlagen: {str(e)}")
+            return False
+
+    def set_streams(self, streams: List[Dict[str, Any]]):
+        """Setzt die WFS-Streams für spätere Verarbeitung.
         
         Args:
-            config (dict): WFS-Konfiguration
+            streams (List[Dict]): Liste der Stream-Konfigurationen
         """
-        if not isinstance(config, dict):
-            raise ValueError("config muss ein Dictionary sein")
-            
-        # Extrahiere die vienna_wfs Konfiguration
-        if 'vienna_wfs' in config:
-            self.config = config['vienna_wfs']
-        else:
-            self.config = config  # Nimm an, dass die Konfiguration bereits die vienna_wfs Daten enthält
-            
-        self.url = self.config.get('url', 'https://data.wien.gv.at/daten/geo')
-        self.version = self.config.get('version', '1.1.0')
-        self.timeout = self.config.get('timeout', 30)
-        self.retries = self.config.get('retries', 3)
-        self.crs = "urn:x-ogc:def:crs:EPSG:31256"  # Korrektes URN-Format für Wien
-        self.merge_fields = self.config.get('merge_fields', {})
-        self.layers = self.config.get('layers', {})
-        self.field_mapping = self.config.get('field_mapping', {})
-        self.streams = self.config.get('streams', [])
-        
-        # Initialisiere WFS-Client nur einmal
-        if not hasattr(self, '_wfs'):
-            self._wfs = WebFeatureService(
-                url=self.url,
-                version=self.version,
-                timeout=self.timeout
-            )
-            logger.info(f"✅ WFS-Service initialisiert: {self.url}")
+        self.streams = streams
 
-    @property
-    def wfs(self):
-        return self._wfs
-
-    def fetch_layer(self, layer_name: str, bbox=None) -> Optional[gpd.GeoDataFrame]:
-        """Lädt einen WFS Layer und validiert Geometrie
+    def fetch_layer(self, layer_name: str, bbox: Optional[tuple] = None, filters: Optional[Dict] = None) -> Optional[gpd.GeoDataFrame]:
+        """Holt einen Layer vom WFS mit optionaler räumlicher und attributiver Filterung.
         
         Args:
-            layer_name (str): Name des WFS Layers
-            bbox (list, optional): Bounding Box [minlon, minlat, maxlon, maxlat] in EPSG:4326
+            layer_name (str): Name des Layers
+            bbox (tuple): Bounding Box (minx, miny, maxx, maxy)
+            filters (dict): Attributfilter
             
         Returns:
-            Optional[gpd.GeoDataFrame]: GeoDataFrame mit den Layer-Daten oder None bei Fehler
+            Optional[gpd.GeoDataFrame]: GeoDataFrame mit den Layerdaten
         """
         try:
-            logger.info(f"🔄 Lade WFS Layer: {layer_name}")
+            # Baue Filter
+            filter_params = {}
+            if bbox:
+                bbox_str = ','.join(map(str, bbox))
+                filter_params['bbox'] = bbox_str
             
-            # Konstruiere die URL direkt
-            url = f"{self.url}?service=WFS&version={self.version}&request=GetFeature&typeName={layer_name}&maxFeatures=50"
+            if filters:
+                for key, value in filters.items():
+                    filter_params[key] = value
+
+            # Hole Features
+            response = self.wfs.getfeature(
+                typename=layer_name,
+                bbox=bbox_str if bbox else None,
+                filter=filters
+            )
+            content = response.read()
             
-            if bbox is not None:
-                # Validiere bbox
-                if any(pd.isna(coord) for coord in bbox):
-                    logger.warning("⚠️ Ungültige Bounding Box mit NaN Werten")
-                    return None
-                    
-                # Füge BBOX als separaten Parameter hinzu
-                bbox_str = f"{bbox[0]},{bbox[1]},{bbox[2]},{bbox[3]},EPSG:4326"
-                url += f"&BBOX={bbox_str}"
-                logger.info(f"📍 BBOX: {bbox_str}")
+            # Parse XML
+            xml_tree = etree.fromstring(content, parser=self.xml_parser)
             
-            # Hole WFS-Daten direkt über die URL
-            response = requests.get(url)
+            # Konvertiere zu GeoDataFrame
+            gdf = gpd.read_file(io.BytesIO(content))
             
-            if response.status_code != 200:
-                logger.error(f"❌ Fehler beim Abruf der WFS-Daten: {response.status_code}")
-                logger.error(f"URL: {url}")
+            if 'geometry' not in gdf.columns:
+                logger.error(f"Keine Geometrie-Spalte in Layer {layer_name} gefunden")
                 return None
             
-            # Parse GeoJSON
-            try:
-                # Konvertiere zu GeoDataFrame
-                gdf = gpd.read_file(io.BytesIO(response.content))
-                
-                # Prüfe auf Geometrie-Spalte
-                if 'geometry' not in gdf.columns:
-                    logger.warning(f"⚠️ Keine Geometrie-Spalte in Layer {layer_name}")
-                    return None
-                    
-                # Konvertiere OBJECTID zu String
-                if 'OBJECTID' in gdf.columns:
-                    gdf['OBJECTID'] = gdf['OBJECTID'].astype(str)
-                    
-                # Setze CRS explizit
-                if gdf.crs is None:
-                    gdf.set_crs("EPSG:4326", inplace=True)
-                
-                # Transformiere zu Wien GK East wenn nötig
-                if gdf.crs != self.crs:
-                    gdf = gdf.to_crs(self.crs)
-                
-                # Log Ergebnis
-                logger.info(f"✅ {len(gdf)} Features geladen")
-                logger.info(f"📊 Verfügbare Spalten: {list(gdf.columns)}")
-                
-                return gdf
-                
-            except Exception as e:
-                logger.error(f"❌ Fehler beim Parsen der GeoJSON-Daten: {str(e)}")
-                return None
+            # Konvertiere OBJECTID zu String wenn vorhanden
+            if 'OBJECTID' in gdf.columns:
+                gdf['OBJECTID'] = gdf['OBJECTID'].astype(str)
+            
+            # Setze CRS
+            gdf.set_crs(self.crs, inplace=True)
+            
+            logger.info(f"✅ Layer {layer_name} erfolgreich geladen: {len(gdf)} Features")
+            return gdf
             
         except Exception as e:
-            logger.error(f"❌ Fehler beim Laden von Layer {layer_name}: {str(e)}")
+            logger.error(f"❌ Fehler beim Abrufen des Layers {layer_name}: {str(e)}")
             return None
 
-    def fetch_building_model(self, bbox=None) -> Optional[gpd.GeoDataFrame]:
-        """Lädt das Baukörpermodell aus dem WFS.
+    def fetch_building_model(self, config: Dict[str, Any], bbox: Optional[tuple] = None) -> Optional[gpd.GeoDataFrame]:
+        """Holt das Gebäudemodell mit optionaler räumlicher Filterung.
         
         Args:
-            bbox (list, optional): Bounding Box [minx, miny, maxx, maxy]
+            config (Dict): Layer-Konfiguration
+            bbox (tuple): Optionale Bounding Box
             
         Returns:
-            Optional[gpd.GeoDataFrame]: GeoDataFrame mit Gebäudedaten oder None bei Fehler
+            Optional[gpd.GeoDataFrame]: GeoDataFrame mit Gebäudedaten
         """
-        logger.info("🔄 Lade Baukörpermodell...")
-        return self.fetch_layer("ogdwien:GEBAEUDEINFOOGD", bbox)
+        try:
+            layer_pattern = config.get('layer_pattern', '')
+            available_layers = list(self.wfs.contents.keys())
+            matching_layers = [layer for layer in available_layers if layer_pattern in layer]
+            
+            if not matching_layers:
+                logger.error(f"❌ Keine Layer gefunden, die dem Muster {layer_pattern} entsprechen")
+                return None
+            
+            building_data = []
+            for layer in matching_layers:
+                gdf = self.fetch_layer(layer, bbox=bbox)
+                if gdf is not None:
+                    building_data.append(gdf)
+            
+            if not building_data:
+                logger.error("❌ Keine Gebäudedaten gefunden")
+                return None
+            
+            combined_gdf = pd.concat(building_data, ignore_index=True)
+            return combined_gdf
+            
+        except Exception as e:
+            logger.error(f"❌ Fehler beim Abrufen des Gebäudemodells: {str(e)}")
+            return None
+
+    def fetch_data(self, config: Dict[str, Any], bbox: Optional[tuple] = None) -> Dict[str, gpd.GeoDataFrame]:
+        """Holt Daten für alle konfigurierten Streams.
+        
+        Args:
+            config (Dict): Stream-Konfiguration
+            bbox (tuple): Optionale Bounding Box
+            
+        Returns:
+            Dict[str, gpd.GeoDataFrame]: Dictionary mit Layer-Namen und GeoDataFrames
+        """
+        try:
+            results = {}
+            streams = config.get('streams', self.streams)
+            
+            for stream in streams:
+                layer_name = stream.get('layer')
+                if not layer_name:
+                    continue
+                    
+                filters = stream.get('filters', {})
+                gdf = self.fetch_layer(layer_name, bbox=bbox, filters=filters)
+                
+                if gdf is not None:
+                    results[layer_name] = gdf
+            
+            return results
+            
+        except Exception as e:
+            logger.error(f"❌ Fehler beim Abrufen der Daten: {str(e)}")
+            return {}
 
     def fetch_building_typology(self, bbox) -> Optional[gpd.GeoDataFrame]:
         """Lädt die Gebäudetypologie für den gegebenen Bereich"""
@@ -152,90 +212,55 @@ class ViennaWFS:
             logger.error(f"❌ Fehler beim Laden der Gebäudetypologie: {str(e)}", exc_info=True)
             return None
 
-    def enrich_with_wfs(self, buildings_gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
-        """Reichert die Gebäude mit WFS-Daten an.
+    def enrich_with_wfs(self, buildings_gdf: gpd.GeoDataFrame, bbox: Optional[tuple] = None) -> gpd.GeoDataFrame:
+        """Reichert Gebäudedaten mit WFS-Daten an.
         
         Args:
-            buildings_gdf (gpd.GeoDataFrame): GeoDataFrame mit den Gebäuden
+            buildings_gdf (gpd.GeoDataFrame): Ursprüngliche Gebäudedaten
+            bbox (tuple): Optionale Bounding Box
             
         Returns:
-            gpd.GeoDataFrame: Angereichertes GeoDataFrame
+            gpd.GeoDataFrame: Angereicherte Gebäudedaten
         """
         try:
-            # Hole WFS-Daten für alle konfigurierten Streams
-            for stream in self.streams:
-                layer_name = stream['layer']
-                mapping = stream.get('mapping', {})
-                
-                # Hole die WFS-Daten
-                wfs_data = self.fetch_layer(layer_name, buildings_gdf.total_bounds)
-                if not wfs_data.empty:
-                    # Konvertiere zu GeoDataFrame falls nötig
-                    if not isinstance(wfs_data, gpd.GeoDataFrame):
-                        wfs_data = gpd.GeoDataFrame(wfs_data, crs=self.crs)
-                    
-                    # Führe die Daten zusammen
-                    buildings_gdf = buildings_gdf.merge(
-                        wfs_data,
-                        on='building_id',
-                        how='left'
-                    )
+            enriched_gdf = buildings_gdf.copy()
             
-            return buildings_gdf
+            for stream in self.streams:
+                layer_name = stream.get('layer')
+                mapping = stream.get('mapping', {})
+                join_type = stream.get('join_type', 'nearest')
+                
+                # Hole WFS-Daten
+                wfs_data = self.fetch_layer(layer_name, bbox=bbox)
+                if wfs_data is None or wfs_data.empty:
+                    continue
+                
+                # Führe räumliche Verknüpfung durch
+                if join_type == 'nearest':
+                    joined = gpd.sjoin_nearest(
+                        enriched_gdf,
+                        wfs_data,
+                        how='left',
+                        distance_col='distance'
+                    )
+                else:
+                    joined = gpd.sjoin(
+                        enriched_gdf,
+                        wfs_data,
+                        how='left',
+                        predicate='intersects'
+                    )
+                
+                # Wende Mapping an
+                for target_col, source_col in mapping.items():
+                    if source_col in joined.columns:
+                        enriched_gdf[target_col] = joined[source_col]
+            
+            return enriched_gdf
             
         except Exception as e:
             logger.error(f"❌ Fehler bei der WFS-Anreicherung: {str(e)}")
             return buildings_gdf
-
-    def fetch_data(self, bbox=None) -> dict:
-        """Holt Daten von allen konfigurierten WFS-Streams.
-        
-        Args:
-            bbox (list, optional): Bounding Box [minx, miny, maxx, maxy]
-            
-        Returns:
-            dict: Dictionary mit Layer-Namen als Schlüssel und GeoDataFrames als Werte
-        """
-        try:
-            logger.info("🔄 Hole Daten von allen WFS-Streams...")
-            results = {}
-            
-            # Hole alle konfigurierten Streams aus der Konfiguration
-            streams = self.config.get('streams', [])
-            
-            for stream in streams:
-                try:
-                    layer_name = stream.get('layer')
-                    if not layer_name:
-                        continue
-                        
-                    logger.info(f"📡 Verarbeite WFS-Stream: {layer_name}")
-                    
-                    # Hole WFS-Daten für diesen Layer
-                    layer_data = self.fetch_layer(layer_name, bbox)
-                    
-                    if layer_data is not None and not layer_data.empty:
-                        # Füge Mapping hinzu, falls vorhanden
-                        mapping = stream.get('mapping', {})
-                        if mapping:
-                            for new_col, old_col in mapping.items():
-                                if old_col in layer_data.columns:
-                                    layer_data[new_col] = layer_data[old_col]
-                        
-                        results[layer_name] = layer_data
-                        logger.info(f"✅ Layer {layer_name} erfolgreich geladen: {len(layer_data)} Features")
-                    else:
-                        logger.warning(f"⚠️ Keine Daten für Layer {layer_name}")
-                        
-                except Exception as e:
-                    logger.error(f"❌ Fehler beim Verarbeiten von Stream {layer_name}: {str(e)}")
-                    continue
-            
-            return results
-            
-        except Exception as e:
-            logger.error(f"❌ Fehler beim Abruf der WFS-Daten: {str(e)}")
-            return {}
 
     def fetch_all_layers(self) -> dict:
         """Holt Daten von allen verfügbaren WFS-Layern.
@@ -291,7 +316,7 @@ def fetch_wfs_data(site_polygon, layer_name, config):
             
         # Hole die WFS-Daten
         wfs = ViennaWFS(wfs_config)
-        return wfs.fetch_layer(layer_name, site_polygon.total_bounds)
+        return wfs.fetch_layer(layer_name)
         
     except Exception as e:
         logger.error(f"❌ Fehler beim WFS-Datenabruf: {str(e)}")
@@ -299,70 +324,14 @@ def fetch_wfs_data(site_polygon, layer_name, config):
 
 
 if __name__ == "__main__":
-    print("🔎 WFS Daten Test-Modus")
+    logging.basicConfig(level=logging.INFO)
+    logging.info("🔎 WFS Daten Test-Modus")
+    
     try:
-        # Lade Projekt-Konfiguration
-        config_path = Path(__file__).resolve().parent.parent.parent / "cfg" / "project_config.yml"
-        with open(config_path, 'r', encoding="utf-8") as f:
-            config = yaml.safe_load(f)
-
-        # Lade WFS-Konfiguration
-        wfs_config_path = Path(__file__).resolve().parent.parent.parent / "cfg" / "wfs" / "wfs_config.yml"
-        with open(wfs_config_path, 'r', encoding="utf-8") as f:
-            wfs_config = yaml.safe_load(f)
-
-        # Kombiniere Konfigurationen
-        config['vienna_wfs'] = wfs_config['vienna_wfs']
-
-        # Erstelle WFS Client
-        wfs = ViennaWFS(config)
-        
-        # Hole alle verfügbaren Layer
-        print("\n📋 Verfügbare WFS-Layer:")
-        response = wfs.wfs.getfeature(
-            typename='ogdwien:FMZKBKMOGD',
-            maxfeatures=1
-        )
-        print(response.getvalue().decode('utf-8'))
-            
-        # Teste konfigurierte Streams
-        print("\n🔄 Teste konfigurierte WFS-Streams:")
-        
-        # Teste spezifische Layer
-        test_layers = [
-            'ogdwien:FMZKBKMOGD',
-            'ogdwien:GEBAEUDEINFOOGD',
-            'ogdwien:GEBAEUDETYPOGD',
-            'ogdwien:REALNUT2022OGD'
-        ]
-        
-        # Bereich um den Stephansdom
-        bbox = [16.372, 48.208, 16.374, 48.209]
-        
-        results = {}
-        for layer in test_layers:
-            try:
-                print(f"\nTeste Layer: {layer}")
-                data = wfs.fetch_layer(layer, bbox)
-                if data is not None and not data.empty:
-                    results[layer] = data
-                    print(f"✅ Layer {layer} erfolgreich geladen: {len(data)} Features")
-                    print("Spalten:", list(data.columns))
-                else:
-                    print(f"⚠️ Keine Daten für Layer {layer}")
-            except Exception as e:
-                print(f"❌ Fehler bei Layer {layer}: {str(e)}")
-            
-        # Speichere Ergebnisse
-        if results:
-            output_dir = Path(__file__).resolve().parent.parent.parent / "data" / "wfs"
-            output_dir.mkdir(parents=True, exist_ok=True)
-            
-            for layer_name, data in results.items():
-                output_file = output_dir / f"{layer_name.replace(':', '_')}.geojson"
-                data.to_file(output_file, driver='GeoJSON')
-                print(f"\n💾 Layer {layer_name} gespeichert nach: {output_file}")
-
+        wfs = ViennaWFS()
+        if wfs.test_connection():
+            logging.info("✅ WFS-Test erfolgreich abgeschlossen")
+        else:
+            logging.error("❌ WFS-Test fehlgeschlagen")
     except Exception as e:
-        print(f"❌ Fehler im Test-Modus: {str(e)}")
-        raise
+        logging.error(f"❌ Fehler im Test-Modus: {str(e)}")

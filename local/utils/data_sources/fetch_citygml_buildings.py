@@ -1,16 +1,15 @@
 import os
 import sys
 from pathlib import Path
-
-# Füge das Root-Verzeichnis zum Python-Path hinzu
-root_dir = Path(__file__).resolve().parent.parent.parent
-sys.path.append(str(root_dir))
-
 import logging
 from typing import Dict, Any, Optional
 from lxml import etree
 import geopandas as gpd
 from shapely.geometry import Polygon
+
+# Füge das Root-Verzeichnis zum Python-Path hinzu
+root_dir = Path(__file__).resolve().parent.parent.parent
+sys.path.append(str(root_dir))
 
 # Konfiguriere Logger
 logger = logging.getLogger(__name__)
@@ -20,6 +19,28 @@ handler.setLevel(logging.INFO)
 formatter = logging.Formatter('%(message)s')
 handler.setFormatter(formatter)
 logger.addHandler(handler)
+
+# XML Entity Resolver
+class XMLResolver(etree.Resolver):
+    def resolve(self, system_url, public_id, context):
+        # Definiere häufig verwendete Entities
+        entities = {
+            'uuml': 'ü',
+            'auml': 'ä',
+            'ouml': 'ö',
+            'szlig': 'ß',
+            'Auml': 'Ä',
+            'Ouml': 'Ö',
+            'Uuml': 'Ü'
+        }
+        
+        # Wenn es sich um eine bekannte Entity handelt, gib den entsprechenden Wert zurück
+        entity_name = system_url.split(';')[0] if system_url and ';' in system_url else system_url
+        if entity_name in entities:
+            return self.resolve_string(f'"{entities[entity_name]}"', context)
+            
+        # Andernfalls normal weiterverarbeiten
+        return None
 
 class CityGMLBuildingProcessor:
     """Extrahiert Gebäudedaten aus CityGML-Dateien"""
@@ -152,128 +173,11 @@ class CityGMLBuildingProcessor:
             
             logger.warning("⚠️ Keine gültige Geometrie in allen LODs gefunden")
             return None
-            
+
         except Exception as e:
             logger.warning(f"⚠️ Fehler bei der Geometrieextraktion: {str(e)}")
             return None
             
-    def _extract_measured_height(self, building: etree.Element) -> Optional[float]:
-        """Extrahiert die gemessene Höhe eines Gebäudes.
-        
-        Args:
-            building (etree.Element): Das Gebäude-Element
-            
-        Returns:
-            Optional[float]: Die gemessene Höhe in Metern
-        """
-        try:
-            height = building.findall('.//bldg:measuredHeight', namespaces=self.ns)
-            if height and height[0].text:
-                return float(height[0].text)
-            return None
-        except (ValueError, IndexError):
-            return None
-            
-    def _extract_storeys_above_ground(self, building: etree.Element) -> Optional[int]:
-        """Extrahiert die Anzahl der Stockwerke über Grund.
-        
-        Args:
-            building (etree.Element): Das Gebäude-Element
-            
-        Returns:
-            Optional[int]: Die Anzahl der Stockwerke
-        """
-        try:
-            storeys = building.findall('.//bldg:storeysAboveGround', namespaces=self.ns)
-            if storeys and storeys[0].text:
-                return int(storeys[0].text)
-            return None
-        except (ValueError, IndexError):
-            return None
-            
-    def _extract_storeys_below_ground(self, building: etree.Element) -> Optional[int]:
-        """Extrahiert die Anzahl der Stockwerke unter Grund.
-        
-        Args:
-            building (etree.Element): Das Gebäude-Element
-            
-        Returns:
-            Optional[int]: Die Anzahl der Stockwerke unter Grund
-        """
-        try:
-            storeys = building.findall('.//bldg:storeysBelowGround', namespaces=self.ns)
-            if storeys and storeys[0].text:
-                return int(storeys[0].text)
-            return None
-        except (ValueError, IndexError):
-            return None
-            
-    def _extract_year_of_construction(self, building: etree.Element) -> Optional[int]:
-        """Extrahiert das Baujahr eines Gebäudes.
-        
-        Args:
-            building (etree.Element): Das Gebäude-Element
-            
-        Returns:
-            Optional[int]: Das Baujahr
-        """
-        try:
-            year = building.findall('.//bldg:yearOfConstruction', namespaces=self.ns)
-            if year and year[0].text:
-                return int(year[0].text)
-            return None
-        except (ValueError, IndexError):
-            return None
-            
-    def _extract_building_usage(self, building: etree.Element) -> Optional[str]:
-        """Extrahiert die Nutzung eines Gebäudes.
-        
-        Args:
-            building (etree.Element): Das Gebäude-Element
-            
-        Returns:
-            Optional[str]: Die Gebäudenutzung
-        """
-        try:
-            usage = building.findall('.//bldg:usage', namespaces=self.ns)
-            if not usage:
-                usage = building.findall('.//bldg:class', namespaces=self.ns)
-                
-            if usage and usage[0].text:
-                return usage[0].text
-            return None
-        except (ValueError, IndexError):
-            return None
-            
-    def _extract_address_component(self, building: etree.Element, component: str) -> Optional[str]:
-        """Extrahiert eine Adresskomponente eines Gebäudes.
-        
-        Args:
-            building (etree.Element): Das Gebäude-Element
-            component (str): Die zu extrahierende Komponente
-            
-        Returns:
-            Optional[str]: Die extrahierte Adresskomponente
-        """
-        try:
-            # Mapping von Komponenten zu XPath-Ausdrücken
-            xpath_map = {
-                'street': './/xAL:ThoroughfareName',
-                'house_number': './/xAL:BuildingNumber',
-                'postal_code': './/xAL:PostalCode',
-                'city': './/xAL:LocalityName',
-                'country': './/xAL:CountryName'
-            }
-            
-            # Hole Element mit findall
-            elements = building.findall(xpath_map.get(component, ''), namespaces=self.ns)
-            if elements and elements[0].text:
-                return elements[0].text
-            return None
-            
-        except (ValueError, IndexError):
-            return None
-
     def _extract_generic_attributes(self, building: etree.Element) -> Dict[str, Any]:
         """Extrahiert alle generischen Attribute eines Gebäudes.
         
@@ -291,7 +195,7 @@ class CityGMLBuildingProcessor:
                 # Überspringe Elemente ohne Text
                 if element.text is None or not element.text.strip():
                     continue
-                    
+                
                 # Hole lokalen Namen ohne Namespace
                 local_name = etree.QName(element).localname
                 
@@ -313,7 +217,7 @@ class CityGMLBuildingProcessor:
             return attributes
             
         except Exception as e:
-            self.logger.warning(f"⚠️ Fehler beim Extrahieren der generischen Attribute: {str(e)}")
+            logger.warning(f"⚠️ Fehler beim Extrahieren der generischen Attribute: {str(e)}")
             return attributes
 
     def extract_buildings(self, citygml_path: str) -> Optional[gpd.GeoDataFrame]:
@@ -326,8 +230,13 @@ class CityGMLBuildingProcessor:
             Optional[gpd.GeoDataFrame]: GeoDataFrame mit allen Gebäudeinformationen
         """
         try:
+            # Erstelle Parser mit Entity-Resolver
+            parser = etree.XMLParser(resolve_entities=True)
+            resolver = XMLResolver()
+            parser.resolvers.add(resolver)
+            
             # Parse CityGML
-            tree = etree.parse(citygml_path)
+            tree = etree.parse(citygml_path, parser=parser)
             root = tree.getroot()
             
             # Detektiere CityGML-Version und setze Namespaces
@@ -346,7 +255,7 @@ class CityGMLBuildingProcessor:
             if not buildings and not building_parts:
                 logger.warning("⚠️ Keine Gebäude oder BuildingParts gefunden")
                 return None
-                
+
             logger.info(f"✅ {len(buildings)} Gebäude und {len(building_parts)} BuildingParts gefunden")
             
             # Verarbeite gefundene Gebäude und BuildingParts
@@ -371,7 +280,7 @@ class CityGMLBuildingProcessor:
                     building_data.update(self._extract_generic_attributes(building))
                     
                     processed_buildings.append(building_data)
-                        
+                    
                 except Exception as e:
                     logger.warning(f"⚠️ Fehler bei der Verarbeitung eines Gebäudes: {str(e)}")
                     continue
@@ -400,7 +309,7 @@ class CityGMLBuildingProcessor:
                     part_data.update(self._extract_generic_attributes(part))
                     
                     processed_buildings.append(part_data)
-                        
+                    
                 except Exception as e:
                     logger.warning(f"⚠️ Fehler bei der Verarbeitung eines BuildingParts: {str(e)}")
                     continue
@@ -408,7 +317,7 @@ class CityGMLBuildingProcessor:
             if not processed_buildings:
                 logger.error("❌ Keine Gebäude erfolgreich verarbeitet")
                 return None
-                
+
             # Erstelle GeoDataFrame
             gdf = gpd.GeoDataFrame(processed_buildings)
             
@@ -449,7 +358,7 @@ def fetch_citygml_buildings(citygml_path: str, config: Dict[str, Any]) -> Option
 if __name__ == "__main__":
     # Beispielaufruf
     from utils.data_processing.config_loader import load_config
-    
+
     # Lade Konfiguration
     config_path = Path(__file__).resolve().parent.parent.parent / "cfg" / "project_config.yml"
     config = load_config(config_path)
@@ -481,4 +390,4 @@ if __name__ == "__main__":
         buildings_gdf.to_file(output_path, driver='GeoJSON')
         logger.info(f"✅ Gebäude gespeichert nach: {output_path}")
     else:
-        logger.error("❌ Keine Gebäude extrahiert")
+        logger.error("❌ Keine Gebäude extrahiert") 

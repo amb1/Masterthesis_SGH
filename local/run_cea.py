@@ -24,6 +24,7 @@ from utils.data_sources.fetch_osm_buildings import fetch_surrounding_buildings, 
 from utils.data_sources.fetch_osm_streets import fetch_osm_streets
 from utils.data_sources.fetch_wfs_data import ViennaWFS as WFSFetcher
 from utils.data_processing.config_loader import load_config
+from utils.data_processing.cea_building_processor import CEABuildingProcessor
 
 def get_project_info(args=None):
     """
@@ -126,57 +127,17 @@ def main():
         # Erstelle Projektstruktur
         project_dir = setup_project_structure(project_path, scenario_path)
         
-        # Initialisiere WFS Service einmalig
-        wfs_config = {'vienna_wfs': config['wfs']}  # Korrigiere Konfigurationsstruktur
-        wfs_fetcher = WFSFetcher(wfs_config)
+        # Initialisiere CEA Building Processor
+        processor = CEABuildingProcessor(config)
         
-        # Hole initiale Gebäudedaten mit einer großzügigen Bounding Box für Wien
-        logger.info("🔄 Hole initiale Gebäudedaten...")
-        initial_bbox = [16.2264, 48.1182, 16.5775, 48.3231]  # Temporäre Box für ersten Abruf
-        buildings_gdf = wfs_fetcher.fetch_building_model(initial_bbox)
-        
-        if buildings_gdf is None or buildings_gdf.empty:
-            raise ValueError("❌ Keine Gebäude im Suchbereich gefunden!")
-        
-        # Erstelle Site Polygon
-        logger.info("📐 Erstelle Site-Polygon...")
-        site_polygon = create_site_polygon(buildings_gdf)
-        site_path = project_dir['geometry'] / 'site.shp'
-        save_site_polygon(site_polygon, site_path)
-        
-        # Verwende die präzise Bounding Box aus dem Site-Polygon
-        bbox = site_polygon.total_bounds
-        logger.info(f"📍 Verwende präzise Bounding Box: {bbox}")
-        
-        # Hole die finalen Gebäudedaten
-        logger.info("🔄 Hole finale Gebäudedaten...")
-        buildings_gdf = wfs_fetcher.fetch_building_model(bbox)
-        
-        if buildings_gdf is None or buildings_gdf.empty:
-            raise ValueError("❌ Keine Gebäude im finalen Suchbereich gefunden!")
-        
-        # Hole Umgebungsgebäude
-        logger.info("🏘️ Hole Umgebungsgebäude...")
-        surroundings_gdf = fetch_surrounding_buildings(site_polygon, config['osm'])
-        surroundings_gdf = process_osm_buildings(surroundings_gdf, config['osm']['building_defaults'])
-        surroundings_path = project_dir['geometry'] / 'surroundings.shp'
-        save_surrounding_buildings(surroundings_gdf, surroundings_path)
-        
-        # Hole Straßendaten
-        logger.info("🛣️ Hole Straßendaten...")
-        streets_gdf = fetch_osm_streets(site_polygon, config['osm']['street_tags'])
-        streets_path = project_dir['networks'] / 'streets.shp'
-        streets_gdf.to_file(streets_path)
-        
-        # Kombiniere und bereichere Daten
-        logger.info("🔄 Bereichere Gebäudedaten...")
-        enriched_gdf = enrich_building_data(buildings_gdf, wfs_fetcher.fetch_data(bbox))
-        enriched_path = project_dir['outputs'] / 'zone_enriched.geojson'
-        enriched_gdf.to_file(enriched_path, driver='GeoJSON')
-        
-        # Erstelle CEA-Dateien
-        logger.info("📄 Erstelle CEA-Dateien...")
-        create_cea_files(enriched_gdf, project_dir, config)
+        # Verarbeite CityGML-Datei
+        citygml_path = Path(config['paths']['inputs']['citygml']) / "099082.gml"
+        if not processor.process_citygml(citygml_path):
+            raise ValueError("❌ Fehler bei der CityGML-Verarbeitung")
+            
+        # Verarbeite CEA-Daten
+        if not processor.process_cea_data(scenario_path):
+            raise ValueError("❌ Fehler bei der CEA-Datenverarbeitung")
         
         logger.info("✅ CEA-Workflow erfolgreich abgeschlossen")
         

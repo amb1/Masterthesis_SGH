@@ -1,0 +1,168 @@
+# Konfiguration für die Berechnung von Gebäudemetriken
+
+# Pflichtfelder für die Validierung
+required_fields:
+  - gml_id
+  - geometry
+  - type
+  - measuredHeight
+
+# Mapping von CityGML/WFS Gebäudetypen zu CEA-Typen
+building_type_mapping:
+  citygml:  # CityGML Mappings
+    WOHNGEBAEUDE: RESIDENTIAL
+    BUEROGEBAEUDE: OFFICE
+    GESCHAEFTSGEBAEUDE: RETAIL
+    INDUSTRIEGEBAEUDE: INDUSTRIAL
+    OEFFENTLICHES_GEBAEUDE: PUBLIC
+    default: OTHER
+    
+  wfs:  # WFS Mappings (basierend auf tatsächlichen WFS-Layern)
+    building_use:  # Layer-Name
+      residential: RESIDENTIAL
+      office: OFFICE
+      commercial: RETAIL
+      industrial: INDUSTRIAL
+      public: PUBLIC
+      default: OTHER
+
+# Standardwerte und Annahmen
+defaults:
+  year_of_construction: 1990
+  floor_height: 3.0  # Meter pro Stockwerk
+  search_radius: 100  # Meter für Infrastruktursuche
+
+# Berechnungsregeln für abgeleitete Metriken
+derived_metrics:
+  floor_area:
+    enabled: true
+    requires:
+      - footprint_area
+      - storeys_above_ground
+    formula: "footprint_area * storeys_above_ground"
+    
+  volume:
+    enabled: true
+    requires:
+      - footprint_area
+      - measuredHeight
+    formula: "footprint_area * measuredHeight"
+    
+  surface_area:
+    enabled: true
+    requires:
+      - footprint_area
+      - perimeter
+      - measuredHeight
+    formula: "footprint_area * 2 + perimeter * measuredHeight"
+
+# Energiemetriken basierend auf Gebäudetyp und Alter
+energy_metrics:
+  enabled: true
+  base_demand:  # kWh/m²/Jahr
+    RESIDENTIAL:
+      base: 150
+      factors:
+        age:
+          "<1950": 1.4
+          "1950-1980": 1.2
+          "1980-2000": 1.0
+          ">2000": 0.8
+        size:
+          small: 1.2  # < 100m²
+          medium: 1.0  # 100-300m²
+          large: 0.9  # > 300m²
+    
+    OFFICE:
+      base: 200
+      factors:
+        age:
+          "<1950": 1.3
+          "1950-1980": 1.1
+          "1980-2000": 1.0
+          ">2000": 0.7
+        size:
+          small: 1.1
+          medium: 1.0
+          large: 0.8
+    
+    RETAIL:
+      base: 250
+      factors:
+        age:
+          "<1950": 1.3
+          "1950-1980": 1.1
+          "1980-2000": 1.0
+          ">2000": 0.7
+        size:
+          small: 1.2
+          medium: 1.0
+          large: 0.9
+    
+    INDUSTRIAL:
+      base: 300
+      factors:
+        age:
+          "<1950": 1.2
+          "1950-1980": 1.1
+          "1980-2000": 1.0
+          ">2000": 0.8
+        size:
+          small: 1.1
+          medium: 1.0
+          large: 0.9
+    
+    PUBLIC:
+      base: 180
+      factors:
+        age:
+          "<1950": 1.3
+          "1950-1980": 1.1
+          "1980-2000": 1.0
+          ">2000": 0.7
+        size:
+          small: 1.1
+          medium: 1.0
+          large: 0.9
+    
+    OTHER:
+      base: 200
+      factors:
+        age:
+          "<1950": 1.3
+          "1950-1980": 1.1
+          "1980-2000": 1.0
+          ">2000": 0.8
+        size:
+          small: 1.1
+          medium: 1.0
+          large: 0.9
+
+# WFS-spezifische Metriken
+wfs_metrics:
+  zoning:
+    enabled: true
+    layer_pattern: ".*zoning.*"
+    attributes:
+      - zone_type
+      - zone_name
+      - zone_code
+    search_radius: 50
+    
+  infrastructure:
+    enabled: true
+    layer_pattern: ".*infrastructure.*"
+    attributes:
+      - type
+      - name
+      - capacity
+    search_radius: 100
+    
+  transport:
+    enabled: true
+    layer_pattern: ".*transport.*|.*mobility.*"
+    attributes:
+      - type
+      - name
+      - capacity
+    search_radius: 200 
