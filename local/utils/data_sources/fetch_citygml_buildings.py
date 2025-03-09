@@ -463,10 +463,15 @@ if __name__ == "__main__":
     buildings_gdf = fetch_citygml_buildings(str(citygml_path), base_config)
     
     if buildings_gdf is not None:
-        # Speichere Ergebnisse
+        # Speichere als GeoJSON
         output_path = Path(__file__).resolve().parent.parent.parent / "data" / "outputs" / "citygml" / "buildings_raw.geojson"
         output_path.parent.mkdir(parents=True, exist_ok=True)
         buildings_gdf.to_file(output_path, driver='GeoJSON')
         logger.info(f"✅ Gebäude gespeichert nach: {output_path}")
+        
+        # Speichere als Shapefile für QGIS
+        shp_output_path = output_path.parent / "buildings_raw.shp"
+        buildings_gdf.to_file(shp_output_path, driver='ESRI Shapefile')
+        logger.info(f"✅ Gebäude als Shapefile gespeichert nach: {shp_output_path}")
     else:
         logger.error("❌ Keine Gebäude extrahiert") 
