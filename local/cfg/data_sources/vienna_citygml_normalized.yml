@@ -1,108 +1,55 @@
 citygml_fields:
-  building_id: '@gml:id'
-  height_ag: 'measuredHeight'
-  floors_ag: 'numberOfFloorsAboveGround'
-  roof_type: 'roofType'
+  building_id: "Building/@id"
+  height_ag: "Building/measuredHeight"
+  floors_ag: "Building/numberOfFloorsAboveGround"
+  floors_bg: "Building/numberOfFloorsBelowGround"
+  bldg_type: "Building/usage"
+  construction_year: "Building/yearOfConstruction"
+  usage: "Building/usage"
+  roof_type: "Building/roofType"
+  footprint_geometry: "Building/lod2Solid/Solid/exterior/CompositeSurface/surfaceMember/Polygon/exterior/LinearRing/posList"
+  name: "Building/name"
+  house_no: "Building/address/houseNumber"
+  street: "Building/address/street"
+  postcode: "Building/address/postalCode"
+  house_name: "Building/name"
+  city: "Building/address/city"
+  country: "Building/address/country"
 
 building_type_mapping:
-  "Wohngebäude": "AB"
-  "Nicht-Wohngebäude": "NWG"
+  "1000": "AB"
+  "2000": "NWG"
+  "3000": "OFFICE"
+  "4000": "RETAIL"
+  "5000": "INDUSTRIAL"
+  "6000": "HOSPITAL"
+  "7000": "SCHOOL"
+  "8000": "HOTEL"
 
 cea_fields:
-  zone:
-    Name:
-      type: "str"
-      format: "C(50)"
-      default: ""
-    floors_ag:
-      type: "int"
-      format: "N(2,0)"
-      default: 0
-    floors_bg:
-      type: "int"
-      format: "N(2,0)"
-      default: 0
-    height_ag:
-      type: "float"
-      format: "N(5,2)"
-      default: 0.0
-    height_bg:
-      type: "float"
-      format: "N(5,2)"
-      default: 0.0
-    REFERENCE:
-      type: "str"
-      format: "C(50)"
-      default: ""
-    house_no:
-      type: "str"
-      format: "C(10)"
-      default: ""
-    street:
-      type: "str"
-      format: "C(100)"
-      default: ""
-    postcode:
-      type: "str"
-      format: "C(10)"
-      default: ""
-    house_name:
-      type: "str"
-      format: "C(100)"
-      default: ""
-    resi_type:
-      type: "str"
-      format: "C(10)"
-      default: ""
-    city:
-      type: "str"
-      format: "C(100)"
-      default: "Wien"
-    country:
-      type: "str"
-      format: "C(50)"
-      default: "Austria"
-  typology:
-    Name:
-      type: "str"
-      format: "C(50)"
-      default: ""
-    YEAR:
-      type: "int"
-      format: "N(4,0)"
-      default: 2000
-    STANDARD:
-      type: "str"
-      format: "C(10)"
-      default: "AB"
-    1ST_USE:
-      type: "str"
-      format: "C(10)"
-      default: "MULTI_RES"
-    1ST_USER:
-      type: "float"
-      format: "N(4,2)"
-      default: 1.0
-    2ND_USE:
-      type: "str"
-      format: "C(10)"
-      default: "NONE"
-    2ND_USER:
-      type: "float"
-      format: "N(4,2)"
-      default: 0.0
-    3RD_USE:
-      type: "str"
-      format: "C(10)"
-      default: "NONE"
-    3RD_USER:
-      type: "float"
-      format: "N(4,2)"
-      default: 0.0
-    REFERENCE:
-      type: "str"
-      format: "C(50)"
-      default: ""
+  dbf:
+    Name: "C(50)"
+    BLDG_TYPE: "C(10)"
+    YEAR: "N(4,0)"
+    STANDARD: "C(10)"
+    USE1: "C(10)"
+    USE1_R: "N(4,2)"
+    USE2: "C(10)"
+    USE2_R: "N(4,2)"
+    USE3: "C(10)"
+    USE3_R: "N(4,2)"
+    REFERENCE: "C(50)"
+    house_no: "C(10)"
+    street: "C(50)"
+    postcode: "C(10)"
+    house_name: "C(50)"
+    city: "C(50)"
+    country: "C(50)"
+    floors_ag: "N(2,0)"
+    floors_bg: "N(2,0)"
+    height_ag: "N(5,2)"
+    height_bg: "N(5,2)"
+    resi_type: "C(10)"
 
 file_formats:
   shp_driver: "ESRI Shapefile"

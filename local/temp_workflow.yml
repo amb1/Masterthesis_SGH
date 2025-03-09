@@ -1,0 +1,15 @@
+scripts:
+- parameters:
+    databases: inputs/databases
+  script: data-initializer
+- parameters:
+    weather: inputs/weather/Vienna.epw
+  script: weather-helper
+- parameters:
+    output-format: csv
+    output-frequency: monthly
+  script: demand
+- parameters: {}
+  script: emissions
+- parameters: {}
+  script: system-costs

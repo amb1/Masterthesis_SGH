@@ -6,7 +6,7 @@ cycler==0.12.1
 dbf==0.99.9
 et_xmlfile==2.0.0
 fonttools==4.56.0
-geopandas==1.0.1
+geopandas>=0.13.0
 idna==3.10
 ifcopenshell==0.8.1.post1
 isodate==0.7.2
@@ -19,7 +19,7 @@ numpy==2.2.2
 openpyxl==3.1.5
 osmnx==2.0.1
 packaging==24.2
-pandas==2.2.3
+pandas>=2.0.0
 pillow==11.1.0
 pyogrio==0.10.0
 pyparsing==3.2.1
@@ -27,12 +27,15 @@ pyproj==3.7.0
 pyshp==2.3.1
 python-dateutil==2.9.0.post0
 pytz==2025.1
-PyYAML==6.0.2
-requests==2.32.3
+PyYAML>=6.0.0
+requests>=2.31.0
 scipy==1.15.1
-shapely==2.0.7
+shapely>=2.0.0
 simpledbf==0.2.6
 six==1.17.0
 typing_extensions==4.12.2
 tzdata==2025.1
 urllib3==2.3.0
+owslib>=0.29.0
+pytest>=7.4.0
+pytest-cov>=4.1.0

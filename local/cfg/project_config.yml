@@ -16,19 +16,96 @@ building_defaults:
   inherit: "../common_config.yml:common.building_defaults"
 
 # Datenquellenwahl
-data_source: "citygml"  # oder "geojson" abhängig vom verwendeten Datensat
+data_source:
+  osm:
+    overpass_endpoint: "https://overpass-api.de/api/interpreter"
+    timeout: 300
+  citygml:
+    base_path: "data/citygml"
+    file_pattern: "*.gml"
+    namespaces:
+      gml: "http://www.opengis.net/gml"
+      bldg: "http://www.opengis.net/citygml/building/2.0"
+      gen: "http://www.opengis.net/citygml/generics/2.0"
+      xAL: "urn:oasis:names:tc:ciq:xsdschema:xAL:2.0"
+      xlink: "http://www.w3.org/1999/xlink"
+      xsi: "http://www.w3.org/2001/XMLSchema-instance"
 
 # Projektinformationen
 project:
-  name: "Wien_Testgebiet"
+  name: "Test Project"
   location: "Wien"
-  description: "Testgebiet in Wien"
+  description: "Test project for CEA workflow"
   scenario: "baseline"
+  crs: "EPSG:31256"
 
-# WFS-Konfiguration wird aus wfs_config.yml importiert
-data_sources:
-  wfs:
-    inherit: "../wfs/wfs_config.yml:vienna_wfs"
+# WFS-Konfiguration
+vienna_wfs:
+  url: "https://data.wien.gv.at/daten/geo"
+  version: "2.0.0"
+  timeout: 30
+  retries: 3
+  bbox: [16.2264, 48.1182, 16.5775, 48.3231]  # Wien Bounding Box [min_lon, min_lat, max_lon, max_lat]
+  layers:
+    - name: "ogdwien:GEBAEUDEINFOOGD"
+      type: "building"
+      attributes:
+        - "ISN"
+        - "BISA"
+        - "STGN"
+        - "STGA"
+        - "BEZ"
+        - "HA_NAME"
+        - "BAUJAHR"
+        - "ARCHITEKT"
+        - "IDENT_1"
+        - "IDENT_2"
+        - "IDENT_3"
+        - "CONSCR_NR"
+        - "PR_MA19"
+        - "GESCH_ANZ"
+        - "BASIS_INV"
+        - "L_NUTZUNG"
+        - "L_BAUTYP"
+        - "NS"
+        - "ORIG_PARZ"
+        - "ORIG_FASS"
+        - "ORIG_KERN"
+        - "ORIG_FENSTER"
+        - "ORIG_DACH"
+        - "L_BAUJ"
+    - name: "ogdwien:FMZKBKMOGD"
+      type: "building"
+      attributes:
+        - "FMZK_ID"
+        - "F_KLASSE"
+        - "LAYER"
+        - "BEZUG"
+        - "H_KLASSE"
+        - "KLASSE_SUB"
+        - "O_KOTE"
+        - "U_KOTE"
+        - "HOEHE_DGM"
+        - "T_KOTE"
+        - "BW_GEB_ID"
+        - "BW_BRK_ID"
+        - "BW_SON_ID"
+
+# CityGML-Konfiguration
+citygml:
+  url: "https://data.wien.gv.at/daten/geo"
+  version: "2.0"
+  timeout: 30
+  retries: 3
+  layers:
+    buildings:
+      attributes:
+        - "building_id"
+        - "construction_year"
+        - "usage"
+        - "type"
+        - "floors"
+        - "foundation_type"
 
 # Logging-Konfiguration wird aus common_config.yml importiert
 logging:
@@ -49,15 +126,43 @@ file_formats:
 
 paths:
   inputs:
-    citygml: "data/citygml"
-    geojson: "data/geojson"
+    citygml: "data/inputs/citygml"
+    osm: "data/inputs/osm"
+    wfs: "data/inputs/wfs"
   outputs:
-    geometry: "geometry"
-    networks: "networks"
-    properties: "building-properties"
-    scenarios: "scenarios"
+    buildings: "data/outputs/buildings"
+    energy: "data/outputs/energy"
+    solar: "data/outputs/solar"
+    green: "data/outputs/green"
+    landuse: "data/outputs/landuse"
+    noise: "data/outputs/noise"
+  projects: "projects"
+  scenarios: "scenarios"
+
+osm:
+  timeout: 30
+  retries: 3
+  tags:
+    buildings:
+      - "building"
+    infrastructure:
+      - "highway"
+      - "railway"
+    natural:
+      - "natural"
+      - "landuse"
 
 defaults:
   project_name: "CityGMLProject"
   scenario_name: "baseline"
-  crs: "../common_config.yml:common.crs"
+
+validation:
+  required_fields:
+    buildings:
+      - "geometry"
+      - "height"
+      - "floors"
+    streets:
+      - "geometry"
+      - "highway"
+      - "lanes"

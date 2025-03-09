@@ -2,8 +2,8 @@ paths:
   input:
     format: citygml
     files:
-      citygml: "data/citygml/099082.gml"
-      geojson: "data/input/buildings.geojson"
+      citygml: "local/data/citygml/099082.gml"
+      geojson: "local/data/geojson/buildings.geojson"
   scenario_folders:
     inputs:
       building-geometry: "inputs/building-geometry"
@@ -13,6 +13,9 @@ paths:
     outputs:
       results: "outputs/results"
       plots: "outputs/plots"
+  cea_inputs: "inputs"
+  cea_outputs: "outputs"
+  cea_temp: "temp"
 
 cea_settings:
   scenario_path: ""
@@ -20,6 +23,26 @@ cea_settings:
   reference_case: "reference-case"
   sensitivity_analysis: false
   optimization: false
+  building:
+    default_height: 20.0
+    default_floors: 5
+    default_occupancy: 0.8
+    default_construction_year: 1990
+    
+  network:
+    default_lane_width: 3.5
+    default_speed_limit: 50
+    default_capacity: 1000
+    
+  simulation:
+    start_date: "2024-01-01"
+    end_date: "2024-12-31"
+    time_step: 3600  # 1 hour in seconds
+    
+  output:
+    save_intermediate: true
+    format: "geojson"
+    crs: "EPSG:31256"
 
 osm_defaults:
   building_height: 12

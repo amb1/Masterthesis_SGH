@@ -8,16 +8,22 @@ import geopandas as gpd
 from simpledbf import Dbf5
 import time
 from shapely.geometry import Point
+import logging
+
+# Konfiguriere Logger
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 # Füge das lokale Verzeichnis zum Python-Path hinzu
 local_dir = Path(__file__).resolve().parent
 sys.path.append(str(local_dir))
 
 from utils.data_processing.create_site_polygon import create_site_polygon, save_site_polygon
-from utils.data_sources.fetch_citygml_buildings import fetch_citygml_buildings
-from utils.CEA.run_cea_workflow import run_cea_workflow
-from utils.data_sources.fetch_wfs_data import ViennaWFS
-from utils.data_processing.cea_building_processor import CEABuildingProcessor
+from utils.data_sources.fetch_citygml_buildings import fetch_citygml_buildings, CityGMLBuildingProcessor as CityGMLFetcher
+from utils.data_sources.fetch_osm_buildings import fetch_surrounding_buildings, process_osm_buildings, save_surrounding_buildings
+from utils.data_sources.fetch_osm_streets import fetch_osm_streets
+from utils.data_sources.fetch_wfs_data import ViennaWFS as WFSFetcher
+from utils.data_processing.config_loader import load_config
 
 def get_project_info(args=None):
     """
@@ -65,245 +71,245 @@ def get_project_info(args=None):
     
     return project_name, scenario_name, project_path, scenario_path
 
-def setup_project_structure(project_path, scenario_path):
-    """Erstellt die Projektstruktur"""
-    # absoluter Pfad zum Projekthauptverzeichnis
-    script_path = os.path.abspath(__file__)  
-    project_root = os.path.dirname(script_path) 
-    config_path = os.path.join(project_root, 'cfg', 'cea_config.yml')
-    
-    # Debug-Ausgabe
-    print(f"Script Pfad: {script_path}")
-    print(f"Projekt Root: {project_root}")
-    print(f"Suche Konfigurationsdatei unter: {config_path}")
-    
-    # Lade die globale Konfiguration
-    if not os.path.exists(config_path):
-        raise FileNotFoundError(f"Template-Konfigurationsdatei nicht gefunden unter: {config_path}")
-        
-    with open(config_path, 'r') as f:
-        config = yaml.safe_load(f)
-    
-    # Erstelle Hauptverzeichnisse
-    for path in [project_path, scenario_path]:
-        path.mkdir(parents=True, exist_ok=True)
-    
-    # Erstelle Szenario-Unterverzeichnisse basierend auf der Konfiguration
-    for folder in config['paths']['scenario_folders']['inputs'].values():
-        (scenario_path / folder).mkdir(parents=True, exist_ok=True)
-    
-    # Kopiere oder erstelle cea_config.yml im Szenarioverzeichnis
-    scenario_config = scenario_path / "cea_config.yml"
-    
-    if not scenario_config.exists():
-        # Verwende den gleichen config_path wie oben
-        if os.path.exists(config_path):
-            with open(config_path, 'r', encoding='utf-8') as src:
-                config = yaml.safe_load(src)
-                
-                # Aktualisiere den Szenariopfad für CEA
-                config['cea_settings']['scenario_path'] = str(scenario_path)
-                
-                with scenario_config.open('w', encoding='utf-8') as dst:
-                    yaml.dump(config, dst, allow_unicode=True)
-        else:
-            raise FileNotFoundError(f"Template-Konfigurationsdatei nicht gefunden unter: {config_path}")
-    
-    return config
-
-def create_site_polygon(zone_path):
-    """Erstellt ein Site-Polygon aus der Zone"""
+def setup_project_structure(project_path: Path, scenario_path: Path) -> dict:
+    """Erstellt die CEA-Projektstruktur"""
     try:
-        zone_gdf = gpd.read_file(zone_path)
-        site_polygon = zone_gdf.unary_union.convex_hull
-        site_gdf = gpd.GeoDataFrame(geometry=[site_polygon])
-        site_path = os.path.join(zone_path.parent, "site.shp")
-        site_gdf.to_file(site_path)
-        return site_path
+        # Erstelle Verzeichnisstruktur
+        dirs = {
+            'inputs': {
+                'building-geometry': ['zone.shp', 'site.shp', 'surroundings.shp'],
+                'building-properties': ['typology.dbf'],
+                'networks': ['streets.shp']
+            },
+            'outputs': {
+                'data': ['zone_enriched.geojson']
+            }
+        }
+        
+        # Erstelle Verzeichnisse
+        for parent, children in dirs.items():
+            parent_path = scenario_path / parent
+            parent_path.mkdir(parents=True, exist_ok=True)
+            
+            for child, files in children.items():
+                child_path = parent_path / child
+                child_path.mkdir(parents=True, exist_ok=True)
+                
+                # Erstelle leere Dateien
+                for file in files:
+                    file_path = child_path / file
+                    if not file_path.exists():
+                        file_path.touch()
+        
+        return {
+            'project': project_path,
+            'scenario': scenario_path,
+            'geometry': scenario_path / 'inputs' / 'building-geometry',
+            'properties': scenario_path / 'inputs' / 'building-properties',
+            'networks': scenario_path / 'inputs' / 'networks',
+            'outputs': scenario_path / 'outputs' / 'data'
+        }
+        
     except Exception as e:
-        print(f"Fehler beim Erstellen des Site-Polygons: {str(e)}")
+        print(f"❌ Fehler beim Erstellen der Projektstruktur: {str(e)}")
         raise
 
-def check_required_files(geometry_path, properties_path):
-    """Überprüft ob alle notwendigen Dateien existieren"""
-    required_files = {
-        'geometry': [
-            geometry_path / 'zone.shp',
-            geometry_path / 'site.shp',
-            geometry_path / 'surroundings.shp'
-        ],
-        'properties': [
-            properties_path / 'typology.shp'
-        ],
-        'networks': [
-            geometry_path.parent / 'networks' / 'streets.shp'
-        ]
-    }
-    
-    missing_files = []
-    for category, files in required_files.items():
-        for file_path in files:
-            if not file_path.exists():
-                missing_files.append(file_path)
-    
-    if missing_files:
-        print("\nFehlende Dateien:")
-        for file_path in missing_files:
-            print(f"- {file_path}")
-        return False
-    
-    return True
-
-def convert_csv_to_shp(csv_path: Path, shp_path: Path, config: dict) -> None:
-    """Konvertiert eine CSV-Datei in ein Shapefile mit den definierten Feldern."""
-    try:
-        # Lade die CSV-Datei
-        df = pd.read_csv(csv_path)
-        
-        # Erstelle leere Geometrien für jedes Gebäude
-        empty_geometry = [Point(0, 0) for _ in range(len(df))]
-        
-        # Erstelle GeoDataFrame mit den definierten Feldern
-        gdf = gpd.GeoDataFrame(
-            df,
-            geometry=empty_geometry,
-            crs="EPSG:4326"
-        )
-        
-        # Stelle sicher, dass das Zielverzeichnis existiert
-        shp_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        # Speichere als Shapefile mit den definierten Feldern
-        gdf.to_file(shp_path, driver='ESRI Shapefile')
-        
-        # Kurze Verzögerung, um sicherzustellen, dass die Datei geschrieben wurde
-        time.sleep(0.1)
-        
-        # Überprüfe, ob die Datei existiert
-        if not shp_path.exists():
-            raise FileNotFoundError(f"Shapefile konnte nicht erstellt werden: {shp_path}")
-            
-    except Exception as e:
-        raise Exception(f"Fehler beim Konvertieren der CSV-Datei in Shapefile: {str(e)}")
-
-def load_config(config_path: Path) -> dict:
-    """Lädt die Konfigurationsdateien."""
-    try:
-        print(f"Lade Konfiguration: {config_path}")
-        if not config_path.exists():
-            raise FileNotFoundError(f"Konfigurationsdatei nicht gefunden: {config_path}")
-            
-        with open(config_path, encoding='utf-8') as f:
-            config = yaml.safe_load(f)
-            
-        if config is None:
-            raise ValueError(f"Konfigurationsdatei ist leer: {config_path}")
-            
-        return config
-        
-    except Exception as e:
-        print(f"❌ Fehler beim Laden der Konfiguration {config_path}: {str(e)}")
-        return None
-
-def process_citygml(config, geometry_path, properties_path):
-    """Verarbeitet CityGML Datei"""
-    try:
-        # Definiere project_root
-        project_root = Path(__file__).resolve().parent
-
-        # Lade CityGML Konfiguration
-        citygml_config = load_config(project_root / "cfg" / "data_sources" / "vienna_citygml_normalized.yml")
-        if not citygml_config:
-            raise Exception("Fehler beim Laden der CityGML Konfiguration")
-
-        # Lade CEA Konfiguration
-        cea_config = load_config(project_root / "cfg" / "cea" / "cea_fields.yml")
-        if not cea_config:
-            raise Exception("Fehler beim Laden der CEA Konfiguration")
-
-        # Lade Projekt Konfiguration
-        project_config = load_config(project_root / "cfg" / "project_config.yml")
-        if not project_config:
-            raise Exception("Fehler beim Laden der Projekt Konfiguration")
-
-        # Verarbeite CityGML
-        input_file = project_root / project_config['paths']['inputs']['citygml'] / "099082.gml"
-        if not input_file.exists():
-            raise FileNotFoundError(f"CityGML Datei nicht gefunden: {input_file}")
-
-        print(f"Verarbeite CityGML: {input_file}")
-        buildings_gdf = fetch_citygml_buildings(
-            citygml_path=input_file,
-            config=citygml_config,
-            cea_config=cea_config
-        )
-
-        if buildings_gdf is None:
-            raise Exception("Keine Gebäude in der CityGML-Datei gefunden")
-
-        # Speichere Ergebnisse
-        buildings_gdf.to_file(geometry_path / "zone.shp", driver="ESRI Shapefile")
-        print(f"✅ Geometrien gespeichert in: {geometry_path / 'zone.shp'}")
-
-        # Erstelle Properties DataFrame
-        properties_df = buildings_gdf.drop(columns=['geometry'])
-        properties_df.to_csv(properties_path / "typology.csv", index=False)
-        print(f"✅ Eigenschaften gespeichert in: {properties_path / 'typology.csv'}")
-
-        return buildings_gdf
-
-    except Exception as e:
-        raise Exception(f"Fehler bei der Verarbeitung der CityGML-Datei: {str(e)}")
-
 def main():
-    """Hauptfunktion zum Ausführen des CEA-Workflows."""
+    """Hauptfunktion für den CEA-Workflow"""
     try:
+        # Lade Konfigurationen
+        config = load_configs()
+        
         # Hole Projektinformationen
         project_name, scenario_name, project_path, scenario_path = get_project_info()
         
         # Erstelle Projektstruktur
-        config = setup_project_structure(project_path, scenario_path)
+        project_dir = setup_project_structure(project_path, scenario_path)
         
-        # Definiere Pfade
-        properties_path = scenario_path / "inputs" / "building-properties"
-        geometry_path = scenario_path / "inputs" / "building-geometry"
+        # Initialisiere WFS Service einmalig
+        wfs_config = {'vienna_wfs': config['wfs']}  # Korrigiere Konfigurationsstruktur
+        wfs_fetcher = WFSFetcher(wfs_config)
         
-        # Lade Konfiguration
-        config = load_config(local_dir / "cfg" / "data_sources" / "vienna_citygml_normalized.yml")
+        # Hole initiale Gebäudedaten mit einer großzügigen Bounding Box für Wien
+        logger.info("🔄 Hole initiale Gebäudedaten...")
+        initial_bbox = [16.2264, 48.1182, 16.5775, 48.3231]  # Temporäre Box für ersten Abruf
+        buildings_gdf = wfs_fetcher.fetch_building_model(initial_bbox)
         
-        # Initialisiere CEA Building Processor
-        cea_processor = CEABuildingProcessor(config)
+        if buildings_gdf is None or buildings_gdf.empty:
+            raise ValueError("❌ Keine Gebäude im Suchbereich gefunden!")
         
-        # Verarbeite Gebäude
-        buildings = process_citygml(config, geometry_path, properties_path)
+        # Erstelle Site Polygon
+        logger.info("📐 Erstelle Site-Polygon...")
+        site_polygon = create_site_polygon(buildings_gdf)
+        site_path = project_dir['geometry'] / 'site.shp'
+        save_site_polygon(site_polygon, site_path)
         
-        # Verarbeite Gebäude für CEA
-        processed_buildings = []
-        for building in buildings:
-            processed = cea_processor.process_building(building)
-            processed_buildings.append(processed)
-            
-        # Erstelle DataFrames für die Shapefiles
-        zone_df = pd.DataFrame(processed_buildings)
-        typology_df = pd.DataFrame(processed_buildings)
+        # Verwende die präzise Bounding Box aus dem Site-Polygon
+        bbox = site_polygon.total_bounds
+        logger.info(f"📍 Verwende präzise Bounding Box: {bbox}")
         
-        # Speichere als CSV
-        zone_csv = properties_path / 'zone.csv'
-        typology_csv = properties_path / 'typology.csv'
-        zone_df.to_csv(zone_csv, index=False)
-        typology_df.to_csv(typology_csv, index=False)
+        # Hole die finalen Gebäudedaten
+        logger.info("🔄 Hole finale Gebäudedaten...")
+        buildings_gdf = wfs_fetcher.fetch_building_model(bbox)
         
-        # Konvertiere zu Shapefiles
-        zone_shp = properties_path / 'zone.shp'
-        typology_shp = properties_path / 'typology.shp'
-        convert_csv_to_shp(zone_csv, zone_shp, config)
-        convert_csv_to_shp(typology_csv, typology_shp, config)
+        if buildings_gdf is None or buildings_gdf.empty:
+            raise ValueError("❌ Keine Gebäude im finalen Suchbereich gefunden!")
         
-        print("✓ CEA-Dateien erstellt")
-
+        # Hole Umgebungsgebäude
+        logger.info("🏘️ Hole Umgebungsgebäude...")
+        surroundings_gdf = fetch_surrounding_buildings(site_polygon, config['osm'])
+        surroundings_gdf = process_osm_buildings(surroundings_gdf, config['osm']['building_defaults'])
+        surroundings_path = project_dir['geometry'] / 'surroundings.shp'
+        save_surrounding_buildings(surroundings_gdf, surroundings_path)
+        
+        # Hole Straßendaten
+        logger.info("🛣️ Hole Straßendaten...")
+        streets_gdf = fetch_osm_streets(site_polygon, config['osm']['street_tags'])
+        streets_path = project_dir['networks'] / 'streets.shp'
+        streets_gdf.to_file(streets_path)
+        
+        # Kombiniere und bereichere Daten
+        logger.info("🔄 Bereichere Gebäudedaten...")
+        enriched_gdf = enrich_building_data(buildings_gdf, wfs_fetcher.fetch_data(bbox))
+        enriched_path = project_dir['outputs'] / 'zone_enriched.geojson'
+        enriched_gdf.to_file(enriched_path, driver='GeoJSON')
+        
+        # Erstelle CEA-Dateien
+        logger.info("📄 Erstelle CEA-Dateien...")
+        create_cea_files(enriched_gdf, project_dir, config)
+        
+        logger.info("✅ CEA-Workflow erfolgreich abgeschlossen")
+        
     except Exception as e:
-        print(f"❌ Fehler beim Ausführen des CEA-Workflows: {str(e)}")
+        logger.error(f"❌ Fehler im CEA-Workflow: {str(e)}")
         raise
+
+def create_cea_files(zone_gdf: gpd.GeoDataFrame, output_dir: Path, config: dict):
+    """Erstellt die CEA-kompatiblen Dateien aus den angereicherten Daten"""
+    try:
+        # Lade Mapping-Konfiguration
+        mapping_config = config['cea']['mapping']
+        
+        # Erstelle zone.shp
+        zone_mappings = mapping_config['zone_shp']['mappings']
+        zone_gdf = zone_gdf.copy()
+        
+        # Mappe und transformiere Felder
+        for target_col, mapping in zone_mappings.items():
+            source_col = mapping['source']
+            transform_type = mapping['transform']
+            
+            if source_col in zone_gdf.columns:
+                if transform_type == 'int':
+                    zone_gdf[target_col] = zone_gdf[source_col].astype(int)
+                elif transform_type == 'float':
+                    zone_gdf[target_col] = zone_gdf[source_col].astype(float)
+                else:
+                    zone_gdf[target_col] = zone_gdf[source_col].astype(str)
+            else:
+                zone_gdf[target_col] = None
+        
+        # Speichere zone.shp
+        zone_path = output_dir / 'inputs' / 'building-geometry' / 'zone.shp'
+        zone_gdf.to_file(zone_path)
+        
+        # Erstelle typology.dbf
+        typology_mappings = mapping_config['typology_dbf']['mappings']
+        typology_df = pd.DataFrame()
+        
+        # Mappe und transformiere Felder
+        for target_col, mapping in typology_mappings.items():
+            source_col = mapping['source']
+            transform_type = mapping['transform']
+            
+            if source_col in zone_gdf.columns:
+                if transform_type == 'int':
+                    typology_df[target_col] = zone_gdf[source_col].astype(int)
+                elif transform_type == 'float':
+                    typology_df[target_col] = zone_gdf[source_col].astype(float)
+                else:
+                    typology_df[target_col] = zone_gdf[source_col].astype(str)
+            else:
+                typology_df[target_col] = None
+        
+        # Speichere typology.dbf
+        typology_path = output_dir / 'inputs' / 'building-properties' / 'typology.dbf'
+        typology_df.to_dbf(typology_path)
+        
+        logger.info(f"CEA-Dateien erstellt: {zone_path}, {typology_path}")
+        
+    except Exception as e:
+        logger.error(f"Fehler beim Erstellen der CEA-Dateien: {str(e)}")
+        raise
+
+def load_configs() -> dict:
+    """Lädt alle Konfigurationsdateien"""
+    try:
+        configs = {
+            'project': load_config(local_dir / "cfg" / "project_config.yml"),
+            'wfs': load_config(local_dir / "cfg" / "wfs" / "wfs_config.yml")['vienna_wfs'],
+            'osm': load_config(local_dir / "cfg" / "data_sources" / "osm_config.yml"),
+            'cea': {
+                'fields': load_config(local_dir / "cfg" / "cea" / "cea_fields.yml"),
+                'mapping': load_config(local_dir / "cfg" / "cea" / "cea_mapping.yml")
+            }
+        }
+        
+        if not all(configs.values()):
+            raise ValueError("❌ Fehler beim Laden der Konfigurationsdateien")
+            
+        # Stelle sicher, dass die WFS-Konfiguration korrekt ist
+        if 'wfs' not in configs or not isinstance(configs['wfs'], dict):
+            raise ValueError("❌ Ungültige WFS-Konfiguration")
+            
+        return configs
+        
+    except Exception as e:
+        logger.error(f"❌ Fehler beim Laden der Konfigurationen: {str(e)}")
+        raise
+
+def enrich_building_data(buildings_gdf: gpd.GeoDataFrame, wfs_data: dict) -> gpd.GeoDataFrame:
+    """Reichert die Gebäudedaten mit WFS-Daten an"""
+    try:
+        enriched_gdf = buildings_gdf.copy()
+        
+        if not wfs_data:
+            logger.warning("⚠️ Keine WFS-Daten zum Anreichern verfügbar")
+            return enriched_gdf
+        
+        # Verarbeite jeden WFS Layer
+        for layer_name, layer_data in wfs_data.items():
+            if layer_data is None or layer_data.empty:
+                logger.warning(f"⚠️ Keine Daten für Layer {layer_name}")
+                continue
+                
+            logger.info(f"🔄 Reichere Daten mit {layer_name} an...")
+            
+            try:
+                # Führe räumliche Verknüpfung durch
+                joined = gpd.sjoin_nearest(
+                    enriched_gdf,
+                    layer_data,
+                    how='left',
+                    distance_col='distance'
+                )
+                
+                # Füge neue Spalten hinzu (ohne Geometrie und Index)
+                for col in layer_data.columns:
+                    if col not in ['geometry', 'index', 'index_right'] and col not in enriched_gdf.columns:
+                        enriched_gdf[f"{layer_name}_{col}"] = joined[col]
+                        
+                logger.info(f"✅ Layer {layer_name} erfolgreich verarbeitet")
+                
+            except Exception as e:
+                logger.error(f"❌ Fehler beim Anreichern mit Layer {layer_name}: {str(e)}")
+                continue
+        
+        return enriched_gdf
+        
+    except Exception as e:
+        logger.error(f"❌ Fehler beim Anreichern der Gebäudedaten: {str(e)}")
+        return buildings_gdf
 
 if __name__ == "__main__":
     main() 

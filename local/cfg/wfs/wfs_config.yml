@@ -1,31 +1,54 @@
 vienna_wfs:
-  # Basis-Konfiguration wird aus common_config.yml importiert
-  inherit: "../common_config.yml:common.wfs"
-  crs: "../common_config.yml:common.crs"
+  # Basis-Konfiguration
+  url: "https://data.wien.gv.at/daten/geo"
+  version: "1.1.0"
+  request: "GetFeature"
+  typeNames: "ogdwien:GEBAEUDEINFOOGD"
+  outputFormat: "json"
+  srsName: "EPSG:31256"
+  maxFeatures: 1000
+  timeout: 30
+  retries: 3
 
   # WFS Streams
   streams:
-    - name: "Wien Gebäudealter"
-      layer: "ogdwien:GEBAEUDETYPOGD"
-      mapping:
+    - name: "Gebäudeinfo"
+      layer: "ogdwien:GEBAEUDEINFOOGD"
+      fields:
+        building_id: "OBJECTID"
+        name: "BEZEICHNUNG"
+        house_no: "HAUSNUMMER"
+        street: "STRASSE"
+        postcode: "PLZ"
+        city: "STADT"
+        country: "LAND"
         construction_year: "BAUJAHR"
-        renovation_year: "SANIERUNG"
-        mapping_rules:
-          construction_year:
-            type: "integer"
-            default: "../common_config.yml:common.building_defaults.construction_year"
-            validation:
-              min: 1800
-              max: 2023
-
-    - name: "Wien Gebäudenutzung"
-      layer: "ogdwien:REALNUT2022OGD"
+        floors_ag: "ANZAHL_OBERIRDISCH"
+        floors_bg: "ANZAHL_KELLER"
+        height_ag: "HOEHE_OBERIRDISCH"
+        height_bg: "HOEHE_KELLER"
+        bldg_type: "GEBAEUDEKATEGORIE"
+        usage: "NUTZUNG"
+        
       mapping:
-        usage_type: "NUTZUNG"
-        usage_mapping:
-          "Wohngebäude": "RESIDENTIAL"
-          "Bürogebäude": "OFFICE"
-          "Bildungseinrichtung": "SCHOOL"
+        building_type:
+          "1000": "AB"
+          "2000": "NWG"
+          "3000": "OFFICE"
+          "4000": "RETAIL"
+          "5000": "INDUSTRIAL"
+          "6000": "HOSPITAL"
+          "7000": "SCHOOL"
+          "8000": "HOTEL"
+          
+        usage:
+          "WOHNUNG": "MULTI_RES"
+          "BUERO": "OFFICE"
+          "HANDEL": "RETAIL"
+          "INDUSTRIE": "INDUSTRIAL"
+          "KRANKENHAUS": "HOSPITAL"
+          "SCHULE": "SCHOOL"
+          "HOTEL": "HOTEL"
 
     - name: "Wien Gebäudeinfo"
       layer: "ogdwien:GEBAEUDEINFOOGD"
@@ -119,7 +142,7 @@ vienna_wfs:
   # Layer-Definitionen
   layers:
     buildings:
-      name: "ogdwien:GEBAEUDEINFOOGD"
+      name: "GEBAEUDE_1_0_0"
       attributes:
         - OBJECTID
         - BAUJAHR
@@ -203,6 +226,21 @@ vienna_wfs:
         - VOLUMEN
         - GESCH_ANZ
         - BAUJAHR
+
+    land_use_2022:
+      name: "ogdwien:REALNUT2022OGD"
+      attributes:
+        - OBJECTID
+        - BEZ
+        - ZBEZ
+        - ZGEB
+        - BLK
+        - NUTZUNG_CODE
+        - NUTZUNG_LEVEL1
+        - NUTZUNG_LEVEL2
+        - NUTZUNG_LEVEL3
+        - FLAECHE
+        - SE_ANNO_CAD_DATA
 
   # Feld-Mapping für die Normalisierung
   field_mapping:

@@ -8,6 +8,9 @@ cea_fields:
     USE1_R: "N(4,2)"
     USE2: "C(10)"
     USE2_R: "N(4,2)"
+    USE3: "C(10)"
+    USE3_R: "N(4,2)"
+    REFERENCE: "C(50)"
 
   # Adressdaten
   house_no: ""
@@ -30,6 +33,83 @@ cea_fields:
   1ST_USE_R: "calculated"
   2ND_USE: "NONE"
   2ND_USE_R: 0.0
+  3RD_USE: "NONE"
+  3RD_USE_R: 0.0
 
   # Gebäudestandard
   REFERENCE: "{{ project_name }}"  # Wird aus project_config.yml übernommen
+
+zone_shp:
+  fields:
+    Name:
+      type: string
+      required: true
+    floors_ag:
+      type: integer
+      required: true
+    floors_bg:
+      type: integer
+      required: true
+    height_ag:
+      type: float
+      required: true
+    height_bg:
+      type: float
+      required: true
+    REFERENCE:
+      type: string
+      required: true
+    house_no:
+      type: string
+      required: true
+    street:
+      type: string
+      required: true
+    postcode:
+      type: string
+      required: true
+    house_name:
+      type: string
+      required: true
+    resi_type:
+      type: string
+      required: true
+    city:
+      type: string
+      required: true
+    country:
+      type: string
+      required: true
+
+typology_dbf:
+  fields:
+    Name:
+      type: string
+      required: true
+    YEAR:
+      type: integer
+      required: true
+    STANDARD:
+      type: string
+      required: true
+    USE1:
+      type: string
+      required: true
+    USE1_R:
+      type: float
+      required: true
+    USE2:
+      type: string
+      required: true
+    USE2_R:
+      type: float
+      required: true
+    USE3:
+      type: string
+      required: true
+    USE3_R:
+      type: float
+      required: true
+    REFERENCE:
+      type: string
+      required: true

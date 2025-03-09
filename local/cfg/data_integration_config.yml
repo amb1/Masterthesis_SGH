@@ -1,0 +1,110 @@
+# Konfiguration für die Datenintegration
+
+# Allgemeine Einstellungen
+general:
+  output_dir: "output"
+  crs: "EPSG:31256"
+  timeout: 30
+  retries: 3
+
+# WFS-Konfiguration
+wfs:
+  inherit: "wfs/wfs_config.yml:vienna_wfs"
+
+# CityGML-Konfiguration
+citygml:
+  url: "https://data.wien.gv.at/daten/geo"
+  version: "2.0"
+  timeout: 30
+  retries: 3
+  layers:
+    - name: "Gebäude"
+      type: "Building"
+      attributes:
+        - building_id
+        - construction_year
+        - usage
+        - type
+        - floors
+        - foundation_type
+
+# OSM-Konfiguration
+osm:
+  timeout: 30
+  retries: 3
+  tags:
+    building:
+      - building
+      - amenity
+      - landuse
+    infrastructure:
+      - highway
+      - railway
+      - waterway
+    natural:
+      - natural
+      - landcover
+
+# Datenintegration
+integration:
+  # Felder für die Zusammenführung
+  merge_fields:
+    buildings:
+      - building_id
+      - construction_year
+      - usage
+      - type
+      - floors
+      - foundation_type
+    energy:
+      - energy_id
+      - measurement_date
+      - energy_class
+      - energy_label
+      - energy_performance
+    solar_potential:
+      - solar_id
+      - potential_class
+    green_spaces:
+      - green_id
+      - type
+      - area
+    land_use:
+      - landuse_id
+      - designation_class
+      - designation_class_text
+      - designation
+      - designation_text
+      - area
+    noise_protection:
+      - noise_id
+      - description
+      - length
+      - area
+      - min_height
+      - max_height
+
+  # Validierungseinstellungen
+  validation:
+    required_fields:
+      - building_id
+      - geometry
+    geometry_types:
+      - Polygon
+      - MultiPolygon
+    crs: "EPSG:31256"
+
+  # Ausgabeformate
+  output_formats:
+    - format: "shp"
+      driver: "ESRI Shapefile"
+    - format: "geojson"
+      driver: "GeoJSON"
+    - format: "gpkg"
+      driver: "GPKG"
+
+  # Logging
+  logging:
+    level: "INFO"
+    file: "data_integration.log"
+    format: "%(asctime)s - %(levelname)s - %(message)s" 

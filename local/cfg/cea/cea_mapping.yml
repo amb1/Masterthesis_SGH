@@ -84,7 +84,7 @@ cea_mapping:
       osm: "osm_buildings_normalized:construction_year"
 
   # Gebäudetyp (abgeleitet aus Mapping-Tabellen in den Normalized-Dateien)
-    BUILDING_TYPE:
+  BUILDING_TYPE:
     source: "{project_config.yml:data_source}"
     mappings:
       citygml: "vienna_citygml_normalized:building_type"
@@ -121,6 +121,40 @@ cea_mapping:
         
         return standard
 
+  # Nutzungsanteile
+  USE1:
+    source: "{project_config.yml:data_source}"
+    mappings:
+      citygml: "vienna_citygml_normalized:usage"
+      wfs: "vienna_wfs_normalized:usage_type"
+      geojson: "ascend_geojson_normalized:primary_use"
+      osm: "osm_buildings_normalized:building_use"
+  USE1_R:
+    derived: true
+    calculation:
+      inputs: ["USE1"]
+      logic: "1.0 if USE1 else 0.0"
+  USE2:
+    derived: true
+    calculation:
+      inputs: ["USE1"]
+      logic: "NONE"
+  USE2_R:
+    derived: true
+    calculation:
+      inputs: ["USE2"]
+      logic: "0.0"
+  USE3:
+    derived: true
+    calculation:
+      inputs: ["USE1"]
+      logic: "NONE"
+  USE3_R:
+    derived: true
+    calculation:
+      inputs: ["USE3"]
+      logic: "0.0"
+
   # Erweiterte Eigenschaften
   roof_type: 
     source: "{project_config.yml:data_source}"
@@ -136,3 +170,78 @@ cea_mapping:
     source: "{project_config.yml:data_source}"
     mappings:
       geojson: "ascend_geojson_normalized:gfa"
+
+zone_shp:
+  mappings:
+    Name:
+      source: name
+      transform: str
+    floors_ag:
+      source: floors_above_ground
+      transform: int
+    floors_bg:
+      source: floors_below_ground
+      transform: int
+    height_ag:
+      source: height_above_ground
+      transform: float
+    height_bg:
+      source: height_below_ground
+      transform: float
+    REFERENCE:
+      source: building_id
+      transform: str
+    house_no:
+      source: house_number
+      transform: str
+    street:
+      source: street_name
+      transform: str
+    postcode:
+      source: postal_code
+      transform: str
+    house_name:
+      source: building_name
+      transform: str
+    resi_type:
+      source: building_type
+      transform: str
+    city:
+      source: city_name
+      transform: str
+    country:
+      source: country_code
+      transform: str
+
+typology_dbf:
+  mappings:
+    Name:
+      source: name
+      transform: str
+    YEAR:
+      source: construction_year
+      transform: int
+    STANDARD:
+      source: building_standard
+      transform: str
+    USE1:
+      source: primary_use
+      transform: str
+    USE1_R:
+      source: primary_use_ratio
+      transform: float
+    USE2:
+      source: secondary_use
+      transform: str
+    USE2_R:
+      source: secondary_use_ratio
+      transform: float
+    USE3:
+      source: tertiary_use
+      transform: str
+    USE3_R:
+      source: tertiary_use_ratio
+      transform: float
+    REFERENCE:
+      source: building_id
+      transform: str
