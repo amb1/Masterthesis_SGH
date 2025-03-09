@@ -204,7 +204,8 @@ class CityGMLBuildingProcessor:
             pos_list = polygon.find('.//{http://www.opengis.net/gml}posList', namespaces=self.ns)
             if pos_list is not None and pos_list.text:
                 coords = [float(x) for x in pos_list.text.split()]
-                return [(coords[i], coords[i+1]) for i in range(0, len(coords)-1, 3)]
+                # Berücksichtige 3D-Koordinaten (x,y,z)
+                return [(coords[i], coords[i+1]) for i in range(0, len(coords), 3)]
             
             # Versuche dann coordinates
             coordinates = polygon.find('.//{http://www.opengis.net/gml}coordinates', namespaces=self.ns)
@@ -380,9 +381,9 @@ class CityGMLBuildingProcessor:
                 
                 for part in building_parts:
                     part_geom = self._extract_geometry(part)
-                    if part_geom is not None and part_geom.is_valid:
-                        if not part_geom.intersects(geometry):
-                            part_geometries.append(part_geom)
+                    if part_geom is not None:
+                        # Füge BuildingPart-Geometrie hinzu, auch wenn sie das Hauptgebäude überlappt
+                        part_geometries.append(part_geom)
                     
                     part_attrs = self._extract_generic_attributes(part)
                     if 'measuredHeight' in part_attrs:
@@ -391,7 +392,12 @@ class CityGMLBuildingProcessor:
                 # Füge BuildingPart-Geometrien hinzu
                 if part_geometries:
                     all_geometries = [geometry] + part_geometries
-                    building_data['geometry'] = MultiPolygon(all_geometries)
+                    # Vereinige überlappende Geometrien
+                    union = unary_union(all_geometries)
+                    if isinstance(union, Polygon):
+                        building_data['geometry'] = union
+                    else:
+                        building_data['geometry'] = MultiPolygon(all_geometries)
                 
                 # Berechne durchschnittliche Höhe der BuildingParts
                 if part_heights:
@@ -407,7 +413,8 @@ class CityGMLBuildingProcessor:
         """Extrahiert alle Gebäude aus einer CityGML-Datei."""
         try:
             # Parse CityGML file
-            tree = etree.parse(citygml_path)
+            parser = etree.XMLParser(resolve_entities=False)
+            tree = etree.parse(citygml_path, parser=parser)
             root = tree.getroot()
             self.ns = root.nsmap
 
@@ -435,7 +442,10 @@ class CityGMLBuildingProcessor:
 
             # Verarbeite Gebäude
             processed_buildings = []
-            for building in root.findall('.//{http://www.opengis.net/citygml/building/1.0}Building', namespaces=self.ns):
+            buildings = root.findall('.//{http://www.opengis.net/citygml/building/1.0}Building', namespaces=self.ns)
+            self.logger.info(f"🔍 {len(buildings)} Gebäude gefunden")
+            
+            for building in buildings:
                 building_data = self._process_building(building)
                 if building_data:
                     processed_buildings.append(building_data)
@@ -447,13 +457,13 @@ class CityGMLBuildingProcessor:
             # Erstelle GeoDataFrame
             gdf = gpd.GeoDataFrame(processed_buildings)
             
-            # Setze CRS und transformiere zu Web Mercator
+            # Setze CRS und transformiere zu WGS84
             gdf.set_crs(source_crs, inplace=True)
             self.logger.info(f"✅ CRS gesetzt auf: {source_crs}")
             
-            # Transformiere zu Web Mercator (EPSG:3857)
-            gdf = gdf.to_crs('EPSG:3857')
-            self.logger.info("✅ Koordinaten zu Web Mercator (EPSG:3857) transformiert")
+            # Transformiere zu WGS84 (EPSG:4326)
+            gdf = gdf.to_crs('EPSG:4326')
+            self.logger.info("✅ Koordinaten zu WGS84 (EPSG:4326) transformiert")
 
             # Validiere Geometrien
             invalid_geoms = gdf[~gdf.geometry.is_valid]
