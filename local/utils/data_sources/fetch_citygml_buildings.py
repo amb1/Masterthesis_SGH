@@ -66,9 +66,9 @@ class CityGMLBuildingProcessor:
         # Namespace-Mapping für verschiedene CityGML-Versionen
         self.namespace_mapping = {
             '1.0': {
-            'bldg': 'http://www.opengis.net/citygml/building/1.0',
+                'bldg': 'http://www.opengis.net/citygml/building/1.0',
                 'gml': 'http://www.opengis.net/gml',
-            'gen': 'http://www.opengis.net/citygml/generics/1.0',
+                'gen': 'http://www.opengis.net/citygml/generics/1.0',
                 'xAL': 'urn:oasis:names:tc:ciq:xsdschema:xAL:2.0'
             },
             '2.0': {
@@ -84,35 +84,80 @@ class CityGMLBuildingProcessor:
                 'xAL': 'urn:oasis:names:tc:ciq:xsdschema:xAL:2.0'
             }
         }
-    
-    def _detect_citygml_version(self, root: etree.Element) -> str:
-        """Erkennt die CityGML-Version aus dem Root-Element.
-        
-        Args:
-            root (etree.Element): Das Root-Element des CityGML-Dokuments
-            
-        Returns:
-            str: Die erkannte CityGML-Version
-        """
+
+    def extract_buildings(self, citygml_path: str) -> Optional[gpd.GeoDataFrame]:
+        """Extrahiert alle Gebäude aus einer CityGML-Datei."""
         try:
-            # Extrahiere alle Namespaces
-            self.ns = {k: v for k, v in root.nsmap.items() if k is not None}
+            # Parse CityGML file
+            parser = etree.XMLParser(resolve_entities=False)
+            tree = etree.parse(citygml_path, parser=parser)
+            root = tree.getroot()
+            self.ns = root.nsmap
+
+            # Extrahiere CRS aus der CityGML-Datei
+            envelope = root.find('.//{http://www.opengis.net/gml}Envelope', namespaces=self.ns)
+            source_crs = None
+            if envelope is not None:
+                srs_name = envelope.get('srsName')
+                if srs_name:
+                    if 'EPSG' in srs_name.upper():
+                        epsg_code = srs_name.upper().split('EPSG')[-1].strip(':')
+                        try:
+                            epsg_code = int(epsg_code)
+                            source_crs = f"EPSG:{epsg_code}"
+                        except ValueError:
+                            self.logger.warning(f"⚠️ Ungültiger EPSG-Code in CityGML: {epsg_code}")
+                    elif "31256" in srs_name or "MGI" in srs_name:
+                        source_crs = "EPSG:31256"
+                    else:
+                        self.logger.warning(f"⚠️ Unbekanntes CRS-Format: {srs_name}")
+
+            if not source_crs:
+                source_crs = "EPSG:31256"  # Für Wien immer MGI/Austria GK East
+                self.logger.info(f"ℹ️ Verwende Standard-CRS für Wien: {source_crs}")
+
+            # Verarbeite Gebäude
+            processed_buildings = []
+            buildings = root.findall('.//{http://www.opengis.net/citygml/building/1.0}Building', namespaces=self.ns)
+            self.logger.info(f"🔍 {len(buildings)} Gebäude gefunden")
             
-            # Bestimme Version basierend auf Namespaces
-            for ns in self.ns.values():
-                if "citygml/3.0" in ns:
-                    return "3.0"
-                elif "citygml/2.0" in ns:
-                    return "2.0"
-                elif "citygml/1.0" in ns:
-                    return "1.0"
+            for building in buildings:
+                building_data = self._process_building(building)
+                if building_data:
+                    processed_buildings.append(building_data)
+
+            if not processed_buildings:
+                self.logger.warning("❌ Keine Gebäude erfolgreich verarbeitet")
+                return None
             
-            return "1.0"
+            # Erstelle GeoDataFrame
+            gdf = gpd.GeoDataFrame(processed_buildings)
             
+            # Setze CRS auf MGI/Austria GK East
+            gdf.set_crs(source_crs, inplace=True, allow_override=True)
+            self.logger.info(f"✅ CRS gesetzt auf: {source_crs}")
+            
+            # Validiere Geometrien
+            invalid_geoms = gdf[~gdf.geometry.is_valid]
+            if not invalid_geoms.empty:
+                self.logger.warning(f"⚠️ {len(invalid_geoms)} ungültige Geometrien gefunden")
+                gdf.geometry = gdf.geometry.buffer(0)  # Versuche Reparatur
+                self.logger.info("✅ Geometrien repariert")
+
+            # Speichere als GeoJSON und Shapefile
+            output_dir = os.path.join(os.path.dirname(citygml_path), '..', 'outputs', 'citygml')
+            os.makedirs(output_dir, exist_ok=True)
+            
+            gdf.to_file(os.path.join(output_dir, 'buildings_raw.geojson'), driver='GeoJSON')
+            gdf.to_file(os.path.join(output_dir, 'buildings_raw.shp'))
+            
+            self.logger.info(f"✅ {len(gdf)} Gebäude extrahiert")
+            return gdf
+
         except Exception as e:
-            self.logger.warning(f"⚠️ Fehler bei der CityGML-Version-Erkennung: {str(e)}")
-            return "1.0"
-            
+            self.logger.error(f"❌ Fehler beim Extrahieren der Gebäude: {str(e)}")
+            return None
+
     def _extract_geometry(self, building) -> Optional[Polygon]:
         """Extrahiert die Geometrie eines Gebäudes."""
         try:
@@ -138,7 +183,7 @@ class CityGMLBuildingProcessor:
             surfaces = solid.findall('.//{http://www.opengis.net/gml}exterior//{http://www.opengis.net/gml}Polygon', namespaces=self.ns)
             if not surfaces:
                 return None
-            
+
             # Extrahiere Koordinaten aus jeder Surface
             polygons = []
             for surface in surfaces:
@@ -146,10 +191,10 @@ class CityGMLBuildingProcessor:
                 if coords and len(coords) >= 3:
                     # Behalte die originalen Koordinaten bei
                     polygons.append(Polygon(coords))
-            
+
             if not polygons:
                 return None
-            
+
             # Vereinige alle Polygone
             union = unary_union(polygons)
             if isinstance(union, Polygon):
@@ -178,7 +223,7 @@ class CityGMLBuildingProcessor:
             
             if not polygons:
                 return None
-            
+
             union = unary_union(polygons)
             if isinstance(union, Polygon):
                 return union
@@ -394,95 +439,22 @@ class CityGMLBuildingProcessor:
             self.logger.warning(f"⚠️ Fehler bei der Verarbeitung eines Gebäudes: {str(e)}")
             return None
 
-    def extract_buildings(self, citygml_path: str) -> Optional[gpd.GeoDataFrame]:
-        """Extrahiert alle Gebäude aus einer CityGML-Datei."""
-        try:
-            # Parse CityGML file
-            parser = etree.XMLParser(resolve_entities=False)
-            tree = etree.parse(citygml_path, parser=parser)
-            root = tree.getroot()
-            self.ns = root.nsmap
-
-            # Extrahiere CRS aus der CityGML-Datei
-            envelope = root.find('.//{http://www.opengis.net/gml}Envelope', namespaces=self.ns)
-            source_crs = None
-            if envelope is not None:
-                srs_name = envelope.get('srsName')
-                if srs_name:
-                    if 'EPSG' in srs_name.upper():
-                        epsg_code = srs_name.upper().split('EPSG')[-1].strip(':')
-                        try:
-                            epsg_code = int(epsg_code)
-                            source_crs = f"EPSG:{epsg_code}"
-                        except ValueError:
-                            self.logger.warning(f"⚠️ Ungültiger EPSG-Code in CityGML: {epsg_code}")
-                    elif "31256" in srs_name or "MGI" in srs_name:
-                        source_crs = "EPSG:31256"
-                    else:
-                        self.logger.warning(f"⚠️ Unbekanntes CRS-Format: {srs_name}")
-
-            if not source_crs:
-                source_crs = "EPSG:31256"  # Für Wien immer MGI/Austria GK East
-                self.logger.info(f"ℹ️ Verwende Standard-CRS für Wien: {source_crs}")
-
-            # Verarbeite Gebäude
-            processed_buildings = []
-            buildings = root.findall('.//{http://www.opengis.net/citygml/building/1.0}Building', namespaces=self.ns)
-            self.logger.info(f"🔍 {len(buildings)} Gebäude gefunden")
-            
-            for building in buildings:
-                building_data = self._process_building(building)
-                if building_data:
-                    processed_buildings.append(building_data)
-
-            if not processed_buildings:
-                self.logger.warning("❌ Keine Gebäude erfolgreich verarbeitet")
-                return None
-
-            # Erstelle GeoDataFrame
-            gdf = gpd.GeoDataFrame(processed_buildings)
-            
-            # Setze CRS auf MGI/Austria GK East
-            gdf.set_crs(source_crs, inplace=True, allow_override=True)
-            self.logger.info(f"✅ CRS gesetzt auf: {source_crs}")
-
-            # Validiere Geometrien
-            invalid_geoms = gdf[~gdf.geometry.is_valid]
-            if not invalid_geoms.empty:
-                self.logger.warning(f"⚠️ {len(invalid_geoms)} ungültige Geometrien gefunden")
-                gdf.geometry = gdf.geometry.buffer(0)  # Versuche Reparatur
-                self.logger.info("✅ Geometrien repariert")
-
-            # Speichere als GeoJSON und Shapefile
-            output_dir = os.path.join(os.path.dirname(citygml_path), '..', 'outputs', 'citygml')
-            os.makedirs(output_dir, exist_ok=True)
-            
-            gdf.to_file(os.path.join(output_dir, 'buildings_raw.geojson'), driver='GeoJSON')
-            gdf.to_file(os.path.join(output_dir, 'buildings_raw.shp'))
-            
-            self.logger.info(f"✅ {len(gdf)} Gebäude extrahiert")
-            return gdf
-
-        except Exception as e:
-            self.logger.error(f"❌ Fehler beim Extrahieren der Gebäude: {str(e)}")
-            return None
-
-def fetch_citygml_buildings(citygml_path: str, config: Dict[str, Any]) -> Optional[gpd.GeoDataFrame]:
-    """Hauptfunktion zum Extrahieren von Gebäuden aus CityGML.
+def fetch_citygml_buildings(citygml_file: str, output_dir: str) -> Optional[gpd.GeoDataFrame]:
+    """Extrahiert Gebäude aus einer CityGML-Datei.
     
     Args:
-        citygml_path (str): Pfad zur CityGML-Datei
-        config (dict): Konfiguration mit CityGML-Namespaces und CRS
+        citygml_file (str): Pfad zur CityGML-Datei
+        output_dir (str): Verzeichnis für die Ausgabedateien
         
     Returns:
-        Optional[gpd.GeoDataFrame]: GeoDataFrame mit allen Gebäudeinformationen
+        Optional[gpd.GeoDataFrame]: GeoDataFrame mit Gebäudedaten oder None bei Fehler
     """
     try:
-        # Erstelle Processor
-        processor = CityGMLBuildingProcessor(config)
+        # Initialisiere CityGML Building Processor
+        processor = CityGMLBuildingProcessor({})
         
-        # Extrahiere Gebäude
-        buildings_gdf = processor.extract_buildings(citygml_path)
+        # Verarbeite CityGML-Datei
+        buildings_gdf = processor.extract_buildings(citygml_file)
         
         return buildings_gdf
         
@@ -516,7 +488,7 @@ if __name__ == "__main__":
         sys.exit(1)
     
     # Extrahiere Gebäude
-    buildings_gdf = fetch_citygml_buildings(str(citygml_path), base_config)
+    buildings_gdf = fetch_citygml_buildings(str(citygml_path), "local/data/outputs/buildings")
     
     if buildings_gdf is not None:
         # Speichere als GeoJSON

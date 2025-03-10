@@ -3,15 +3,20 @@ from typing import Dict, Any, Optional, List, Union
 import geopandas as gpd
 import pandas as pd
 import numpy as np
-from shapely.geometry import Point, Polygon, MultiPolygon
+from shapely.geometry import Point, Polygon
 import logging
 import re
 import yaml
-from simpledbf import Dbf5
+import sys
 
-from .base_building_processor import BuildingProcessorInterface
-from ..data_sources.fetch_osm_buildings import fetch_surrounding_buildings, process_osm_buildings
-from ..data_sources.fetch_osm_streets import fetch_osm_streets
+# Füge das lokale Verzeichnis zum Python-Path hinzu
+local_dir = Path(__file__).resolve().parent.parent.parent
+if str(local_dir) not in sys.path:
+    sys.path.append(str(local_dir))
+
+from utils.data_processing.base_building_processor import BuildingProcessorInterface
+from utils.data_sources.fetch_osm_buildings import fetch_surrounding_buildings, process_osm_buildings
+from utils.data_sources.fetch_osm_streets import fetch_osm_streets
 
 class CEABuildingProcessor(BuildingProcessorInterface):
     """Konkrete Implementierung des BuildingProcessorInterface für CEA-Gebäudeverarbeitung"""
@@ -25,31 +30,18 @@ class CEABuildingProcessor(BuildingProcessorInterface):
         super().__init__(config)
         
         # Lade Metrik-Konfiguration
-        metrics_config_path = Path(self.config.get('paths', {}).get('config', 'local/cfg/cea')) / 'building_metrics.yml'
+        metrics_config_path = Path(config.get('metrics_config', 'cfg/cea/building_metrics.yml'))
         self.metrics_config = self._load_metrics_config(metrics_config_path)
         
         # Lade CEA-Mapping-Konfiguration
-        mapping_config_path = Path(self.config.get('paths', {}).get('config', 'local/cfg/cea')) / 'cea_mapping.yml'
+        mapping_config_path = Path(config.get('cea_mapping', 'cfg/cea/cea_mapping.yml'))
         self.mapping_config = self._load_mapping_config(mapping_config_path)
         
-        if not self.mapping_config:
-            self.logger.error("❌ Keine gültige Mapping-Konfiguration gefunden")
-            
     def _load_metrics_config(self, config_path: Path) -> Dict[str, Any]:
         """Lädt die Metrik-Konfiguration aus der YAML-Datei."""
         try:
             with open(config_path, 'r', encoding='utf-8') as f:
-                config = yaml.safe_load(f)
-                
-            # Validiere Konfiguration
-            required_sections = ['required_fields', 'metrics']
-            for section in required_sections:
-                if section not in config:
-                    self.logger.error(f"❌ Fehlender Abschnitt in Metrik-Konfiguration: {section}")
-                    return {}
-                    
-            return config
-            
+                return yaml.safe_load(f)
         except Exception as e:
             self.logger.error(f"❌ Fehler beim Laden der Metrik-Konfiguration: {str(e)}")
             return {}
@@ -58,17 +50,7 @@ class CEABuildingProcessor(BuildingProcessorInterface):
         """Lädt die Mapping-Konfiguration aus der YAML-Datei."""
         try:
             with open(config_path, 'r', encoding='utf-8') as f:
-                config = yaml.safe_load(f)
-                
-            # Validiere Konfiguration
-            required_sections = ['zone_shp', 'typology_dbf']
-            for section in required_sections:
-                if section not in config:
-                    self.logger.error(f"❌ Fehlender Abschnitt in Mapping-Konfiguration: {section}")
-                    return {}
-                    
-            return config
-            
+                return yaml.safe_load(f)
         except Exception as e:
             self.logger.error(f"❌ Fehler beim Laden der Mapping-Konfiguration: {str(e)}")
             return {}
@@ -138,8 +120,8 @@ class CEABuildingProcessor(BuildingProcessorInterface):
             # Erstelle CEA-Dateien
             self.create_cea_files(project_dir)
             
-        return True
-
+            return True
+            
         except Exception as e:
             self.logger.error(f"❌ Fehler bei der CEA-Datenverarbeitung: {str(e)}")
             return False
@@ -158,91 +140,65 @@ class CEABuildingProcessor(BuildingProcessorInterface):
                 self.logger.error("❌ Keine Gebäudedaten verfügbar")
                 return False
             
-            if not self.mapping_config:
-                self.logger.error("❌ Keine Mapping-Konfiguration verfügbar")
-                return False
-            
             # Erstelle zone.shp
-            zone_mappings = self.mapping_config.get('zone_shp', {}).get('mappings', {})
+            zone_mappings = self.mapping_config['zone_shp']['mappings']
             zone_gdf = self.buildings_gdf.copy()
             
             # Mappe Felder für zone.shp
             for target_col, mapping in zone_mappings.items():
-                source_col = mapping.get('source')
-                transform_type = mapping.get('transform', 'str')
-                default_value = mapping.get('default')
+                source_col = mapping['source']
+                transform_type = mapping['transform']
                 
                 if source_col in zone_gdf.columns:
                     if transform_type == 'int':
-                        zone_gdf[target_col] = pd.to_numeric(zone_gdf[source_col], errors='coerce').fillna(default_value or 0).astype(int)
+                        zone_gdf[target_col] = zone_gdf[source_col].astype(int)
                     elif transform_type == 'float':
-                        zone_gdf[target_col] = pd.to_numeric(zone_gdf[source_col], errors='coerce').fillna(default_value or 0.0).astype(float)
+                        zone_gdf[target_col] = zone_gdf[source_col].astype(float)
                     else:
-                        zone_gdf[target_col] = zone_gdf[source_col].fillna(default_value or '').astype(str)
+                        zone_gdf[target_col] = zone_gdf[source_col].astype(str)
                 else:
                     # Setze Standardwerte für fehlende Spalten
                     if transform_type == 'int':
-                        zone_gdf[target_col] = default_value or 0
+                        zone_gdf[target_col] = 0
                     elif transform_type == 'float':
-                        zone_gdf[target_col] = default_value or 0.0
+                        zone_gdf[target_col] = 0.0
                     else:
-                        zone_gdf[target_col] = default_value or ''
-            
-            # Validiere zone.shp Daten
-            required_zone_fields = self.mapping_config.get('zone_shp', {}).get('required_fields', [])
-            for field in required_zone_fields:
-                if field not in zone_gdf.columns:
-                    self.logger.error(f"❌ Pflichtfeld fehlt in zone.shp: {field}")
-                    return False
+                        zone_gdf[target_col] = ''
             
             # Speichere zone.shp
-            zone_path = project_dir / 'inputs' / 'building-geometries' / 'zone.shp'
+            zone_path = project_dir / 'inputs' / 'building-geometry' / 'zone.shp'
             zone_gdf.to_file(zone_path)
-            self.logger.info(f"✅ zone.shp erstellt mit {len(zone_gdf)} Gebäuden: {zone_path}")
+            self.logger.info(f"✅ zone.shp erstellt: {zone_path}")
             
             # Erstelle typology.dbf
-            typology_mappings = self.mapping_config.get('typology_dbf', {}).get('mappings', {})
-            typology_data = {}
+            typology_mappings = self.mapping_config['typology_dbf']['mappings']
+            typology_df = pd.DataFrame()
             
             # Mappe Felder für typology.dbf
             for target_col, mapping in typology_mappings.items():
-                source_col = mapping.get('source')
-                transform_type = mapping.get('transform', 'str')
-                default_value = mapping.get('default')
+                source_col = mapping['source']
+                transform_type = mapping['transform']
                 
                 if source_col in zone_gdf.columns:
                     if transform_type == 'int':
-                        typology_data[target_col] = pd.to_numeric(zone_gdf[source_col], errors='coerce').fillna(default_value or 0).astype(int)
+                        typology_df[target_col] = zone_gdf[source_col].astype(int)
                     elif transform_type == 'float':
-                        typology_data[target_col] = pd.to_numeric(zone_gdf[source_col], errors='coerce').fillna(default_value or 0.0).astype(float)
+                        typology_df[target_col] = zone_gdf[source_col].astype(float)
                     else:
-                        typology_data[target_col] = zone_gdf[source_col].fillna(default_value or '').astype(str)
+                        typology_df[target_col] = zone_gdf[source_col].astype(str)
                 else:
                     # Setze Standardwerte für fehlende Spalten
                     if transform_type == 'int':
-                        typology_data[target_col] = pd.Series([default_value or 0] * len(zone_gdf))
+                        typology_df[target_col] = 0
                     elif transform_type == 'float':
-                        typology_data[target_col] = pd.Series([default_value or 0.0] * len(zone_gdf))
+                        typology_df[target_col] = 0.0
                     else:
-                        typology_data[target_col] = pd.Series([default_value or ''] * len(zone_gdf))
+                        typology_df[target_col] = ''
             
-            # Validiere typology.dbf Daten
-            required_typology_fields = self.mapping_config.get('typology_dbf', {}).get('required_fields', [])
-            for field in required_typology_fields:
-                if field not in typology_data:
-                    self.logger.error(f"❌ Pflichtfeld fehlt in typology.dbf: {field}")
-                    return False
-            
-            # Erstelle DataFrame und speichere als DBF
-            typology_df = pd.DataFrame(typology_data)
+            # Speichere typology.dbf
             typology_path = project_dir / 'inputs' / 'building-properties' / 'typology.dbf'
-            
-            # Konvertiere zu DBF mit simpledbf
-            dbf = Dbf5()
-            dbf.from_dataframe(typology_df)
-            dbf.save(str(typology_path))
-            
-            self.logger.info(f"✅ typology.dbf erstellt mit {len(typology_df)} Einträgen: {typology_path}")
+            typology_df.to_dbf(typology_path)
+            self.logger.info(f"✅ typology.dbf erstellt: {typology_path}")
             
             return True
             
@@ -265,29 +221,6 @@ class CEABuildingProcessor(BuildingProcessorInterface):
                 self.logger.warning("⚠️ Ungültige Geometrie")
                 return False
             
-            # Prüfe Metrik-Bedingungen
-            metrics = self.metrics_config.get('metrics', {})
-            for metric_name, conditions in metrics.items():
-                if metric_name not in building_data:
-                    continue
-                    
-                value = building_data[metric_name]
-                
-                # Prüfe Minimum
-                if 'min' in conditions and value < conditions['min']:
-                    self.logger.warning(f"⚠️ {metric_name} unter Minimum: {value} < {conditions['min']}")
-                    return False
-                
-                # Prüfe Maximum
-                if 'max' in conditions and value > conditions['max']:
-                    self.logger.warning(f"⚠️ {metric_name} über Maximum: {value} > {conditions['max']}")
-                    return False
-                
-                # Prüfe erlaubte Werte
-                if 'allowed_values' in conditions and value not in conditions['allowed_values']:
-                    self.logger.warning(f"⚠️ {metric_name} nicht erlaubt: {value}")
-                    return False
-            
             return True
             
         except Exception as e:
@@ -304,29 +237,8 @@ class CEABuildingProcessor(BuildingProcessorInterface):
             processed_data['data_source'] = 'CityGML'
             processed_data['processing_date'] = pd.Timestamp.now().strftime('%Y-%m-%d')
             
-            # Verarbeite BuildingParts wenn vorhanden
-            if processed_data.get('has_building_parts', False):
-                part_count = processed_data.get('building_parts_count', 0)
-                self.logger.info(f"🏗️ Verarbeite Gebäude mit {part_count} BuildingParts")
-                
-                # Berechne zusammengesetzte Metriken
-                if isinstance(processed_data['geometry'], MultiPolygon):
-                    # Berechne Gesamtfläche
-                    total_area = sum(polygon.area for polygon in processed_data['geometry'].geoms)
-                    processed_data['total_area'] = total_area
-                    
-                    # Berechne durchschnittliche Höhe
-                    heights = []
-                    for attr in processed_data.keys():
-                        if attr.startswith('part_') and attr.endswith('_height'):
-                            if pd.notnull(processed_data[attr]):
-                                heights.append(float(processed_data[attr]))
-                    
-                    if heights:
-                        processed_data['avg_height'] = np.mean(heights)
-            
             return processed_data
             
-    except Exception as e:
+        except Exception as e:
             self.logger.warning(f"⚠️ Fehler bei der Gebäudeverarbeitung: {str(e)}")
             return building_data 

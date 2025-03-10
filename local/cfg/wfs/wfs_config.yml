@@ -3,9 +3,8 @@ vienna_wfs:
   url: "https://data.wien.gv.at/daten/geo"
   version: "1.1.0"
   request: "GetFeature"
-  typeNames: "ogdwien:GEBAEUDEINFOOGD"
-  outputFormat: "json"
   srsName: "EPSG:31256"
+  outputFormat: "json"
   maxFeatures: 1000
   timeout: 30
   retries: 3
@@ -15,129 +14,50 @@ vienna_wfs:
     - name: "Gebäudeinfo"
       layer: "ogdwien:GEBAEUDEINFOOGD"
       fields:
-        building_id: "OBJECTID"
-        name: "BEZEICHNUNG"
-        house_no: "HAUSNUMMER"
-        street: "STRASSE"
-        postcode: "PLZ"
-        city: "STADT"
-        country: "LAND"
-        construction_year: "BAUJAHR"
-        floors_ag: "ANZAHL_OBERIRDISCH"
-        floors_bg: "ANZAHL_KELLER"
-        height_ag: "HOEHE_OBERIRDISCH"
-        height_bg: "HOEHE_KELLER"
-        bldg_type: "GEBAEUDEKATEGORIE"
-        usage: "NUTZUNG"
-        
-      mapping:
-        building_type:
-          "1000": "AB"
-          "2000": "NWG"
-          "3000": "OFFICE"
-          "4000": "RETAIL"
-          "5000": "INDUSTRIAL"
-          "6000": "HOSPITAL"
-          "7000": "SCHOOL"
-          "8000": "HOTEL"
-          
-        usage:
-          "WOHNUNG": "MULTI_RES"
-          "BUERO": "OFFICE"
-          "HANDEL": "RETAIL"
-          "INDUSTRIE": "INDUSTRIAL"
-          "KRANKENHAUS": "HOSPITAL"
-          "SCHULE": "SCHOOL"
-          "HOTEL": "HOTEL"
-
-    - name: "Wien Gebäudeinfo"
-      layer: "ogdwien:GEBAEUDEINFOOGD"
+        - "OBJECTID"
+        - "geometry"
+        - "SE_ANNO_CAD_DATA"
       mapping:
         building_id: "OBJECTID"
-        construction_year: "BAUJAHR"
-        usage: "L_NUTZUNG"
-        type: "L_BAUTYP"
-        floors: "GESCH_ANZ"
-        foundation_type: "BASIS_INV"
+        geometry: "geometry"
+        cad_data: "SE_ANNO_CAD_DATA"
 
-    - name: "Wien Energie"
+    - name: "Energieraumplan"
       layer: "ogdwien:ENERGIERAUMPLANOGD"
+      fields:
+        - "OBJECTID"
+        - "geometry"
+        - "ERPLABEL"
       mapping:
         energy_id: "OBJECTID"
-        measurement_date: "BEARB_DATUM"
-        energy_class: "BEZNR"
+        geometry: "geometry"
         energy_label: "ERPLABEL"
-        energy_performance: "FL_ERP"
-        building_id: "GEBID"
 
-    - name: "Wien Solarpotential"
+    - name: "Solarpotential"
       layer: "ogdwien:PVPOTENZIALEOGD"
+      fields:
+        - "OBJECTID"
+        - "geometry"
+        - "EIGNUNGSKLASSE"
       mapping:
         solar_id: "OBJECTID"
-        potential_class: "EIGNUNGSKLASSE"
+        geometry: "geometry"
+        suitability: "EIGNUNGSKLASSE"
 
   # Merge-Felder für die Zusammenführung der Daten
   merge_fields:
     buildings:
       - building_id
-      - construction_year
-      - usage
-      - type
-      - floors
-      - foundation_type
+      - geometry
+      - cad_data
     energy:
       - energy_id
-      - measurement_date
-      - energy_class
+      - geometry
       - energy_label
-      - energy_performance
     solar_potential:
       - solar_id
-      - potential_class
-    green_spaces:
-      - green_id
-      - type
-      - area
-    land_use:
-      - landuse_id
-      - designation_class
-      - designation_class_text
-      - designation
-      - designation_text
-      - area
-    noise_protection:
-      - noise_id
-      - description
-      - length
-      - area
-      - min_height
-      - max_height
-    typology:
-      - typology_id
-      - reference
-      - structure
-      - structure_text
-      - structure2
-      - structure2_text
-      - building_type
-      - building_type_text
-      - asc
-      - cad_data
-    building_model:
-      - model_id
-      - reference
-      - structure
-      - structure_text
-      - structure2
-      - structure2_text
-      - building_type
-      - building_type_text
-      - asc
-      - cad_data
-      - area
-      - volume
-      - floors
-      - construction_year
+      - geometry
+      - suitability
 
   # Layer-Definitionen
   layers:
