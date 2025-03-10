@@ -163,7 +163,7 @@ class BuildingProcessorInterface(ABC):
                     if repaired_geom.is_valid:
                         result_gdf.at[idx, 'geometry'] = repaired_geom
                         self.logger.info(f"✅ Geometrie repariert für {row.get('gml_id', idx)}")
-                    else:
+            else:
                         self.logger.error(f"❌ Geometrie konnte nicht repariert werden für {row.get('gml_id', idx)}")
                         
             return result_gdf
@@ -204,7 +204,7 @@ class BuildingProcessorInterface(ABC):
                                 self.buildings_gdf.at[parent_id, f'part_{attr}'] = values.iloc[0]
                                 
             self.logger.info(f"✅ {len(grouped_parts)} BuildingParts verarbeitet")
-            
+
         except Exception as e:
             self.logger.error(f"❌ Fehler bei der BuildingPart-Verarbeitung: {str(e)}")
     

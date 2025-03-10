@@ -211,8 +211,8 @@ class CEABuildingProcessor(BuildingProcessorInterface):
         try:
             # Prüfe ob alle erforderlichen Felder vorhanden sind
             required_fields = self.metrics_config.get('required_fields', [])
-            for field in required_fields:
-                if field not in building_data:
+        for field in required_fields:
+            if field not in building_data:
                     self.logger.warning(f"⚠️ Pflichtfeld fehlt: {field}")
                     return False
             
@@ -221,8 +221,8 @@ class CEABuildingProcessor(BuildingProcessorInterface):
                 self.logger.warning("⚠️ Ungültige Geometrie")
                 return False
             
-            return True
-            
+        return True
+
         except Exception as e:
             self.logger.warning(f"⚠️ Fehler bei der Gebäudevalidierung: {str(e)}")
             return False
@@ -239,6 +239,6 @@ class CEABuildingProcessor(BuildingProcessorInterface):
             
             return processed_data
             
-        except Exception as e:
+    except Exception as e:
             self.logger.warning(f"⚠️ Fehler bei der Gebäudeverarbeitung: {str(e)}")
             return building_data 
