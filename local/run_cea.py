@@ -136,8 +136,14 @@ def main():
             raise ValueError("❌ Fehler bei der CityGML-Verarbeitung")
             
         # Verarbeite CEA-Daten
-        if not processor.process_cea_data(scenario_path):
+        success, cea_data = processor.process_cea_data(scenario_path)
+        if not success or cea_data is None:
             raise ValueError("❌ Fehler bei der CEA-Datenverarbeitung")
+            
+        # Speichere angereicherte Daten
+        enriched_path = project_dir['outputs'] / 'zone_enriched.geojson'
+        cea_data['zone'].to_file(enriched_path, driver='GeoJSON')
+        logger.info(f"✅ Angereicherte Daten gespeichert: {enriched_path}")
         
         logger.info("✅ CEA-Workflow erfolgreich abgeschlossen")
         
