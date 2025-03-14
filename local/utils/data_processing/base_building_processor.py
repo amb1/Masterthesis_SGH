@@ -21,19 +21,22 @@ from utils.data_sources.fetch_wfs_data import ViennaWFS
 class BuildingProcessorInterface(ABC):
     """Interface für Gebäudeprozessoren"""
     
-    def __init__(self, config_path: str = "local/cfg/project_config.yml"):
+    def __init__(self, config: Dict[str, Any]):
         """Initialisiert den Building Processor.
         
         Args:
-            config_path (str): Pfad zur Konfigurationsdatei
+            config (dict): Die Konfiguration mit Pfaden und Einstellungen
         """
-        # Speichere Konfigurationspfad
-        self.config_path = config_path
+        self.config = config
+        self.buildings_gdf = None
+        self.site_polygon = None
         
-        # Lade Konfiguration
-        with open(config_path, 'r', encoding='utf-8') as f:
-            self.config = yaml.safe_load(f)
-            
+        # Lade Konfigurationen
+        self.project_config = config.get('project', {})
+        self.wfs_config = config.get('wfs', {})
+        self.osm_config = config.get('osm', {})
+        self.cea_config = config.get('cea', {})
+        
         self.logger = logging.getLogger(self.__class__.__name__)
         self.logger.setLevel(logging.INFO)
         
@@ -44,33 +47,19 @@ class BuildingProcessorInterface(ABC):
             self.logger.addHandler(handler)
             
         # Initialisiere Datenspeicher
-        self.buildings_gdf = None
         self.building_parts_gdf = None
-        self.site_polygon = None
         self.wfs_data = {}
         
-        # Lade WFS-Konfiguration
-        wfs_config_path = str(Path(config_path).parent / "wfs" / "wfs_config.yml")
-        self.logger.info(f"🔍 Suche WFS-Konfiguration unter: {wfs_config_path}")
-        
-        if os.path.exists(wfs_config_path):
-            self.logger.info(f"✅ WFS-Konfiguration gefunden unter: {wfs_config_path}")
-            with open(wfs_config_path, 'r', encoding='utf-8') as f:
-                wfs_config = yaml.safe_load(f).get('vienna_wfs', {})
-                
-            # Füge die WFS-Konfiguration zum Hauptconfig hinzu
-            self.config['vienna_wfs'] = wfs_config
-            self.logger.info("✅ WFS-Konfiguration geladen")
-            
-            # Initialisiere WFS mit der geladenen Konfiguration
-            self.wfs = ViennaWFS(config=wfs_config)
-            
+        # Initialisiere WFS mit der Konfiguration
+        if self.wfs_config:
+            self.wfs = ViennaWFS(config=self.wfs_config)
+            self.logger.info("✅ WFS initialisiert")
         else:
-            self.logger.warning(f"⚠️ WFS-Konfiguration nicht gefunden unter {wfs_config_path}")
+            self.logger.warning("⚠️ Keine WFS-Konfiguration gefunden")
             
         logging.info("✅ Base Building Processor initialisiert")
         
-    def process_citygml(self, citygml_file: str) -> None:
+    def process_citygml(self, citygml_file: str) -> bool:
         """Verarbeitet eine CityGML-Datei und extrahiert Gebäudedaten.
 
         Args:
@@ -87,7 +76,7 @@ class BuildingProcessorInterface(ABC):
             buildings_gdf = fetch_citygml_buildings(citygml_file, output_dir)
             if buildings_gdf is None or buildings_gdf.empty:
                 self.logger.error("❌ Keine Gebäude gefunden")
-                return
+                return False
 
             # Speichere Gebäude-GeoDataFrame
             self.buildings_gdf = buildings_gdf
@@ -104,15 +93,15 @@ class BuildingProcessorInterface(ABC):
             # Hole WFS-Daten wenn WFS verfügbar
             if hasattr(self, 'wfs'):
                 self.logger.info("🔍 WFS-Konfiguration:")
-                streams = self.config['vienna_wfs'].get('streams', [])
+                streams = self.wfs_config.get('streams', [])
                 self.logger.info(f"Gefundene Streams: {len(streams)}")
 
                 if not streams:
                     self.logger.warning("⚠️ Keine WFS-Streams konfiguriert")
-                    return
+                    return False
 
                 # Konvertiere Site-Polygon zu BBOX
-                bounds = self.site_polygon.total_bounds
+                bounds = self.site_polygon.bounds
                 # Konvertiere zu ganzzahligen Koordinaten und erweitere den Bereich
                 bbox = (
                     int(bounds[0]) - 100,  # min_x mit Puffer
@@ -126,14 +115,32 @@ class BuildingProcessorInterface(ABC):
                 wfs_data = self.wfs.process_streams(bbox)
                 if not wfs_data:
                     self.logger.warning("⚠️ Keine WFS-Daten verfügbar")
-                    return
+                    return False
 
             # Speichere Ergebnisse
-            self.save_buildings(output_dir)
+            output_dir = os.path.join(os.path.dirname(citygml_file), '..', 'outputs', 'buildings')
+            os.makedirs(output_dir, exist_ok=True)
+            
+            # Speichere Gebäude als GeoJSON
+            output_path = os.path.join(output_dir, 'buildings.geojson')
+            self.buildings_gdf.to_file(output_path, driver='GeoJSON')
+            self.logger.info(f"✅ Gebäude gespeichert nach {output_path}")
+            
+            # Speichere Site-Polygon als Shapefile
+            site_path = os.path.join(output_dir, 'site.shp')
+            if isinstance(self.site_polygon, (str, dict)):
+                self.logger.warning("⚠️ Site-Polygon hat ungültigen Geometrietyp, versuche Konvertierung")
+                if isinstance(self.site_polygon, dict) and 'geometry' in self.site_polygon:
+                    self.site_polygon = self.site_polygon['geometry']
+            site_gdf = gpd.GeoDataFrame({'geometry': [self.site_polygon]}, crs=self.config.get('crs', 'EPSG:31256'))
+            site_gdf.to_file(site_path)
+            self.logger.info(f"✅ Site-Polygon gespeichert nach {site_path}")
+            
+            return True
 
         except Exception as e:
             self.logger.error(f"❌ Fehler bei der CityGML-Verarbeitung: {str(e)}")
-            raise
+            return False
             
     def _validate_and_repair_geometries(self, gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
         """Validiert und repariert Geometrien im GeoDataFrame.
@@ -300,6 +307,36 @@ class BasicBuildingProcessor(BuildingProcessorInterface):
     def validate_building(self, building_data: Dict[str, Any]) -> bool:
         """Minimale Implementierung der Gebäudevalidierung."""
         return True if building_data.get('geometry') is not None else False
+
+def create_site_polygon(buildings_gdf: gpd.GeoDataFrame) -> Polygon:
+    """Erstellt ein Site-Polygon aus den Gebäudegeometrien.
+    
+    Args:
+        buildings_gdf (gpd.GeoDataFrame): GeoDataFrame mit Gebäudegeometrien
+        
+    Returns:
+        Polygon: Site-Polygon
+    """
+    try:
+        # Erstelle äußere Hülle um alle Gebäude
+        logging.info("📐 Erstelle äußere Hülle um alle Gebäude")
+        all_geometries = buildings_gdf.geometry.unary_union
+        
+        # Erstelle Buffer um die Geometrien
+        logging.info("🔲 Erstelle Buffer mit Abstand 3m")
+        site_polygon = all_geometries.buffer(3)
+        
+        # Berechne Fläche und Umfang
+        area = site_polygon.area
+        perimeter = site_polygon.length
+        
+        logging.info(f"✅ Standortpolygon erstellt:\n- Fläche: {area:.2f} m²\n- Umfang: {perimeter:.2f} m")
+        
+        return site_polygon
+        
+    except Exception as e:
+        logging.error(f"❌ Fehler beim Erstellen des Site-Polygons: {str(e)}")
+        return None
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)

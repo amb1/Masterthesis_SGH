@@ -174,74 +174,38 @@ cea_mapping:
 zone_shp:
   mappings:
     Name:
-      source: name
+      source: gml_id
       transform: str
-    floors_ag:
-      source: floors_above_ground
-      transform: int
-    floors_bg:
-      source: floors_below_ground
-      transform: int
     height_ag:
-      source: height_above_ground
+      source: measuredHeight
       transform: float
-    height_bg:
-      source: height_below_ground
-      transform: float
-    REFERENCE:
-      source: building_id
-      transform: str
-    house_no:
-      source: house_number
-      transform: str
-    street:
-      source: street_name
-      transform: str
-    postcode:
-      source: postal_code
-      transform: str
-    house_name:
-      source: building_name
-      transform: str
-    resi_type:
-      source: building_type
-      transform: str
-    city:
-      source: city_name
-      transform: str
-    country:
-      source: country_code
+    floors_ag:
+      source: GEBAEUDEINFOOGD_GESCH_ANZ
+      transform: int
+    year:
+      source: GEBAEUDEINFOOGD_BAUJAHR
+      transform: int
+    type:
+      source: GEBAEUDETYPOGD_OBJ_STR
       transform: str
 
 typology_dbf:
   mappings:
     Name:
-      source: name
+      source: gml_id
       transform: str
     YEAR:
-      source: construction_year
+      source: GEBAEUDEINFOOGD_BAUJAHR
       transform: int
+    TYPE:
+      source: GEBAEUDETYPOGD_OBJ_STR
+      transform: str
     STANDARD:
-      source: building_standard
+      source: GEBAEUDETYPOGD_OBJ_STR
       transform: str
-    USE1:
-      source: primary_use
-      transform: str
-    USE1_R:
-      source: primary_use_ratio
+    FLOORS:
+      source: GEBAEUDEINFOOGD_GESCH_ANZ
+      transform: int
+    HEIGHT:
+      source: measuredHeight
       transform: float
-    USE2:
-      source: secondary_use
-      transform: str
-    USE2_R:
-      source: secondary_use_ratio
-      transform: float
-    USE3:
-      source: tertiary_use
-      transform: str
-    USE3_R:
-      source: tertiary_use_ratio
-      transform: float
-    REFERENCE:
-      source: building_id
-      transform: str

@@ -1,0 +1,39 @@
+osm:
+  # Gebäude-Standardwerte
+  building_defaults:
+    height: 10  # Standardhöhe in Metern
+    floors: 3   # Standardanzahl der Stockwerke
+    year: 1990  # Standardbaujahr
+  
+  # Umgebungsgebäude-Einstellungen
+  surroundings:
+    buffer_distance: 100  # Meter
+    building_types:
+      - residential
+      - commercial
+      - industrial
+      - school
+      - university
+      - hospital
+    
+  # Straßen-Einstellungen
+  streets:
+    tags:
+      - highway
+      - primary
+      - secondary
+      - tertiary
+      - residential
+    
+  # Gebäudetyp-Mapping
+  building_type_mapping:
+    residential: "MFH"
+    apartments: "MFH"
+    house: "SFH"
+    commercial: "OFFICE"
+    retail: "RETAIL"
+    school: "SCHOOL"
+    university: "UNIVERSITY"
+    hospital: "HOSPITAL"
+    industrial: "INDUSTRIAL"
+    default: "OTHER" 

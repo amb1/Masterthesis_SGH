@@ -2,8 +2,7 @@ paths:
   input:
     format: citygml
     files:
-      citygml: "local/data/citygml/099082.gml"
-      geojson: "local/data/geojson/buildings.geojson"
+      citygml: "local/data/citygml/099082.gml"  # Primäre Datenquelle
   scenario_folders:
     inputs:
       building-geometry: "inputs/building-geometry"
@@ -23,17 +22,7 @@ cea_settings:
   reference_case: "reference-case"
   sensitivity_analysis: false
   optimization: false
-  building:
-    default_height: 20.0
-    default_floors: 5
-    default_occupancy: 0.8
-    default_construction_year: 1990
-    
-  network:
-    default_lane_width: 3.5
-    default_speed_limit: 50
-    default_capacity: 1000
-    
+  
   simulation:
     start_date: "2024-01-01"
     end_date: "2024-12-31"

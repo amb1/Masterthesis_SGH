@@ -128,7 +128,7 @@ def main():
         project_dir = setup_project_structure(project_path, scenario_path)
         
         # Initialisiere CEA Building Processor
-        processor = CEABuildingProcessor(config)
+        processor = CEABuildingProcessor(config['cea'], config['project'])
         
         # Verarbeite CityGML-Datei
         citygml_path = Path(config['paths']['inputs']['citygml']) / "099082.gml"
@@ -212,22 +212,55 @@ def create_cea_files(zone_gdf: gpd.GeoDataFrame, output_dir: Path, config: dict)
 def load_configs() -> dict:
     """Lädt alle Konfigurationsdateien"""
     try:
-        configs = {
-            'project': load_config(local_dir / "cfg" / "project_config.yml"),
-            'wfs': load_config(local_dir / "cfg" / "wfs" / "wfs_config.yml")['vienna_wfs'],
-            'osm': load_config(local_dir / "cfg" / "data_sources" / "osm_config.yml"),
-            'cea': {
-                'fields': load_config(local_dir / "cfg" / "cea" / "cea_fields.yml"),
-                'mapping': load_config(local_dir / "cfg" / "cea" / "cea_mapping.yml")
+        # Definiere Basis-Pfade
+        local_dir = Path(__file__).resolve().parent
+        cfg_dir = local_dir / "cfg"
+        
+        # Lade Konfigurationen
+        configs = {}
+        
+        # Lade project_config.yml
+        project_config_path = cfg_dir / "project_config.yml"
+        if project_config_path.exists():
+            with open(project_config_path, 'r', encoding='utf-8') as f:
+                configs['project'] = yaml.safe_load(f)
+                print("Lade Konfiguration: project_config.yml")
+        
+        # Lade CEA-spezifische Konfigurationen
+        cea_configs = {
+            'fields': "cea_fields.yml",
+            'mapping': "cea_mapping.yml",
+            'metrics': "building_metrics.yml"
+        }
+        
+        configs['cea'] = {}
+        for key, filename in cea_configs.items():
+            file_path = cfg_dir / "cea" / filename
+            if file_path.exists():
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    configs['cea'][key] = yaml.safe_load(f)
+                    print(f"Lade Konfiguration: {filename}")
+        
+        # Lade WFS-Konfiguration
+        wfs_config_path = cfg_dir / "wfs" / "wfs_config.yml"
+        if wfs_config_path.exists():
+            with open(wfs_config_path, 'r', encoding='utf-8') as f:
+                wfs_config = yaml.safe_load(f)
+                configs['cea']['wfs'] = wfs_config.get('vienna_wfs', {})
+                print("Lade Konfiguration: wfs_config.yml")
+        
+        # Setze Pfade
+        configs['paths'] = {
+            'inputs': {
+                'citygml': local_dir / "data" / "inputs" / "citygml"
+            },
+            'outputs': {
+                'buildings': local_dir / "data" / "outputs" / "buildings"
             }
         }
         
         if not all(configs.values()):
             raise ValueError("❌ Fehler beim Laden der Konfigurationsdateien")
-            
-        # Stelle sicher, dass die WFS-Konfiguration korrekt ist
-        if 'wfs' not in configs or not isinstance(configs['wfs'], dict):
-            raise ValueError("❌ Ungültige WFS-Konfiguration")
             
         return configs
         

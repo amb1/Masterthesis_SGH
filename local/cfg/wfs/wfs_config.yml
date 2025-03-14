@@ -13,28 +13,57 @@ vienna_wfs:
   streams:
     - name: "Gebäudeinfo"
       layer: "ogdwien:GEBAEUDEINFOOGD"
+      priority: 1
       fields:
         - "OBJECTID"
         - "geometry"
-        - "SE_ANNO_CAD_DATA"
+        - "BAUJAHR"
+        - "L_NUTZUNG"
+        - "L_BAUTYP"
+        - "GESCH_ANZ"
+        - "BASIS_INV"
+        - "L_BAUJ"
+        - "ORIG_PARZ"
+        - "ORIG_FASS"
+        - "ORIG_KERN"
+        - "ORIG_FENSTER"
+        - "ORIG_DACH"
       mapping:
         building_id: "OBJECTID"
         geometry: "geometry"
-        cad_data: "SE_ANNO_CAD_DATA"
+        construction_year: "BAUJAHR"
+        usage: "L_NUTZUNG"
+        building_type: "L_BAUTYP"
+        floors: "GESCH_ANZ"
+        foundation_type: "BASIS_INV"
+        construction_period: "L_BAUJ"
+        original_parcel: "ORIG_PARZ"
+        original_facade: "ORIG_FASS"
+        original_core: "ORIG_KERN"
+        original_windows: "ORIG_FENSTER"
+        original_roof: "ORIG_DACH"
 
     - name: "Energieraumplan"
       layer: "ogdwien:ENERGIERAUMPLANOGD"
+      priority: 2
       fields:
         - "OBJECTID"
         - "geometry"
         - "ERPLABEL"
+        - "BEARB_DATUM"
+        - "BEZNR"
+        - "FL_ERP"
       mapping:
         energy_id: "OBJECTID"
         geometry: "geometry"
         energy_label: "ERPLABEL"
+        measurement_date: "BEARB_DATUM"
+        energy_class: "BEZNR"
+        energy_performance: "FL_ERP"
 
     - name: "Solarpotential"
       layer: "ogdwien:PVPOTENZIALEOGD"
+      priority: 3
       fields:
         - "OBJECTID"
         - "geometry"
@@ -44,195 +73,134 @@ vienna_wfs:
         geometry: "geometry"
         suitability: "EIGNUNGSKLASSE"
 
+    - name: "Grünflächen"
+      layer: "ogdwien:GRUENFREIFLOGD"
+      fields:
+        - "OBJECTID"
+        - "geometry"
+        - "LANDSCHAFT"
+        - "FLAECHE"
+      mapping:
+        green_id: "OBJECTID"
+        geometry: "geometry"
+        type: "LANDSCHAFT"
+        area: "FLAECHE"
+
+    - name: "Flächenwidmung"
+      layer: "ogdwien:GENFLWIDMUNGOGD"
+      priority: 5
+      fields:
+        - "OBJECTID"
+        - "geometry"
+        - "WIDMUNGSKLASSE"
+        - "WIDMUNGSKLASSE_TXT"
+        - "WIDMUNG"
+        - "WIDMUNG_TXT"
+      mapping:
+        landuse_id: "OBJECTID"
+        geometry: "geometry"
+        designation_class: "WIDMUNGSKLASSE"
+        designation_class_text: "WIDMUNGSKLASSE_TXT"
+        designation: "WIDMUNG"
+        designation_text: "WIDMUNG_TXT"
+
+    - name: "Lärmschutz"
+      layer: "ogdwien:LAERMSCHUTZOGD"
+      fields:
+        - "OBJECTID"
+        - "geometry"
+        - "BESCHREIBUNG"
+        - "LAENGE"
+        - "FLAECHE"
+        - "HMIN"
+        - "HMAX"
+      mapping:
+        noise_id: "OBJECTID"
+        geometry: "geometry"
+        description: "BESCHREIBUNG"
+        length: "LAENGE"
+        area: "FLAECHE"
+        min_height: "HMIN"
+        max_height: "HMAX"
+
+    - name: "Gebäudetypologie"
+      layer: "ogdwien:GEBAEUDETYPOGD"
+      priority: 4
+      fields:
+        - "OBJECTID"
+        - "geometry"
+        - "OBJ_STR"
+        - "OBJ_STR_TXT"
+        - "OBJ_STR2"
+        - "OBJ_STR2_TXT"
+      mapping:
+        typology_id: "OBJECTID"
+        geometry: "geometry"
+        structure: "OBJ_STR"
+        structure_text: "OBJ_STR_TXT"
+        structure2: "OBJ_STR2"
+        structure2_text: "OBJ_STR2_TXT"
+
+    - name: "Gebäudemodell"
+      layer: "ogdwien:FMZKBKMOGD"
+      priority: 5
+      fields:
+        - "OBJECTID"
+        - "geometry"
+        - "O_KOTE"
+        - "U_KOTE"
+        - "T_KOTE"
+      mapping:
+        model_id: "OBJECTID"
+        geometry: "geometry"
+        upper_elevation: "O_KOTE"
+        lower_elevation: "U_KOTE"
+        terrain_elevation: "T_KOTE"
+
+    - name: "Realnutzung"
+      layer: "ogdwien:REALNUT2022OGD"
+      priority: 6
+      fields:
+        - "OBJECTID"
+        - "geometry"
+        - "NUTZUNG_CODE"
+        - "NUTZUNG_LEVEL1"
+        - "NUTZUNG_LEVEL2"
+        - "NUTZUNG_LEVEL3"
+        - "FLAECHE"
+      mapping:
+        landuse_id: "OBJECTID"
+        geometry: "geometry"
+        usage_code: "NUTZUNG_CODE"
+        usage_level1: "NUTZUNG_LEVEL1"
+        usage_level2: "NUTZUNG_LEVEL2"
+        usage_level3: "NUTZUNG_LEVEL3"
+        area: "FLAECHE"
+
   # Merge-Felder für die Zusammenführung der Daten
   merge_fields:
     buildings:
       - building_id
       - geometry
       - cad_data
+      - construction_year
+      - usage
+      - building_type
+      - floors
+      - foundation_type
+      - construction_period
     energy:
       - energy_id
       - geometry
       - energy_label
+      - measurement_date
+      - energy_class
+      - energy_performance
+      - building_id
     solar_potential:
       - solar_id
       - geometry
       - suitability
-
-  # Layer-Definitionen
-  layers:
-    buildings:
-      name: "GEBAEUDE_1_0_0"
-      attributes:
-        - OBJECTID
-        - BAUJAHR
-        - L_NUTZUNG
-        - L_BAUTYP
-        - GESCH_ANZ
-        - BASIS_INV
-        - L_BAUJ
-    
-    energy:
-      name: "ogdwien:ENERGIERAUMPLANOGD"
-      attributes:
-        - OBJECTID
-        - BEARB_DATUM
-        - BEZNR
-        - ERPLABEL
-        - FL_ERP
-        - GEBID
-    
-    solar_potential:
-      name: "ogdwien:PVPOTENZIALEOGD"
-      attributes:
-        - OBJECTID
-        - EIGNUNGSKLASSE
-    
-    green_spaces:
-      name: "ogdwien:GRUENFREIFLOGD"
-      attributes:
-        - OBJECTID
-        - LANDSCHAFT
-        - FLAECHE
-    
-    land_use:
-      name: "ogdwien:GENFLWIDMUNGOGD"
-      attributes:
-        - OBJECTID
-        - WIDMUNGSKLASSE
-        - WIDMUNGSKLASSE_TXT
-        - WIDMUNG
-        - WIDMUNG_TXT
-        - FLAECHE
-    
-    noise_protection:
-      name: "ogdwien:LAERMSCHUTZOGD"
-      attributes:
-        - OBJECTID
-        - BESCHREIBUNG
-        - LAENGE
-        - FLAECHE
-        - HMIN
-        - HMAX
-
-    typology:
-      name: "ogdwien:GEBAEUDETYPOGD"
-      attributes:
-        - OBJECTID
-        - BEZUG
-        - OBJ_STR
-        - OBJ_STR_TXT
-        - OBJ_STR2
-        - OBJ_STR2_TXT
-        - BAUTYP
-        - BAUTYP_TXT
-        - ASC
-        - SE_ANNO_CAD_DATA
-
-    building_model:
-      name: "ogdwien:FMZKBKMOGD"
-      attributes:
-        - OBJECTID
-        - BEZUG
-        - OBJ_STR
-        - OBJ_STR_TXT
-        - OBJ_STR2
-        - OBJ_STR2_TXT
-        - BAUTYP
-        - BAUTYP_TXT
-        - ASC
-        - SE_ANNO_CAD_DATA
-        - FLAECHE
-        - VOLUMEN
-        - GESCH_ANZ
-        - BAUJAHR
-
-    land_use_2022:
-      name: "ogdwien:REALNUT2022OGD"
-      attributes:
-        - OBJECTID
-        - BEZ
-        - ZBEZ
-        - ZGEB
-        - BLK
-        - NUTZUNG_CODE
-        - NUTZUNG_LEVEL1
-        - NUTZUNG_LEVEL2
-        - NUTZUNG_LEVEL3
-        - FLAECHE
-        - SE_ANNO_CAD_DATA
-
-  # Feld-Mapping für die Normalisierung
-  field_mapping:
-    buildings:
-      OBJECTID: "building_id"
-      BAUJAHR: "construction_year"
-      L_NUTZUNG: "usage"
-      L_BAUTYP: "type"
-      GESCH_ANZ: "floors"
-      BASIS_INV: "foundation_type"
-      L_BAUJ: "construction_year"
-    
-    energy:
-      OBJECTID: "energy_id"
-      BEARB_DATUM: "measurement_date"
-      BEZNR: "energy_class"
-      ERPLABEL: "energy_label"
-      FL_ERP: "energy_performance"
-      GEBID: "energy_id"
-    
-    solar_potential:
-      OBJECTID: "solar_id"
-      EIGNUNGSKLASSE: "potential_class"
-    
-    green_spaces:
-      OBJECTID: "green_id"
-      LANDSCHAFT: "type"
-      FLAECHE: "area"
-    
-    land_use:
-      OBJECTID: "landuse_id"
-      WIDMUNGSKLASSE: "designation_class"
-      WIDMUNGSKLASSE_TXT: "designation_class_text"
-      WIDMUNG: "designation"
-      WIDMUNG_TXT: "designation_text"
-      FLAECHE: "area"
-    
-    noise_protection:
-      OBJECTID: "noise_id"
-      BESCHREIBUNG: "description"
-      LAENGE: "length"
-      FLAECHE: "area"
-      HMIN: "min_height"
-      HMAX: "max_height"
-
-    typology:
-      OBJECTID: "typology_id"
-      BEZUG: "reference"
-      OBJ_STR: "structure"
-      OBJ_STR_TXT: "structure_text"
-      OBJ_STR2: "structure2"
-      OBJ_STR2_TXT: "structure2_text"
-      BAUTYP: "building_type"
-      BAUTYP_TXT: "building_type_text"
-      ASC: "asc"
-      SE_ANNO_CAD_DATA: "cad_data"
-
-    building_model:
-      OBJECTID: "model_id"
-      BEZUG: "reference"
-      OBJ_STR: "structure"
-      OBJ_STR_TXT: "structure_text"
-      OBJ_STR2: "structure2"
-      OBJ_STR2_TXT: "structure2_text"
-      BAUTYP: "building_type"
-      BAUTYP_TXT: "building_type_text"
-      ASC: "asc"
-      SE_ANNO_CAD_DATA: "cad_data"
-      FLAECHE: "area"
-      VOLUMEN: "volume"
-      GESCH_ANZ: "floors"
-      BAUJAHR: "construction_year"
 
   # Bauperioden-Mapping
   periods:

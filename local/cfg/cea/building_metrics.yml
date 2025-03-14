@@ -2,10 +2,9 @@
 
 # Pflichtfelder für die Validierung
 required_fields:
-  - gml_id
   - geometry
-  - type
   - measuredHeight
+  - roofType
 
 # Mapping von CityGML/WFS Gebäudetypen zu CEA-Typen
 building_type_mapping:
@@ -165,4 +164,29 @@ wfs_metrics:
       - type
       - name
       - capacity
-    search_radius: 200 
+    search_radius: 200
+
+metrics:
+  height:
+    source: measuredHeight
+    unit: m
+    min: 2
+    max: 100
+    default: 12
+    
+  floors:
+    source: GEBAEUDEINFOOGD_GESCH_ANZ
+    unit: count
+    min: 1
+    max: 50
+    default: 4
+    
+  year:
+    source: GEBAEUDEINFOOGD_BAUJAHR
+    unit: year
+    min: 1800
+    max: 2024
+    default: 1990
+  identifiers:
+    - gml_id
+    - REFERENCE 
