@@ -167,24 +167,38 @@ class CEABuildingProcessor(BuildingProcessorInterface):
             logger.info("🔄 Hole Umgebungsgebäude...")
             
             # Erstelle GeoDataFrame aus site_polygon mit CRS
-            site_gdf = gpd.GeoDataFrame({'geometry': [self.site_polygon]}, crs=self.config.get('crs', 'EPSG:31256'))
-            
-            surroundings_gdf = fetch_surrounding_buildings(
-                site_gdf.geometry[0],  # Verwende das erste (und einzige) Polygon
-                self.config.get('osm', {})
+            site_gdf = gpd.GeoDataFrame(
+                {'geometry': [self.site_polygon]}, 
+                crs=self.config.get('crs', 'EPSG:31256')
             )
             
-            if surroundings_gdf is not None:
+            # Konfiguration für OSM-Gebäude
+            osm_config = {
+                'surroundings': {
+                    'buffer_distance': self.config['osm']['surroundings']['buffer_distance'],
+                    'building_defaults': self.config['osm']['surroundings']['building_defaults']
+                }
+            }
+            
+            surroundings_gdf = fetch_surrounding_buildings(
+                site_gdf,  # Übergebe GeoDataFrame statt MultiPolygon
+                osm_config
+            )
+            
+            if surroundings_gdf is not None and not surroundings_gdf.empty:
                 # Setze CRS für surroundings_gdf
                 surroundings_gdf.set_crs(self.config.get('crs', 'EPSG:31256'), inplace=True)
                 
                 surroundings_gdf = process_osm_buildings(
                     surroundings_gdf,
-                    self.config.get('osm', {}).get('building_defaults', {})
+                    self.config.get('osm', {}).get('surroundings', {}).get('building_defaults', {})
                 )
                 surroundings_path = geometry_dir / 'surroundings.shp'
                 surroundings_gdf.to_file(surroundings_path)
                 logger.info(f"✅ {len(surroundings_gdf)} Umgebungsgebäude gespeichert: {surroundings_path}")
+            else:
+                logger.warning("⚠️ Keine Umgebungsgebäude gefunden oder Fehler beim Abruf")
+                surroundings_gdf = gpd.GeoDataFrame(geometry=[], crs=self.config.get('crs', 'EPSG:31256'))
             
             # 5. Hole und speichere Straßen
             logger.info("🔄 Hole Straßen...")

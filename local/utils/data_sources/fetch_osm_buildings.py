@@ -7,19 +7,31 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-def fetch_surrounding_buildings(site_gdf, config):
-    """Holt Gebäude aus OpenStreetMap im Umkreis des Standorts"""
+def fetch_surrounding_buildings(site_gdf: gpd.GeoDataFrame, config: dict) -> gpd.GeoDataFrame:
+    """Holt Gebäude aus OpenStreetMap im Umkreis des Standorts.
+    
+    Args:
+        site_gdf (gpd.GeoDataFrame): GeoDataFrame mit dem Site-Polygon
+        config (dict): Konfiguration für die Umgebungsgebäude
+        
+    Returns:
+        gpd.GeoDataFrame: GeoDataFrame mit den Umgebungsgebäuden
+    """
     try:
+        if site_gdf is None or site_gdf.empty:
+            logger.error("⚠️ Ungültiges oder leeres site_gdf übergeben")
+            return gpd.GeoDataFrame(geometry=[], crs=site_gdf.crs if site_gdf is not None else "EPSG:31256")
+
         distance = config['surroundings']['buffer_distance']
         building_defaults = config['surroundings']['building_defaults']
         
         logger.info(f"📡 OSM-Abfrage: Gebäude im Umkreis von {distance}m")
 
-        if site_gdf.empty:
-            raise ValueError("⚠️ Fehler: Das übergebene Standortpolygon ist leer!")
-
+        # Hole das Site-Polygon und erstelle Buffer
         site_polygon = site_gdf.geometry.iloc[0]
         outer_buffer = site_polygon.buffer(distance)
+        
+        # Erstelle Buffer GeoDataFrame
         buffer_gdf = gpd.GeoDataFrame(geometry=[outer_buffer], crs=site_gdf.crs)
         buffer_wgs84 = buffer_gdf.to_crs("EPSG:4326")
 
@@ -27,7 +39,7 @@ def fetch_surrounding_buildings(site_gdf, config):
         tags = {'building': True}
         buildings_gdf = ox.features_from_polygon(buffer_wgs84.geometry.iloc[0], tags=tags)
 
-        if buildings_gdf.empty:
+        if buildings_gdf is None or buildings_gdf.empty:
             logger.warning("⚠️ Keine OSM-Gebäude gefunden!")
             return gpd.GeoDataFrame(geometry=[], crs=site_gdf.crs)
 
@@ -36,6 +48,7 @@ def fetch_surrounding_buildings(site_gdf, config):
         buildings_gdf['floors'] = buildings_gdf.get('building:levels', building_defaults['floors'])
         buildings_gdf['year'] = buildings_gdf.get('start_date', building_defaults['year'])
 
+        # Konvertiere zum ursprünglichen CRS
         buildings_gdf = buildings_gdf.to_crs(site_gdf.crs)
         
         # Filtere Gebäude
@@ -47,8 +60,10 @@ def fetch_surrounding_buildings(site_gdf, config):
         return buildings_gdf
 
     except Exception as e:
-        logger.error(f"❌ Fehler beim OSM-Gebäude Abruf: {str(e)}", exc_info=True)
-        return gpd.GeoDataFrame(geometry=[], crs=site_gdf.crs)
+        logger.error(f"❌ Fehler beim OSM-Gebäude Abruf: {str(e)}")
+        if site_gdf is not None:
+            return gpd.GeoDataFrame(geometry=[], crs=site_gdf.crs)
+        return gpd.GeoDataFrame(geometry=[], crs="EPSG:31256")
 
 
 def process_osm_buildings(buildings_gdf, osm_defaults):

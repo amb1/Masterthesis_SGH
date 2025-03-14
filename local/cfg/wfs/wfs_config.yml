@@ -91,51 +91,36 @@ vienna_wfs:
       priority: 5
       fields:
         - "OBJECTID"
-        - "geometry"
         - "WIDMUNGSKLASSE"
         - "WIDMUNGSKLASSE_TXT"
+        - "BEZIRK"
+        - "UMFANG"
+        - "FLAECHE"
         - "WIDMUNG"
         - "WIDMUNG_TXT"
       mapping:
         landuse_id: "OBJECTID"
-        geometry: "geometry"
         designation_class: "WIDMUNGSKLASSE"
         designation_class_text: "WIDMUNGSKLASSE_TXT"
         designation: "WIDMUNG"
         designation_text: "WIDMUNG_TXT"
 
-    - name: "Lärmschutz"
-      layer: "ogdwien:LAERMSCHUTZOGD"
-      fields:
-        - "OBJECTID"
-        - "geometry"
-        - "BESCHREIBUNG"
-        - "LAENGE"
-        - "FLAECHE"
-        - "HMIN"
-        - "HMAX"
-      mapping:
-        noise_id: "OBJECTID"
-        geometry: "geometry"
-        description: "BESCHREIBUNG"
-        length: "LAENGE"
-        area: "FLAECHE"
-        min_height: "HMIN"
-        max_height: "HMAX"
 
     - name: "Gebäudetypologie"
       layer: "ogdwien:GEBAEUDETYPOGD"
       priority: 4
       fields:
         - "OBJECTID"
-        - "geometry"
+        - "BEZUG"
         - "OBJ_STR"
         - "OBJ_STR_TXT"
         - "OBJ_STR2"
         - "OBJ_STR2_TXT"
+        - "BAUTYP"
+        - "BAUTYP_TXT"
+        - "ACD"
       mapping:
         typology_id: "OBJECTID"
-        geometry: "geometry"
         structure: "OBJ_STR"
         structure_text: "OBJ_STR_TXT"
         structure2: "OBJ_STR2"
@@ -145,14 +130,21 @@ vienna_wfs:
       layer: "ogdwien:FMZKBKMOGD"
       priority: 5
       fields:
-        - "OBJECTID"
-        - "geometry"
+        - "FMZK_ID"
+        - "F_KLASSE"
+        - "LAYER"
+        - "BEZUG"
+        - "H_KLASSE"
+        - "KLASSE_SUB"
         - "O_KOTE"
         - "U_KOTE"
         - "T_KOTE"
+        - "BW_GEB_ID"
+        - "BW_BRK_ID"
+        - "BW_SON_ID"
+        - "SE_SDO_ROWID"
       mapping:
         model_id: "OBJECTID"
-        geometry: "geometry"
         upper_elevation: "O_KOTE"
         lower_elevation: "U_KOTE"
         terrain_elevation: "T_KOTE"
@@ -162,7 +154,10 @@ vienna_wfs:
       priority: 6
       fields:
         - "OBJECTID"
-        - "geometry"
+        - "BEZ"
+        - "ZBEZ"
+        - "ZGEB"
+        - "BLK"
         - "NUTZUNG_CODE"
         - "NUTZUNG_LEVEL1"
         - "NUTZUNG_LEVEL2"
@@ -170,7 +165,6 @@ vienna_wfs:
         - "FLAECHE"
       mapping:
         landuse_id: "OBJECTID"
-        geometry: "geometry"
         usage_code: "NUTZUNG_CODE"
         usage_level1: "NUTZUNG_LEVEL1"
         usage_level2: "NUTZUNG_LEVEL2"
