@@ -1,4 +1,9 @@
 osm:
+  # API-Einstellungen
+  overpass_endpoint: "https://overpass-api.de/api/interpreter"
+  timeout: 300
+  retries: 3
+
   # Gebäude-Standardwerte
   building_defaults:
     height: 10  # Standardhöhe in Metern
@@ -18,12 +23,17 @@ osm:
     
   # Straßen-Einstellungen
   streets:
-    tags:
-      - highway
-      - primary
-      - secondary
-      - tertiary
-      - residential
+    buffer_distance: 100  # Meter
+    street_types:
+      primary: true
+      secondary: true
+      tertiary: true
+      residential: true
+      service: true
+      living_street: true
+      pedestrian: true
+      footway: true
+      cycleway: true
     
   # Gebäudetyp-Mapping
   building_type_mapping:
@@ -36,4 +46,15 @@ osm:
     university: "UNIVERSITY"
     hospital: "HOSPITAL"
     industrial: "INDUSTRIAL"
-    default: "OTHER" 
+    default: "OTHER"
+
+  # Tags für verschiedene Objekttypen
+  tags:
+    buildings:
+      - "building"
+    infrastructure:
+      - "highway"
+      - "railway"
+    natural:
+      - "natural"
+      - "landuse" 

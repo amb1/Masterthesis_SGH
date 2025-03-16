@@ -18,8 +18,7 @@ building_defaults:
 # Datenquellenwahl
 data_source:
   osm:
-    overpass_endpoint: "https://overpass-api.de/api/interpreter"
-    timeout: 300
+    config_file: "cfg/osm/osm_config.yml"
   citygml:
     base_path: "data/citygml"
     file_pattern: "*.gml"
@@ -70,19 +69,6 @@ paths:
     noise: "data/outputs/noise"
   projects: "projects"
   scenarios: "scenarios"
-
-osm:
-  timeout: 30
-  retries: 3
-  tags:
-    buildings:
-      - "building"
-    infrastructure:
-      - "highway"
-      - "railway"
-    natural:
-      - "natural"
-      - "landuse"
 
 defaults:
   project_name: "CityGMLProject"

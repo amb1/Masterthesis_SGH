@@ -322,9 +322,10 @@ def create_site_polygon(buildings_gdf: gpd.GeoDataFrame) -> Polygon:
         logging.info("📐 Erstelle äußere Hülle um alle Gebäude")
         all_geometries = buildings_gdf.geometry.unary_union
         
-        # Erstelle Buffer um die Geometrien
-        logging.info("🔲 Erstelle Buffer mit Abstand 3m")
-        site_polygon = all_geometries.buffer(3)
+        # Erstelle convex hull und dann Buffer
+        logging.info("🔲 Erstelle Buffer mit Abstand 5m")
+        convex_hull = all_geometries.convex_hull
+        site_polygon = convex_hull.buffer(5)
         
         # Berechne Fläche und Umfang
         area = site_polygon.area

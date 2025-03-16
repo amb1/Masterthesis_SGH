@@ -414,6 +414,10 @@ class CEABuildingProcessor(BuildingProcessorInterface):
             # Kopiere Basisdaten
             processed_data = building_data.copy()
             
+            # Setze CRS wenn nicht vorhanden
+            if not hasattr(processed_data['geometry'], 'crs'):
+                processed_data['geometry'].set_crs(epsg=31256, inplace=True)
+            
             # Behandle MultiPolygon
             if processed_data['geometry'].geom_type == 'MultiPolygon':
                 # Wähle den größten Polygon aus dem MultiPolygon
@@ -434,9 +438,9 @@ class CEABuildingProcessor(BuildingProcessorInterface):
                     logger.info("Geometrie erfolgreich bereinigt")
                 else:
                     logger.warning("⚠️ Geometrie konnte nicht bereinigt werden")
-            
+                
             return processed_data
-            
+
         except Exception as e:
             logger.warning(f"⚠️ Fehler bei der Gebäudeverarbeitung: {str(e)}")
             return building_data 
