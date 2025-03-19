@@ -7,36 +7,59 @@ from pathlib import Path
 from shapely.geometry import Polygon, Point, MultiPolygon
 import numpy as np
 import os
-import yaml
 import sys
+import yaml
 
 # Füge das Root-Verzeichnis zum Python-Path hinzu
 root_dir = Path(__file__).resolve().parent.parent.parent
-sys.path.append(str(root_dir))
+if str(root_dir) not in sys.path:
+    sys.path.append(str(root_dir))
 
+from utils.config_loader import load_config
 from utils.data_processing.create_site_polygon import create_site_polygon, save_site_polygon
 from utils.data_sources.fetch_citygml_buildings import fetch_citygml_buildings
 from utils.data_sources.fetch_wfs_data import ViennaWFS
 
+logger = logging.getLogger(__name__)
+
+def load_project_config():
+    """Lädt die Projekt-Konfiguration"""
+    try:
+        # Lade zuerst die Projekt-Konfiguration
+        root_dir = Path(__file__).resolve().parent.parent.parent
+        project_config_path = root_dir / 'cfg' / 'project_config.yml'
+        logger.info(f"📂 Lade Projekt-Konfiguration: {project_config_path}")
+        
+        # Lade die Konfiguration direkt
+        config = load_config(str(project_config_path))
+        if not config:
+            logger.error("❌ Projekt-Konfiguration konnte nicht geladen werden")
+            return None
+            
+        logger.info("✅ Projekt-Konfiguration erfolgreich geladen")
+        return config
+
+    except Exception as e:
+        logger.error(f"❌ Fehler beim Laden der Konfiguration: {str(e)}")
+        return None
+
 class BuildingProcessorInterface(ABC):
     """Interface für Gebäudeprozessoren"""
     
-    def __init__(self, config: Dict[str, Any]):
-        """Initialisiert den Building Processor.
-        
-        Args:
-            config (dict): Die Konfiguration mit Pfaden und Einstellungen
-        """
-        self.config = config
+    def __init__(self):
+        """Initialisiert den Building Processor."""
         self.buildings_gdf = None
         self.site_polygon = None
         
         # Lade Konfigurationen
-        self.project_config = config.get('project', {})
-        self.wfs_config = config.get('wfs', {})
-        self.osm_config = config.get('osm', {})
-        self.cea_config = config.get('cea', {})
+        self.project_config = load_project_config()
+        if not self.project_config:
+            raise ValueError("❌ Keine gültige Projekt-Konfiguration gefunden")
         
+        # Hole spezifische Konfigurationen
+        self.paths = self.project_config.get('project', {}).get('paths', {})
+        
+        # Logger Setup
         self.logger = logging.getLogger(self.__class__.__name__)
         self.logger.setLevel(logging.INFO)
         
@@ -51,14 +74,77 @@ class BuildingProcessorInterface(ABC):
         self.wfs_data = {}
         
         # Initialisiere WFS mit der Konfiguration
-        if self.wfs_config:
-            self.wfs = ViennaWFS(config=self.wfs_config)
+        if self.project_config.get('wfs'):
+            self.wfs = ViennaWFS(config=self.project_config['wfs'])
             self.logger.info("✅ WFS initialisiert")
         else:
             self.logger.warning("⚠️ Keine WFS-Konfiguration gefunden")
             
-        logging.info("✅ Base Building Processor initialisiert")
+    def _load_specific_config(self, config_type: str) -> Optional[Dict[str, Any]]:
+        """Lädt eine spezifische Konfigurationsdatei.
         
+        Args:
+            config_type: Art der Konfiguration ('wfs', 'osm', 'cea')
+            
+        Returns:
+            Optional[Dict[str, Any]]: Geladene Konfiguration oder None bei Fehler
+        """
+        try:
+            # Hole Pfad aus project_config
+            config_path = self.project_config.get('config_files', {}).get(config_type, {}).get('config')
+            if not config_path:
+                self.logger.warning(f"⚠️ Kein Konfigurationspfad für {config_type} gefunden")
+                return None
+                
+            # Konvertiere zu Path und entferne 'local' wenn vorhanden
+            config_path = Path(config_path)
+            if config_path.parts[0] == 'local':
+                config_path = config_path.relative_to('local')
+                
+            # Konstruiere absoluten Pfad
+            root_dir = Path(__file__).resolve().parent.parent.parent
+            config_path = root_dir / config_path
+            
+            return self.load_config(config_path)
+            
+        except Exception as e:
+            self.logger.error(f"❌ Fehler beim Laden der {config_type}-Konfiguration: {str(e)}")
+            return None
+            
+    def load_config(self, config_path: Union[str, Path]) -> Optional[Dict[str, Any]]:
+        """Lädt eine Konfigurationsdatei
+        
+        Args:
+            config_path: Pfad zur Konfigurationsdatei (String oder Path-Objekt)
+            
+        Returns:
+            Optional[Dict[str, Any]]: Geladene Konfiguration oder None bei Fehler
+        """
+        try:
+            # Konvertiere config_path zu Path-Objekt für Existenzprüfung
+            path = Path(config_path)
+            if not path.exists():
+                self.logger.error(f"❌ Konfigurationsdatei nicht gefunden: {path}")
+                return None
+                
+            # Lade die Konfiguration
+            config = load_config(str(path))
+            if not config:
+                self.logger.error(f"❌ Konfiguration konnte nicht geladen werden: {path}")
+                return None
+            
+            # Validiere, dass config ein Dictionary ist
+            if not isinstance(config, dict):
+                self.logger.error(f"❌ Ungültiges Konfigurationsformat: {type(config)}")
+                return None
+                
+            self.logger.info(f"✅ Konfiguration geladen: {path.name}")
+            return config
+            
+        except Exception as e:
+            self.logger.error(f"❌ Fehler beim Laden der Konfiguration {config_path}: {str(e)}")
+            return None
+            
     def process_citygml(self, citygml_file: str) -> bool:
         """Verarbeitet eine CityGML-Datei und extrahiert Gebäudedaten.
 
@@ -68,9 +154,9 @@ class BuildingProcessorInterface(ABC):
         try:
             self.logger.info(f"📂 Verarbeite CityGML-Datei: {citygml_file}")
 
-            # Erstelle Output-Verzeichnis
-            output_dir = os.path.join(os.path.dirname(citygml_file), '..', 'outputs', 'buildings')
-            os.makedirs(output_dir, exist_ok=True)
+            # Hole Output-Pfad aus der Konfiguration
+            output_dir = Path(self.paths['outputs']['buildings'])
+            output_dir.mkdir(parents=True, exist_ok=True)
 
             # Extrahiere Gebäude und Gebäudeteile
             buildings_gdf = fetch_citygml_buildings(citygml_file, output_dir)
@@ -87,13 +173,14 @@ class BuildingProcessorInterface(ABC):
             self.logger.info(f"✅ {building_count} Gebäude extrahiert ({building_parts_count} Gebäudeteile gefunden)")
 
             # Erstelle Site-Polygon
-            self.site_polygon = create_site_polygon(self.buildings_gdf)
+            buffer_distance = self.project_config.get('processing', {}).get('site_polygon', {}).get('buffer_distance', 3)
+            self.site_polygon = create_site_polygon(self.buildings_gdf, buffer_distance)
             self.logger.info("✅ Site-Polygon erstellt")
 
             # Hole WFS-Daten wenn WFS verfügbar
             if hasattr(self, 'wfs'):
                 self.logger.info("🔍 WFS-Konfiguration:")
-                streams = self.wfs_config.get('streams', [])
+                streams = self.project_config['wfs'].get('streams', [])
                 self.logger.info(f"Gefundene Streams: {len(streams)}")
 
                 if not streams:
@@ -118,21 +205,18 @@ class BuildingProcessorInterface(ABC):
                     return False
 
             # Speichere Ergebnisse
-            output_dir = os.path.join(os.path.dirname(citygml_file), '..', 'outputs', 'buildings')
-            os.makedirs(output_dir, exist_ok=True)
-            
             # Speichere Gebäude als GeoJSON
-            output_path = os.path.join(output_dir, 'buildings.geojson')
+            output_path = output_dir / 'buildings.geojson'
             self.buildings_gdf.to_file(output_path, driver='GeoJSON')
             self.logger.info(f"✅ Gebäude gespeichert nach {output_path}")
             
             # Speichere Site-Polygon als Shapefile
-            site_path = os.path.join(output_dir, 'site.shp')
+            site_path = output_dir / 'site.shp'
             if isinstance(self.site_polygon, (str, dict)):
                 self.logger.warning("⚠️ Site-Polygon hat ungültigen Geometrietyp, versuche Konvertierung")
                 if isinstance(self.site_polygon, dict) and 'geometry' in self.site_polygon:
                     self.site_polygon = self.site_polygon['geometry']
-            site_gdf = gpd.GeoDataFrame({'geometry': [self.site_polygon]}, crs=self.config.get('crs', 'EPSG:31256'))
+            site_gdf = gpd.GeoDataFrame({'geometry': [self.site_polygon]}, crs=self.project_config.get('crs', 'EPSG:31256'))
             site_gdf.to_file(site_path)
             self.logger.info(f"✅ Site-Polygon gespeichert nach {site_path}")
             
@@ -288,7 +372,7 @@ class BuildingProcessorInterface(ABC):
                 # Erstelle GeoDataFrame und speichere
                 site_gdf = gpd.GeoDataFrame(
                     {'geometry': [site_polygon]}, 
-                    crs=self.config.get('crs', 'EPSG:31256')
+                    crs=self.project_config.get('crs', 'EPSG:31256')
                 )
                 site_gdf.to_file(site_path)
                 self.logger.info(f"✅ Site-Polygon gespeichert nach {site_path}")
@@ -339,25 +423,68 @@ def create_site_polygon(buildings_gdf: gpd.GeoDataFrame) -> Polygon:
         logging.error(f"❌ Fehler beim Erstellen des Site-Polygons: {str(e)}")
         return None
 
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-    logging.info("🔎 Base Building Processor Test-Modus")
-    
+def main():
+    """Hauptfunktion zum Ausführen des Base Building Processors."""
     try:
-        # Initialisiere Processor
-        processor = BasicBuildingProcessor()
+        logger.info("🔎 Base Building Processor Test-Modus")
         
-        # Teste CityGML-Verarbeitung
-        citygml_path = "local/data/inputs/citygml/099082.gml"
-        if os.path.exists(citygml_path):
-            processor.process_citygml(citygml_path)
+        # Lade Projekt-Konfiguration - Korrigierter Pfad
+        root_dir = Path(__file__).resolve().parent.parent.parent
+        config_path = root_dir / "cfg" / "project_config.yml"
+        logger.info(f"📂 Lade Projekt-Konfiguration: {config_path}")
+        
+        # Lade die Konfiguration direkt mit load_config
+        config = load_config(config_path)
+        if not config:
+            logger.error("❌ Keine gültige Konfiguration gefunden")
+            return
             
-            # Speichere Ergebnisse
-            output_dir = "local/data/outputs/buildings"
-            processor.save_buildings(output_dir)
-            logging.info("✅ Test erfolgreich abgeschlossen")
+        # Validiere, dass config ein Dictionary ist
+        if not isinstance(config, dict):
+            logger.error(f"❌ Ungültiges Konfigurationsformat: {type(config)}")
+            return
+            
+        # Lade WFS-Konfiguration
+        wfs_config = config.get('data_source', {}).get('wfs', {})
+        if not wfs_config:
+            logger.warning("⚠️ Keine WFS-Konfiguration gefunden")
+            return
+            
+        # Lade CityGML-Konfiguration
+        citygml_config = config.get('data_source', {}).get('citygml', {})
+        if not citygml_config:
+            logger.error("❌ Keine CityGML-Konfiguration gefunden")
+            return
+            
+        # Konstruiere absoluten Pfad zur CityGML-Datei
+        citygml_base_path = Path(citygml_config.get('base_path', ''))
+        if citygml_base_path.parts[0] == 'local':
+            citygml_base_path = citygml_base_path.relative_to('local')
+        citygml_path = root_dir / citygml_base_path / citygml_config.get('default_file', '')
+        
+        if not citygml_path.exists():
+            logger.error(f"❌ CityGML-Datei nicht gefunden: {citygml_path}")
+            return
+            
+        # Hole Ausgabepfade aus der Konfiguration
+        output_dir = Path(config['project']['paths']['outputs']['citygml'])
+        if output_dir.parts[0] == 'local':
+            output_dir = output_dir.relative_to('local')
+        output_dir = root_dir / output_dir
+        
+        # Erstelle Ausgabeverzeichnis falls nicht vorhanden
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Führe die Verarbeitung durch
+        buildings_gdf = fetch_citygml_buildings(str(citygml_path), str(output_dir), config)
+        
+        if buildings_gdf is not None:
+            logger.info(f"✅ {len(buildings_gdf)} Gebäude extrahiert")
         else:
-            logging.error(f"❌ CityGML-Datei nicht gefunden: {citygml_path}")
+            logger.error("❌ Fehler beim Extrahieren der Gebäude")
             
     except Exception as e:
-        logging.error(f"❌ Fehler im Test-Modus: {str(e)}") 
+        logger.error(f"❌ Fehler im Hauptprogramm: {str(e)}")
+
+if __name__ == "__main__":
+    main() 

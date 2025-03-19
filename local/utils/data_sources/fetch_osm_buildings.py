@@ -4,6 +4,17 @@ from shapely.ops import unary_union
 from pathlib import Path
 import yaml
 import logging
+import sys
+import os
+import overpy
+from shapely.geometry import Polygon
+
+# Füge den Root-Pfad zum Python-Path hinzu
+root_dir = str(Path(__file__).resolve().parent.parent.parent)
+if root_dir not in sys.path:
+    sys.path.append(root_dir)
+
+from utils.config_loader import load_config
 
 logger = logging.getLogger(__name__)
 
@@ -22,40 +33,75 @@ def fetch_surrounding_buildings(site_gdf: gpd.GeoDataFrame, config: dict) -> gpd
             logger.error("⚠️ Ungültiges oder leeres site_gdf übergeben")
             return gpd.GeoDataFrame(geometry=[], crs=site_gdf.crs if site_gdf is not None else "EPSG:31256")
 
-        distance = config['surroundings']['buffer_distance']
-        building_defaults = config['surroundings']['building_defaults']
+        # Hole Konfigurationswerte
+        buffer_distance = config.get('buildings', {}).get('buffer_distance', 100)
+        building_defaults = config.get('buildings', {}).get('defaults', {
+            'height': 10,
+            'floors': 3,
+            'year': 1990
+        })
         
-        logger.info(f"📡 OSM-Abfrage: Gebäude im Umkreis von {distance}m")
+        logger.info(f"📡 OSM-Abfrage: Gebäude im Umkreis von {buffer_distance}m")
 
-        # Hole das Site-Polygon und erstelle Buffer
-        site_polygon = site_gdf.geometry.iloc[0]
-        outer_buffer = site_polygon.buffer(distance)
+        # Konvertiere zu WGS84 für OSM-Abfrage
+        site_wgs84 = site_gdf.to_crs("EPSG:4326")
         
-        # Erstelle Buffer GeoDataFrame
-        buffer_gdf = gpd.GeoDataFrame(geometry=[outer_buffer], crs=site_gdf.crs)
-        buffer_wgs84 = buffer_gdf.to_crs("EPSG:4326")
-
-        # Hole Gebäude aus OSM
-        tags = {'building': True}
-        buildings_gdf = ox.features_from_polygon(buffer_wgs84.geometry.iloc[0], tags=tags)
-
-        if buildings_gdf is None or buildings_gdf.empty:
+        # Erstelle Buffer für Suche
+        search_area = site_wgs84.geometry.buffer(buffer_distance).unary_union
+        
+        # Erstelle Overpass-Query für Gebäude
+        bbox = search_area.bounds  # (minx, miny, maxx, maxy)
+        overpass_query = f"""
+            [out:json][timeout:180];
+            (
+              way["building"]({bbox[1]},{bbox[0]},{bbox[3]},{bbox[2]});
+              relation["building"]({bbox[1]},{bbox[0]},{bbox[3]},{bbox[2]});
+            );
+            out body;
+            >;
+            out skel qt;
+        """
+        
+        # Führe Overpass-Query aus
+        api = overpy.Overpass()
+        result = api.query(overpass_query)
+        
+        if not result.ways and not result.relations:
             logger.warning("⚠️ Keine OSM-Gebäude gefunden!")
             return gpd.GeoDataFrame(geometry=[], crs=site_gdf.crs)
 
-        # Setze Standardwerte für fehlende Attribute
-        buildings_gdf['height'] = buildings_gdf.get('height', building_defaults['height'])
-        buildings_gdf['floors'] = buildings_gdf.get('building:levels', building_defaults['floors'])
-        buildings_gdf['year'] = buildings_gdf.get('start_date', building_defaults['year'])
+        # Verarbeite Gebäude
+        buildings = []
+        for way in result.ways:
+            try:
+                coords = [(float(node.lon), float(node.lat)) for node in way.nodes]
+                if len(coords) >= 3:
+                    poly = Polygon(coords)
+                    buildings.append({
+                        'geometry': poly,
+                        'osm_id': way.id,
+                        'height': way.tags.get('height', building_defaults['height']),
+                        'floors': way.tags.get('building:levels', building_defaults['floors']),
+                        'year': way.tags.get('start_date', building_defaults['year']),
+                        'building_type': way.tags.get('building', 'yes')
+                    })
+            except Exception as e:
+                logger.warning(f"⚠️ Fehler bei der Verarbeitung eines Gebäudes: {str(e)}")
+                continue
 
+        if not buildings:
+            logger.warning("⚠️ Keine gültigen Gebäude gefunden!")
+            return gpd.GeoDataFrame(geometry=[], crs=site_gdf.crs)
+
+        # Erstelle GeoDataFrame
+        buildings_gdf = gpd.GeoDataFrame(buildings, crs="EPSG:4326")
+        
         # Konvertiere zum ursprünglichen CRS
         buildings_gdf = buildings_gdf.to_crs(site_gdf.crs)
         
-        # Filtere Gebäude
-        outside_site = ~buildings_gdf.geometry.within(site_polygon)
-        within_search_area = buildings_gdf.geometry.intersects(outer_buffer)
-        buildings_gdf = buildings_gdf[outside_site & within_search_area]
-
+        # Filtere Gebäude im Suchbereich
+        buildings_gdf = buildings_gdf[buildings_gdf.geometry.intersects(search_area)]
+        
         logger.info(f"✅ OSM-Gebäude gefunden: {len(buildings_gdf)}")
         return buildings_gdf
 
@@ -64,7 +110,6 @@ def fetch_surrounding_buildings(site_gdf: gpd.GeoDataFrame, config: dict) -> gpd
         if site_gdf is not None:
             return gpd.GeoDataFrame(geometry=[], crs=site_gdf.crs)
         return gpd.GeoDataFrame(geometry=[], crs="EPSG:31256")
-
 
 def process_osm_buildings(buildings_gdf, osm_defaults):
     """
@@ -101,7 +146,6 @@ def process_osm_buildings(buildings_gdf, osm_defaults):
     logger.info(f"✅ OSM-Gebäude verarbeitet: {len(processed_gdf)} Gebäude")
     return processed_gdf
 
-
 def save_surrounding_buildings(buildings_gdf, output_path):
     """Speichert die Umgebungsgebäude als Shapefile"""
     try:
@@ -110,23 +154,6 @@ def save_surrounding_buildings(buildings_gdf, output_path):
         logger.info("✅ Umgebungsgebäude erfolgreich gespeichert")
     except Exception as e:
         logger.error(f"❌ Fehler beim Speichern der OSM-Gebäude: {str(e)}", exc_info=True)
-
-
-def load_config():
-    """Lädt die Projekt-Konfiguration für OSM-Gebäude"""
-    try:
-        config_path = Path(__file__).resolve().parent.parent.parent / 'cfg' / 'project_config.yml'
-        logger.info(f"📂 Lade OSM-Konfiguration: {config_path}")
-
-        with open(config_path, 'r') as f:
-            config = yaml.safe_load(f)
-
-        return config.get('surroundings', {})
-
-    except Exception as e:
-        logger.error(f"❌ Fehler beim Laden der Projekt-Konfiguration: {str(e)}", exc_info=True)
-        return None
-
 
 def fetch_osm_buildings(site_gdf, distance=100, config=None):
     """Lädt OSM-Gebäude im Umkreis des Standorts"""
@@ -143,42 +170,79 @@ def fetch_osm_buildings(site_gdf, distance=100, config=None):
         logger.error(f"❌ Fehler beim Abruf der OSM-Gebäude: {str(e)}", exc_info=True)
         return gpd.GeoDataFrame(geometry=[], crs=site_gdf.crs)
 
-
 def main():
     try:
         logger.info("🚀 Starte OSM-Gebäude Abruf...")
-        config = load_config()
-        if not config:
-            raise ValueError("❌ Keine gültige Konfiguration gefunden")
+        
+        # Lade Projekt-Konfiguration
+        root_dir = Path(__file__).resolve().parent.parent.parent
+        project_config_path = root_dir / 'cfg' / 'project_config.yml'
+        logger.info(f"📂 Lade Projekt-Konfiguration: {project_config_path}")
+        project_config = load_config(project_config_path)
+        
+        if not project_config:
+            raise ValueError("❌ Keine gültige Projekt-Konfiguration gefunden")
 
-        osm_defaults = config.get('osm_defaults', {
-            'default_floors': 3,
-            'floor_height': 3,
-            'category': 'residential',
-            'REFERENCE': ''
-        })
+        # Hole OSM-Konfigurationspfad aus project_config
+        osm_config_path = project_config.get('project', {}).get('config_files', {}).get('osm', {}).get('config')
+        
+        if not osm_config_path:
+            raise ValueError("❌ Kein OSM-Konfigurationspfad in project/config_files/osm/config gefunden")
 
-        geometry_path = Path(config['paths']['output']['geometry'])
+        # Stelle sicher, dass der Pfad nicht doppelt 'local/' enthält
+        osm_config_path = Path(osm_config_path)
+
+        # Falls der Pfad mit 'local/' beginnt, entferne es
+        if osm_config_path.parts[0] == 'local':
+            osm_config_path = osm_config_path.relative_to('local')
+
+        # Konstruiere absoluten Pfad basierend auf root_dir
+        osm_config_path = root_dir / osm_config_path
+        
+        logger.info(f"📂 Lade OSM-Konfiguration: {osm_config_path}")
+        osm_config = load_config(osm_config_path)
+
+        if not osm_config:
+            raise ValueError("❌ Keine gültige OSM-Konfiguration gefunden")
+
+        # Hole Pfade aus der Projekt-Konfiguration
+        paths = project_config.get('project', {}).get('paths', {})
+        if not paths:
+            raise ValueError("❌ Keine Pfade in der Projekt-Konfiguration gefunden")
+
+        # Setze Pfade für Geometrie und Output
+        geometry_path = Path(paths['outputs']['buildings'])
         site_path = geometry_path / 'site.shp'
 
         if not site_path.exists():
             raise FileNotFoundError(f"❌ site.shp nicht gefunden in {site_path}")
 
+        # Hole Building-Defaults aus der OSM-Konfiguration
+        building_defaults = osm_config.get('osm', {}).get('buildings', {}).get('defaults', {
+            'height': 10,
+            'floors': 3,
+            'year': 1990,
+            'category': 'residential',
+            'REFERENCE': ''
+        })
+
+        # Hole Buffer-Distance aus der OSM-Konfiguration
+        buffer_distance = osm_config.get('osm', {}).get('buildings', {}).get('buffer_distance', 100)
+
         site_gdf = gpd.read_file(site_path)
-        osm_buildings = fetch_osm_buildings(site_gdf, distance=config['surroundings']['surrounding_buildings_distance'])
+        osm_buildings = fetch_osm_buildings(site_gdf, distance=buffer_distance)
 
         if osm_buildings.empty:
             logger.warning("⚠️ Keine OSM-Gebäude gefunden!")
             return
 
-        processed_buildings = process_osm_buildings(osm_buildings, osm_defaults)
+        processed_buildings = process_osm_buildings(osm_buildings, building_defaults)
         save_surrounding_buildings(processed_buildings, geometry_path / 'surroundings.shp')
 
         logger.info("✅ OSM-Gebäude Abruf erfolgreich abgeschlossen!")
 
     except Exception as e:
         logger.error(f"❌ Fehler beim OSM-Gebäude Abruf: {str(e)}", exc_info=True)
-
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")

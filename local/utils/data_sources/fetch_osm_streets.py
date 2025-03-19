@@ -4,34 +4,56 @@ import pandas as pd
 from shapely.ops import transform
 from pyproj import Transformer
 from pathlib import Path
-import yaml
 import logging
+import sys
+import os
+
+# Füge den Root-Pfad zum Python-Path hinzu
+root_dir = str(Path(__file__).resolve().parent.parent.parent)
+if root_dir not in sys.path:
+    sys.path.append(root_dir)
+
+from utils.config_loader import load_config as load_yaml_config
 
 logger = logging.getLogger(__name__)
 
-def load_config():
+def load_osm_config():
     """Lädt die Projekt-Konfiguration für OSM-Straßen"""
     try:
         # Lade zuerst die Projekt-Konfiguration
-        project_config_path = Path(__file__).resolve().parent.parent.parent / 'cfg' / 'project_config.yml'
+        root_dir = Path(__file__).resolve().parent.parent.parent
+        project_config_path = root_dir / 'cfg' / 'project_config.yml'
         logger.info(f"📂 Lade Projekt-Konfiguration: {project_config_path}")
 
-        with open(project_config_path, 'r', encoding='utf-8') as f:
-            project_config = yaml.safe_load(f)
-
-        # Hole den Pfad zur OSM-Konfiguration aus der Projekt-Konfiguration
-        osm_config_path = project_config.get('data_source', {}).get('osm', {}).get('config_file')
-        if not osm_config_path:
-            logger.warning("⚠️ Kein OSM-Konfigurationspfad in project_config.yml gefunden")
+        project_config = load_yaml_config(project_config_path)
+        if not project_config:
+            logger.error("❌ Projekt-Konfiguration konnte nicht geladen werden")
             return None
 
-        # Konvertiere relativen Pfad zu absolutem Pfad
-        osm_config_path = Path(__file__).resolve().parent.parent.parent / osm_config_path
+        # Hole OSM-Konfigurationspfad aus project_config
+        osm_config_path = project_config.get('project', {}).get('config_files', {}).get('osm', {}).get('config')
+        
+        if not osm_config_path:
+            logger.warning("⚠️ Kein OSM-Konfigurationspfad in project/config_files/osm/config gefunden")
+            return None
+
+        # Stelle sicher, dass der Pfad nicht doppelt 'local/' enthält
+        osm_config_path = Path(osm_config_path)
+
+        # Falls der Pfad mit 'local/' beginnt, entferne es
+        if osm_config_path.parts[0] == 'local':
+            osm_config_path = osm_config_path.relative_to('local')
+
+        # Konstruiere absoluten Pfad basierend auf root_dir
+        osm_config_path = root_dir / osm_config_path
+        
         logger.info(f"📂 Lade OSM-Konfiguration: {osm_config_path}")
 
         # Lade die OSM-Konfiguration
-        with open(osm_config_path, 'r', encoding='utf-8') as f:
-            osm_config = yaml.safe_load(f)
+        osm_config = load_yaml_config(osm_config_path)
+        if not osm_config:
+            logger.error("❌ OSM-Konfiguration konnte nicht geladen werden")
+            return None
 
         if not isinstance(osm_config, dict) or 'osm' not in osm_config:
             logger.warning("⚠️ Ungültige OSM-Konfiguration in osm_config.yml")
@@ -46,9 +68,6 @@ def load_config():
         logger.info("✅ OSM-Straßen-Konfiguration erfolgreich geladen")
         return streets_config
 
-    except FileNotFoundError as e:
-        logger.error(f"❌ Konfigurationsdatei nicht gefunden: {str(e)}")
-        return None
     except Exception as e:
         logger.error(f"❌ Fehler beim Laden der Konfiguration: {str(e)}")
         return None
@@ -236,7 +255,7 @@ def fetch_osm_streets(site_polygon, config: dict) -> gpd.GeoDataFrame:
 def main():
     try:
         logger.info("🚀 Starte OSM-Straßen Abruf...")
-        config = load_config()
+        config = load_osm_config()
         if not config:
             raise ValueError("❌ Keine gültige Projekt-Konfiguration gefunden")
             
@@ -258,9 +277,13 @@ def main():
             logger.warning("⚠️ Kein CRS in site.shp gefunden, setze EPSG:31256")
             site_gdf.set_crs(epsg=31256, inplace=True)
         
-        # Hole OSM-Straßen
-        streets = fetch_streets_within_site(site_gdf, config)
+        # Hole OSM-Straßen mit der importierten Funktion
+        streets = fetch_osm_streets(site_gdf, config)
         
+        if streets.empty:
+            logger.warning("⚠️ Keine Straßen gefunden!")
+            return
+            
         # Verarbeite Straßen
         processed_streets = process_streets(streets)
         

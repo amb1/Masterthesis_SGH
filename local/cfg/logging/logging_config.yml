@@ -1,10 +1,43 @@
+# Logging-Konfiguration
 logging:
-  file:
-    level: DEBUG
-    format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    encoding: 'utf-8'
-  console:
-    level: INFO
-    format: '%(message)s'
-  log_dir: 'logs'
-  filename_pattern: '{process_name}_{timestamp}.log' 
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  
+  handlers:
+    console:
+      class: "logging.StreamHandler"
+      level: "INFO"
+      formatter: "default"
+    
+    file:
+      class: "logging.FileHandler"
+      level: "DEBUG"
+      filename: "local/logs/cea_workflow.log"
+      formatter: "detailed"
+      mode: "a"
+    
+    error_file:
+      class: "logging.FileHandler"
+      level: "ERROR"
+      filename: "local/logs/cea_errors.log"
+      formatter: "detailed"
+      mode: "a"
+  
+  formatters:
+    default:
+      format: "%(levelname)s: %(message)s"
+    
+    detailed:
+      format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+      datefmt: "%Y-%m-%d %H:%M:%S"
+  
+  loggers:
+    cea:
+      level: "INFO"
+      handlers: ["console", "file", "error_file"]
+      propagate: false
+    
+    data_processing:
+      level: "DEBUG"
+      handlers: ["file"]
+      propagate: true 

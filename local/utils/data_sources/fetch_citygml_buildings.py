@@ -10,7 +10,10 @@ from shapely.ops import unary_union
 
 # Füge das Root-Verzeichnis zum Python-Path hinzu
 root_dir = Path(__file__).resolve().parent.parent.parent
-sys.path.append(str(root_dir))
+if str(root_dir) not in sys.path:
+    sys.path.append(str(root_dir))
+
+from utils.config_loader import load_config
 
 # Konfiguriere Logger
 logger = logging.getLogger(__name__)
@@ -88,8 +91,9 @@ class CityGMLBuildingProcessor:
     def extract_buildings(self, citygml_path: str) -> Optional[gpd.GeoDataFrame]:
         """Extrahiert alle Gebäude aus einer CityGML-Datei."""
         try:
-            # Parse CityGML file
-            parser = etree.XMLParser(resolve_entities=False)
+            # Parse CityGML file mit angepasstem Parser
+            parser = etree.XMLParser(resolve_entities=True)
+            parser.resolvers.add(XMLResolver())
             tree = etree.parse(citygml_path, parser=parser)
             root = tree.getroot()
             self.ns = root.nsmap
@@ -439,22 +443,29 @@ class CityGMLBuildingProcessor:
             self.logger.warning(f"⚠️ Fehler bei der Verarbeitung eines Gebäudes: {str(e)}")
             return None
 
-def fetch_citygml_buildings(citygml_file: str, output_dir: str) -> Optional[gpd.GeoDataFrame]:
-    """Extrahiert Gebäude aus einer CityGML-Datei.
-    
-    Args:
-        citygml_file (str): Pfad zur CityGML-Datei
-        output_dir (str): Verzeichnis für die Ausgabedateien
-        
-    Returns:
-        Optional[gpd.GeoDataFrame]: GeoDataFrame mit Gebäudedaten oder None bei Fehler
-    """
+def fetch_citygml_buildings(citygml_file: str, output_dir: str, config: Dict[str, Any]) -> Optional[gpd.GeoDataFrame]:
+    """Extrahiert Gebäude aus einer CityGML-Datei."""
     try:
-        # Initialisiere CityGML Building Processor
-        processor = CityGMLBuildingProcessor({})
+        # Initialisiere CityGML Building Processor mit Konfiguration
+        processor = CityGMLBuildingProcessor(config.get('data_source', {}).get('citygml', {}))
         
         # Verarbeite CityGML-Datei
         buildings_gdf = processor.extract_buildings(citygml_file)
+        
+        if buildings_gdf is not None:
+            # Hole Ausgabepfade aus der Konfiguration
+            output_base = Path(config['project']['paths']['outputs']['citygml'])
+            output_base.mkdir(parents=True, exist_ok=True)
+            
+            # Speichere Ausgaben
+            geojson_path = output_base / 'buildings_raw.geojson'
+            shp_path = output_base / 'buildings_raw.shp'
+            
+            buildings_gdf.to_file(geojson_path, driver='GeoJSON')
+            buildings_gdf.to_file(shp_path, driver='ESRI Shapefile')
+            
+            logger.info(f"✅ Gebäude gespeichert nach: {geojson_path}")
+            logger.info(f"✅ Gebäude als Shapefile gespeichert nach: {shp_path}")
         
         return buildings_gdf
         
@@ -463,43 +474,51 @@ def fetch_citygml_buildings(citygml_file: str, output_dir: str) -> Optional[gpd.
         return None
 
 if __name__ == "__main__":
-    # Beispielaufruf
-    from utils.data_processing.config_loader import load_config
-
-        # Lade Konfiguration
-    config_path = Path(__file__).resolve().parent.parent.parent / "cfg" / "project_config.yml"
-    config = load_config(config_path)
-    
-    if not config:
-        logger.error("❌ Keine gültige Konfiguration gefunden")
-        sys.exit(1)
+    try:
+        # Lade Konfiguration - Korrigierter Pfad
+        root_dir = Path(__file__).resolve().parent.parent.parent
+        config_path = root_dir / "cfg" / "project_config.yml"
+        logger.info(f"📂 Suche Konfiguration in: {config_path}")
+        config = load_config(config_path)
         
-    # Erstelle Basiskonfiguration
-    base_config = {
-        'crs': config.get('project', {}).get('crs', "EPSG:31256"),
-        'citygml': config.get('data_source', {}).get('citygml', {})
-    }
-    
-    # Verarbeite CityGML-Datei
-    citygml_path = Path(__file__).resolve().parent.parent.parent / "data" / "inputs" / "citygml" / "099082.gml"
-    
-    if not citygml_path.exists():
-        logger.error(f"❌ CityGML-Datei nicht gefunden: {citygml_path}")
-        sys.exit(1)
-    
-    # Extrahiere Gebäude
-    buildings_gdf = fetch_citygml_buildings(str(citygml_path), "local/data/outputs/buildings")
-    
-    if buildings_gdf is not None:
-        # Speichere als GeoJSON
-        output_path = Path(__file__).resolve().parent.parent.parent / "data" / "outputs" / "citygml" / "buildings_raw.geojson"
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        buildings_gdf.to_file(output_path, driver='GeoJSON')
-        logger.info(f"✅ Gebäude gespeichert nach: {output_path}")
+        if not config:
+            logger.error("❌ Keine gültige Konfiguration gefunden")
+            sys.exit(1)
         
-        # Speichere als Shapefile für QGIS
-        shp_output_path = output_path.parent / "buildings_raw.shp"
-        buildings_gdf.to_file(shp_output_path, driver='ESRI Shapefile')
-        logger.info(f"✅ Gebäude als Shapefile gespeichert nach: {shp_output_path}")
-    else:
-        logger.error("❌ Keine Gebäude extrahiert") 
+        # Hole Pfade aus der Konfiguration - Korrigierte Pfadstruktur
+        citygml_config = config.get('data_source', {}).get('citygml', {})
+        if not citygml_config:
+            logger.error("❌ Keine CityGML-Konfiguration gefunden")
+            sys.exit(1)
+            
+        # Konstruiere absoluten Pfad zur CityGML-Datei
+        citygml_base_path = Path(citygml_config.get('base_path', ''))
+        if citygml_base_path.parts[0] == 'local':
+            citygml_base_path = citygml_base_path.relative_to('local')
+        citygml_path = root_dir / citygml_base_path / citygml_config.get('default_file', '')
+        
+        output_dir = Path(config['project']['paths']['outputs']['citygml'])
+        if output_dir.parts[0] == 'local':
+            output_dir = output_dir.relative_to('local')
+        output_dir = root_dir / output_dir
+        
+        if not citygml_path.exists():
+            logger.error(f"❌ CityGML-Datei nicht gefunden: {citygml_path}")
+            sys.exit(1)
+            
+        if not output_dir.parent.exists():
+            output_dir.parent.mkdir(parents=True, exist_ok=True)
+            logger.info(f"✅ Ausgabeverzeichnis erstellt: {output_dir.parent}")
+        
+        # Extrahiere Gebäude
+        buildings_gdf = fetch_citygml_buildings(str(citygml_path), str(output_dir), config)
+        
+        if buildings_gdf is not None:
+            logger.info(f"✅ {len(buildings_gdf)} Gebäude extrahiert")
+        else:
+            logger.error("❌ Fehler beim Extrahieren der Gebäude")
+            sys.exit(1)
+            
+    except Exception as e:
+        logger.error(f"❌ Fehler im Hauptprogramm: {str(e)}")
+        sys.exit(1) 

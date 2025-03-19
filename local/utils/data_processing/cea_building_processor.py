@@ -9,11 +9,12 @@ import re
 import yaml
 import sys
 
-# Füge das lokale Verzeichnis zum Python-Path hinzu
-local_dir = Path(__file__).resolve().parent.parent.parent
-if str(local_dir) not in sys.path:
-    sys.path.append(str(local_dir))
+# Füge das Root-Verzeichnis zum Python-Path hinzu
+root_dir = Path(__file__).resolve().parent.parent.parent
+if str(root_dir) not in sys.path:
+    sys.path.append(str(root_dir))
 
+from utils.config_loader import load_config
 from utils.data_processing.base_building_processor import BuildingProcessorInterface
 from utils.data_sources.fetch_osm_buildings import fetch_surrounding_buildings, process_osm_buildings
 from utils.data_sources.fetch_osm_streets import fetch_osm_streets
@@ -26,76 +27,46 @@ logger = logging.getLogger(__name__)
 class CEABuildingProcessor(BuildingProcessorInterface):
     """Konkrete Implementierung des BuildingProcessorInterface für CEA-Gebäudeverarbeitung"""
     
-    def __init__(self, config: Dict[str, Any], project_config: Dict[str, Any]):
+    def __init__(self, cea_config: dict, project_config: dict):
         """Initialisiert den CEA Building Processor.
         
         Args:
-            config (Dict[str, Any]): CEA-Konfiguration
-            project_config (Dict[str, Any]): Projekt-Konfiguration
+            cea_config (dict): CEA-spezifische Konfiguration
+            project_config (dict): Projekt-Konfiguration
         """
-        # Kombiniere die Konfigurationen
-        combined_config = {
-            'cea': config,
-            'project': project_config,
-            'wfs': config.get('wfs', {}),
-            'osm': {
-                'surroundings': {
-                    'buffer_distance': 100,  # Meter
-                    'building_types': ['residential', 'commercial', 'industrial', 'school', 'university', 'hospital'],
-                    'building_defaults': {
-                        'height': 10,  # Standardhöhe in Metern
-                        'floors': 3,   # Standardanzahl der Stockwerke
-                        'year': 1990   # Standardbaujahr
-                    },
-                    'street_tags': config.get('osm', {}).get('street_tags', [])
-                },
-                'street_tags': config.get('osm', {}).get('street_tags', [])
-            },
-            'crs': config.get('crs', 'EPSG:31256')
-        }
-        
         # Initialisiere die Basisklasse
-        super().__init__(combined_config)
+        super().__init__()
+        
+        # Speichere Konfigurationen
+        self.cea_config = cea_config
+        self.project_config = project_config
         
         # Definiere absolute Pfade für Konfigurationsdateien
-        self.base_path = Path(__file__).resolve().parent.parent.parent
-        self.metrics_path = self.base_path / 'cfg' / 'cea' / 'building_metrics.yml'
-        self.mapping_path = self.base_path / 'cfg' / 'cea' / 'cea_mapping.yml'
+        self.metrics_path = root_dir / 'cfg' / 'cea' / 'building_metrics.yml'
+        self.mapping_path = root_dir / 'cfg' / 'cea' / 'cea_mapping.yml'
         
         # Lade CEA-spezifische Konfigurationen
         try:
             # Lade Metrik-Konfiguration
-            if self.metrics_path.exists():
-                with open(self.metrics_path, 'r', encoding='utf-8') as f:
-                    self.metrics_config = yaml.safe_load(f)
+            self.metrics_config = load_config(self.metrics_path) or {}
+            if self.metrics_config:
                 logger.info(f"✅ Metrik-Konfiguration geladen von {self.metrics_path}")
             else:
                 logger.error(f"❌ Metrik-Konfiguration nicht gefunden: {self.metrics_path}")
-                self.metrics_config = {}
             
             # Lade Mapping-Konfiguration
-            if self.mapping_path.exists():
-                with open(self.mapping_path, 'r', encoding='utf-8') as f:
-                    self.mapping_config = yaml.safe_load(f)
+            self.mapping_config = load_config(self.mapping_path) or {}
+            if self.mapping_config:
                 logger.info(f"✅ Mapping-Konfiguration geladen von {self.mapping_path}")
             else:
                 logger.error(f"❌ Mapping-Konfiguration nicht gefunden: {self.mapping_path}")
-                self.mapping_config = {}
-            
-            # Initialisiere WFS-Client
-            if 'wfs' in config:
-                self.wfs = ViennaWFS(config['wfs'])
-                logger.info("✅ WFS initialisiert")
-            else:
-                self.wfs = None
-                logger.warning("⚠️ Keine WFS-Konfiguration gefunden")
             
             logger.info("✅ CEA Building Processor initialisiert")
             
         except Exception as e:
             logger.error(f"❌ Fehler bei der Initialisierung: {str(e)}")
             raise
-        
+            
     def process_cea_data(self, project_dir: Path) -> tuple[bool, Optional[Dict[str, Any]]]:
         """Verarbeitet die Daten für CEA.
         
@@ -110,25 +81,31 @@ class CEABuildingProcessor(BuildingProcessorInterface):
                 logger.error("❌ Keine Site-Polygon oder Gebäudedaten verfügbar")
                 return False, None
                 
-            # Erstelle Verzeichnisstruktur
-            geometry_dir = project_dir / 'inputs' / 'building-geometry'
-            properties_dir = project_dir / 'inputs' / 'building-properties'
-            networks_dir = project_dir / 'inputs' / 'networks'
+            # Hole Pfade aus der Konfiguration
+            paths = self.project_config.get('paths', {})
+            geometry_dir = project_dir / paths.get('inputs', {}).get('geometry', 'inputs/building-geometry')
+            properties_dir = project_dir / paths.get('inputs', {}).get('properties', 'inputs/building-properties')
+            networks_dir = project_dir / paths.get('inputs', {}).get('networks', 'inputs/networks')
             
             for directory in [geometry_dir, properties_dir, networks_dir]:
                 directory.mkdir(parents=True, exist_ok=True)
                 
             # 1. Speichere Site-Polygon
             site_path = geometry_dir / 'site.shp'
-            site_gdf = gpd.GeoDataFrame({'geometry': [self.site_polygon]}, crs=self.config.get('crs', 'EPSG:31256'))
+            site_gdf = gpd.GeoDataFrame(
+                {'geometry': [self.site_polygon]}, 
+                crs=self.project_config.get('crs', 'EPSG:31256')
+            )
             site_gdf.to_file(site_path)
             logger.info(f"✅ Site-Polygon gespeichert: {site_path}")
             
             # 2. Hole WFS-Daten basierend auf site_polygon
-            if self.wfs is not None:
+            if hasattr(self, 'wfs') and self.wfs is not None:
                 try:
-                    # Berechne BBOX aus site_polygon
-                    minx, miny, maxx, maxy = self.site_polygon.bounds
+                    # Berechne BBOX aus site_polygon mit Puffer
+                    buffer_distance = self.project_config.get('processing', {}).get('surroundings', {}).get('buffer_distance', 100)
+                    buffered_polygon = self.site_polygon.buffer(buffer_distance)
+                    minx, miny, maxx, maxy = buffered_polygon.bounds
                     bbox = (minx, miny, maxx, maxy)
                     
                     # Hole WFS-Daten für alle Layer aus der Mapping-Konfiguration
@@ -166,46 +143,32 @@ class CEABuildingProcessor(BuildingProcessorInterface):
             # 4. Hole und speichere Umgebungsgebäude
             logger.info("🔄 Hole Umgebungsgebäude...")
             
-            # Erstelle GeoDataFrame aus site_polygon mit CRS
-            site_gdf = gpd.GeoDataFrame(
-                {'geometry': [self.site_polygon]}, 
-                crs=self.config.get('crs', 'EPSG:31256')
-            )
-            
             # Konfiguration für OSM-Gebäude
+            surroundings_config = self.project_config.get('processing', {}).get('surroundings', {})
+            building_defaults = self.project_config.get('building_defaults', {})
+            
             osm_config = {
                 'surroundings': {
-                    'buffer_distance': self.config['osm']['surroundings']['buffer_distance'],
-                    'building_defaults': self.config['osm']['surroundings']['building_defaults']
+                    'buffer_distance': surroundings_config.get('buffer_distance', 100),
+                    'building_defaults': building_defaults
                 }
             }
             
-            surroundings_gdf = fetch_surrounding_buildings(
-                site_gdf,  # Übergebe GeoDataFrame statt MultiPolygon
-                osm_config
-            )
+            surroundings_gdf = fetch_surrounding_buildings(site_gdf, osm_config)
             
             if surroundings_gdf is not None and not surroundings_gdf.empty:
-                # Setze CRS für surroundings_gdf
-                surroundings_gdf.set_crs(self.config.get('crs', 'EPSG:31256'), inplace=True)
-                
-                surroundings_gdf = process_osm_buildings(
-                    surroundings_gdf,
-                    self.config.get('osm', {}).get('surroundings', {}).get('building_defaults', {})
-                )
+                surroundings_gdf = process_osm_buildings(surroundings_gdf, building_defaults)
                 surroundings_path = geometry_dir / 'surroundings.shp'
                 surroundings_gdf.to_file(surroundings_path)
                 logger.info(f"✅ {len(surroundings_gdf)} Umgebungsgebäude gespeichert: {surroundings_path}")
             else:
                 logger.warning("⚠️ Keine Umgebungsgebäude gefunden oder Fehler beim Abruf")
-                surroundings_gdf = gpd.GeoDataFrame(geometry=[], crs=self.config.get('crs', 'EPSG:31256'))
+                surroundings_gdf = gpd.GeoDataFrame(geometry=[], crs=self.project_config.get('crs', 'EPSG:31256'))
             
             # 5. Hole und speichere Straßen
             logger.info("🔄 Hole Straßen...")
-            streets_gdf = fetch_osm_streets(
-                self.site_polygon,
-                self.config.get('osm', {}).get('street_tags', [])
-            )
+            street_tags = self.project_config.get('street_tags', [])
+            streets_gdf = fetch_osm_streets(self.site_polygon, street_tags)
             
             if streets_gdf is not None:
                 streets_path = networks_dir / 'streets.shp'
@@ -238,18 +201,34 @@ class CEABuildingProcessor(BuildingProcessorInterface):
             str: CEA-Zeitcode (z.B. "_A" oder "_B")
         """
         try:
-            periods = self.wfs_config.get('periods', {})
-            for period_range, mapping in periods.items():
-                if period == period_range:
-                    # Wähle zufällig eine Kategorie aus den verfügbaren
-                    categories = mapping.get('categories', [])
-                    if categories:
-                        return np.random.choice(categories)
+            periods = self.mapping_config.get('periods', {})
+            if period in periods:
+                categories = periods[period].get('categories', [])
+                if categories:
+                    return np.random.choice(categories)
             return "_A"  # Fallback wenn keine Zuordnung gefunden
         except Exception as e:
             logger.error(f"❌ Fehler beim Mapping der Bauperiode: {str(e)}")
             return "_A"
-    
+
+    def _get_year_from_period(self, period: str) -> int:
+        """Berechnet das Jahr basierend auf der Bauperiode.
+        
+        Args:
+            period (str): Bauperiode aus WFS
+            
+        Returns:
+            int: Geschätztes Baujahr
+        """
+        try:
+            periods = self.mapping_config.get('periods', {})
+            if period in periods:
+                return periods[period].get('default_year', 1960)
+            return 1960  # Fallback
+        except Exception as e:
+            logger.error(f"❌ Fehler bei der Berechnung des Baujahrs: {str(e)}")
+            return 1960
+
     def _map_building_type(self, building_type: str) -> str:
         """Mappt einen Gebäudetyp auf einen CEA-Typ.
         
@@ -260,11 +239,11 @@ class CEABuildingProcessor(BuildingProcessorInterface):
             str: CEA-Gebäudetyp (SFH, MFH, AB, TH, HR)
         """
         try:
-            building_types = self.wfs_config.get('building_types', {})
-            return building_types.get(building_type, "MFH")  # MFH als Fallback
+            building_types = self.mapping_config.get('building_types', {}).get('standard_prefix', {})
+            return building_types.get(building_type, "NONE")  # NONE als Fallback
         except Exception as e:
             logger.error(f"❌ Fehler beim Mapping des Gebäudetyps: {str(e)}")
-            return "MFH"
+            return "NONE"
     
     def _create_standard_value(self, period: str, building_type: str) -> str:
         """Erstellt den STANDARD-Wert für die typology.dbf.
@@ -282,7 +261,7 @@ class CEABuildingProcessor(BuildingProcessorInterface):
             return f"{cea_type}{cea_period}"
         except Exception as e:
             logger.error(f"❌ Fehler beim Erstellen des STANDARD-Werts: {str(e)}")
-            return "MFH_A"  # Fallback-Wert
+            return "NONE_A"  # Fallback-Wert
 
     def _create_cea_files(self, geometry_dir: Path, properties_dir: Path) -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]:
         """Erstellt die CEA-Dateien (zone.shp und typology.shp).
@@ -300,6 +279,73 @@ class CEABuildingProcessor(BuildingProcessorInterface):
             
             # 1. Erstelle zone.shp
             zone_gdf = self.buildings_gdf.copy()
+            
+            # Hole Standardwerte aus der Konfiguration
+            defaults = self.mapping_config.get('defaults', {})
+            field_mappings = self.mapping_config.get('field_mappings', {})
+            
+            # Berechne floors_ag basierend auf measured_height
+            if 'floors_ag' in field_mappings:
+                mapping = field_mappings['floors_ag']
+                if mapping.get('source') in zone_gdf.columns:
+                    source_col = mapping['source']
+                    if mapping.get('calculation'):
+                        # Führe die Berechnung durch
+                        zone_gdf['floors_ag'] = eval(mapping['calculation'].replace('value', f'zone_gdf["{source_col}"]'))
+                    else:
+                        zone_gdf['floors_ag'] = zone_gdf[source_col]
+                else:
+                    zone_gdf['floors_ag'] = mapping.get('default', defaults.get('floors_ag', 4))
+            
+            # Setze floors_bg basierend auf NS-Feld
+            if 'floors_bg' in field_mappings:
+                mapping = field_mappings['floors_bg']
+                if mapping.get('source') in zone_gdf.columns:
+                    source_col = mapping['source']
+                    mapping_dict = mapping.get('mapping', {})
+                    zone_gdf['floors_bg'] = zone_gdf[source_col].map(lambda x: mapping_dict.get(x, mapping_dict.get('*', mapping.get('default', defaults.get('floors_bg', 1)))))
+                else:
+                    zone_gdf['floors_bg'] = mapping.get('default', defaults.get('floors_bg', 1))
+            
+            # Setze YEAR basierend auf L_BAUJ oder OBJ_STR2_TXT
+            if 'year' in field_mappings:
+                mapping = field_mappings['year']
+                for source in mapping.get('sources', []):
+                    if source['field'] in zone_gdf.columns:
+                        if source['type'] == 'direct':
+                            zone_gdf['YEAR'] = zone_gdf[source['field']].fillna(mapping.get('default', defaults.get('year', 1960)))
+                        elif source['type'] == 'period_mapping':
+                            zone_gdf['YEAR'] = zone_gdf[source['field']].apply(self._get_year_from_period)
+                        break
+                else:
+                    zone_gdf['YEAR'] = mapping.get('default', defaults.get('year', 1960))
+            
+            # Setze USE-Typ basierend auf L_BAUTYP oder BAUTYP_TXT
+            if 'use_type' in field_mappings:
+                mapping = field_mappings['use_type']
+                for source in mapping.get('sources', []):
+                    if source['field'] in zone_gdf.columns:
+                        zone_gdf['USE_TYPE'] = zone_gdf[source['field']].apply(self._map_building_type)
+                        break
+                else:
+                    zone_gdf['USE_TYPE'] = mapping.get('default', defaults.get('use_type', "NONE"))
+            
+            # Setze STANDARD basierend auf USE_TYPE und Bauperiode
+            if 'OBJ_STR2_TXT' in zone_gdf.columns:
+                zone_gdf['STANDARD'] = zone_gdf.apply(
+                    lambda row: self._create_standard_value(row['OBJ_STR2_TXT'], row['USE_TYPE']), 
+                    axis=1
+                )
+            else:
+                zone_gdf['STANDARD'] = zone_gdf['USE_TYPE'].apply(lambda x: f"{x}_A")
+            
+            # Setze Adressfelder
+            for field, mapping in field_mappings.items():
+                if field in ['postcode', 'house_no', 'street', 'resi_type']:
+                    if mapping.get('source') in zone_gdf.columns:
+                        zone_gdf[field] = zone_gdf[mapping['source']].fillna(mapping.get('default', defaults.get(field, '')))
+                    else:
+                        zone_gdf[field] = mapping.get('default', defaults.get(field, ''))
             
             # Füge WFS-Daten hinzu, wenn verfügbar
             if hasattr(self, 'wfs_data') and self.wfs_data:
@@ -443,4 +489,166 @@ class CEABuildingProcessor(BuildingProcessorInterface):
 
         except Exception as e:
             logger.warning(f"⚠️ Fehler bei der Gebäudeverarbeitung: {str(e)}")
-            return building_data 
+            return building_data
+
+    def _load_required_fields(self) -> Dict[str, List[str]]:
+        """Lädt die erforderlichen Felder aus der Konfiguration"""
+        try:
+            cea_fields = self.config.get('fields', {})
+            return {
+                'zone.shp': cea_fields.get('zone_shp', {}).get('fields', {}).keys(),
+                'typology.dbf': cea_fields.get('typology_dbf', {}).get('fields', {}).keys()
+            }
+        except Exception as e:
+            logger.error(f"❌ Fehler beim Laden der erforderlichen Felder: {str(e)}")
+            return {}
+            
+    def validate_geometry(self, gdf: gpd.GeoDataFrame, required_types: List[str]) -> bool:
+        """Validiert die Geometrie eines GeoDataFrames"""
+        try:
+            if gdf is None or gdf.empty:
+                logger.error("❌ GeoDataFrame ist leer")
+                return False
+                
+            if 'geometry' not in gdf.columns:
+                logger.error("❌ Keine Geometriespalte gefunden")
+                return False
+                
+            # Prüfe Geometrietypen
+            geometry_types = gdf.geometry.type.unique()
+            invalid_types = [t for t in geometry_types if t not in required_types]
+            
+            if invalid_types:
+                logger.error(f"❌ Ungültige Geometrietypen gefunden: {invalid_types}")
+                return False
+                
+            # Prüfe auf ungültige Geometrien
+            invalid_geometries = gdf[~gdf.geometry.is_valid]
+            if not invalid_geometries.empty:
+                logger.error(f"❌ {len(invalid_geometries)} ungültige Geometrien gefunden")
+                return False
+                
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Fehler bei der Geometrievalidierung: {str(e)}")
+            return False
+            
+    def validate_fields(self, gdf: gpd.GeoDataFrame, required_fields: List[str]) -> bool:
+        """Validiert die Felder eines GeoDataFrames"""
+        try:
+            if gdf is None or gdf.empty:
+                logger.error("❌ GeoDataFrame ist leer")
+                return False
+                
+            # Prüfe erforderliche Felder
+            missing_fields = [field for field in required_fields if field not in gdf.columns]
+            if missing_fields:
+                logger.error(f"❌ Fehlende Felder: {missing_fields}")
+                return False
+                
+            # Prüfe auf NULL-Werte in erforderlichen Feldern
+            for field in required_fields:
+                null_count = gdf[field].isnull().sum()
+                if null_count > 0:
+                    logger.warning(f"⚠️ {null_count} NULL-Werte im Feld {field}")
+                    
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Fehler bei der Feldvalidierung: {str(e)}")
+            return False
+            
+    def validate_crs(self, gdf: gpd.GeoDataFrame, required_crs: str) -> bool:
+        """Validiert das Koordinatenreferenzsystem"""
+        try:
+            if gdf is None or gdf.empty:
+                logger.error("❌ GeoDataFrame ist leer")
+                return False
+                
+            if gdf.crs is None:
+                logger.error("❌ Kein CRS definiert")
+                return False
+                
+            if str(gdf.crs) != required_crs:
+                logger.error(f"❌ Falsches CRS: {gdf.crs} (erwartet: {required_crs})")
+                return False
+                
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Fehler bei der CRS-Validierung: {str(e)}")
+            return False
+            
+    def validate_building_data(self, building_data: Dict[str, Any]) -> bool:
+        """Validiert die Gebäudedaten"""
+        try:
+            # Überprüfe erforderliche Felder
+            for field in self.required_fields['zone.shp']:
+                if field not in building_data:
+                    logger.warning(f"⚠️ Fehlendes Feld in Gebäude: {field}")
+                    return False
+                    
+            # Validiere Datentypen
+            if not self._validate_data_types(building_data):
+                return False
+                
+            # Validiere Geometrie
+            if not self._validate_geometry(building_data):
+                return False
+                
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Fehler bei der Gebäudevalidierung: {str(e)}")
+            return False
+            
+    def _validate_data_types(self, building_data: Dict[str, Any]) -> bool:
+        """Überprüft die Datentypen der Felder"""
+        try:
+            type_mapping = {
+                'floors_ag': int,
+                'floors_bg': int,
+                'height_ag': float,
+                'height_bg': float,
+                'YEAR': int,
+                'USE1_R': float,
+                'USE2_R': float,
+                'USE3_R': float
+            }
+            
+            for field, expected_type in type_mapping.items():
+                if field in building_data:
+                    try:
+                        expected_type(building_data[field])
+                    except (ValueError, TypeError):
+                        logger.warning(f"⚠️ Ungültiger Datentyp für {field}")
+                        return False
+                        
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Fehler bei der Datentypvalidierung: {str(e)}")
+            return False
+            
+    def _validate_geometry(self, building_data: Dict[str, Any]) -> bool:
+        """Überprüft die Geometrie des Gebäudes"""
+        try:
+            if 'geometry' not in building_data:
+                logger.warning("⚠️ Keine Geometrie vorhanden")
+                return False
+                
+            geometry = building_data['geometry']
+            if not hasattr(geometry, 'is_valid'):
+                logger.warning("⚠️ Ungültiges Geometrieformat")
+                return False
+                
+            if not geometry.is_valid:
+                logger.warning("⚠️ Ungültige Geometrie")
+                return False
+                
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Fehler bei der Geometrievalidierung: {str(e)}")
+            return False 

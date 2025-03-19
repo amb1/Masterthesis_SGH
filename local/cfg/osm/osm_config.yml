@@ -1,17 +1,9 @@
+# OpenStreetMap Konfiguration
 osm:
-  # API-Einstellungen
-  overpass_endpoint: "https://overpass-api.de/api/interpreter"
-  timeout: 300
-  retries: 3
-
-  # Gebäude-Standardwerte
-  building_defaults:
-    height: 10  # Standardhöhe in Metern
-    floors: 3   # Standardanzahl der Stockwerke
-    year: 1990  # Standardbaujahr
-  
-  # Umgebungsgebäude-Einstellungen
-  surroundings:
+  api:
+    overpass_endpoint: "https://overpass-api.de/api/interpreter"
+    timeout: 30
+  buildings:
     buffer_distance: 100  # Meter
     building_types:
       - residential
@@ -20,33 +12,103 @@ osm:
       - school
       - university
       - hospital
-    
+    required_tags:
+      - "building"
+      - "building:levels"
+      - "building:height"
+  streets:
+    network_type: "all_private"
+    buffer_distance: 100  # Meter
+    include_types:
+      - motorway
+      - trunk
+      - primary
+      - secondary
+      - tertiary
+      - residential
+      - unclassified
+      - service
+      - living_street
+      - pedestrian
+      - cycleway
+      - footway
+  bbox:
+    min_lat: 48.1850
+    max_lat: 48.2050
+    min_lon: 16.3600
+    max_lon: 16.3800
+
   # Straßen-Einstellungen
   streets:
+    network_type: "all_private"
     buffer_distance: 100  # Meter
-    street_types:
-      primary: true
-      secondary: true
-      tertiary: true
-      residential: true
-      service: true
-      living_street: true
-      pedestrian: true
-      footway: true
-      cycleway: true
+    include_types:
+      - motorway
+      - trunk
+      - primary
+      - secondary
+      - tertiary
+      - residential
+      - unclassified
+      - motorway_link
+      - trunk_link
+      - primary_link
+      - secondary_link
+      - tertiary_link
+      - service
+      - living_street
+      - pedestrian
+      - track
+      - path
+      - footway
+      - cycleway
+      - private
     
-  # Gebäudetyp-Mapping
-  building_type_mapping:
-    residential: "MFH"
-    apartments: "MFH"
-    house: "SFH"
-    commercial: "OFFICE"
-    retail: "RETAIL"
-    school: "SCHOOL"
-    university: "UNIVERSITY"
-    hospital: "HOSPITAL"
-    industrial: "INDUSTRIAL"
-    default: "OTHER"
+    # Standardbreiten für Straßentypen
+    default_width:
+      motorway: 12
+      trunk: 10
+      primary: 8
+      secondary: 6
+      tertiary: 5
+      residential: 4
+      service: 3
+
+  # Gebäude-Einstellungen
+  buildings:
+    buffer_distance: 100  # Meter
+    building_types:
+      - residential
+      - commercial
+      - industrial
+      - school
+      - university
+      - hospital
+    required_tags:
+      - "building"
+      - "building:levels"
+      - "building:height"
+    
+    # Gebäudetyp-Mapping
+    type_mapping:
+      residential: "MFH"
+      apartments: "MFH"
+      house: "SFH"
+      commercial: "OFFICE"
+      retail: "RETAIL"
+      school: "SCHOOL"
+      university: "UNIVERSITY"
+      hospital: "HOSPITAL"
+      industrial: "INDUSTRIAL"
+      default: "OTHER"
+
+    # Standardwerte
+    defaults:
+      height: 10  # Meter
+      floors: 3
+      year: 1990
+      use_type: "RESIDENTIAL"
+      construction_type: "SOLID"
 
   # Tags für verschiedene Objekttypen
   tags:

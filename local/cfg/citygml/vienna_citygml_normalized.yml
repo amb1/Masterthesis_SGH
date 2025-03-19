@@ -1,0 +1,41 @@
+# Vienna CityGML Konfiguration
+citygml:
+  base_path: "local/data/citygml"
+  file_pattern: "*.gml"
+  default_file: "099082.gml"
+  
+  namespaces:
+    gml: "http://www.opengis.net/gml"
+    bldg: "http://www.opengis.net/citygml/building/2.0"
+    gen: "http://www.opengis.net/citygml/generics/2.0"
+    xAL: "urn:oasis:names:tc:ciq:xsdschema:xAL:2.0"
+    xlink: "http://www.w3.org/1999/xlink"
+    xsi: "http://www.w3.org/2001/XMLSchema-instance"
+  
+  building_attributes:
+    required:
+      - "bldg:Building"
+      - "gml:id"
+      - "bldg:measuredHeight"
+      - "bldg:storeysAboveGround"
+    optional:
+      - "bldg:yearOfConstruction"
+      - "bldg:function"
+      - "bldg:usage"
+      - "gen:stringAttribute[@name='OBJECTID']"
+  
+  geometry:
+    lod: 2
+    transform:
+      source_crs: "EPSG:31256"  # MGI / Austria GK East
+      target_crs: "EPSG:4326"   # WGS 84
+    simplification:
+      tolerance: 0.5  # Meter
+      preserve_topology: true
+  
+  output:
+    formats:
+      - "GeoJSON"
+      - "Shapefile"
+    directory: "local/data/outputs/citygml"
+    filename_pattern: "{type}_{timestamp}" 

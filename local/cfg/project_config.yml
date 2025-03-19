@@ -1,36 +1,4 @@
-# CEA-Umgebungsvariablen
-cea_env:
-  cea_env_path: "F:/Users/ambi/Documents/CityEnergyAnalyst/dependencies/cea-env.bat"
-  weather_base: "F:/Users/ambi/Documents/CityEnergyAnalyst/CityEnergyAnalyst/cea/databases/weather"
-  database_base: "F:/Users/ambi/Documents/CityEnergyAnalyst/CityEnergyAnalyst/cea/database"
-
-# Umgebungseinstellungen
-geometry:
-  site_buffer_distance: "../common_config.yml:common.spatial.site_buffer"
-  surrounding_buildings_distance: "../common_config.yml:common.spatial.surrounding_buildings"
-  osm_defaults:
-    inherit: "../common_config.yml:common.building_defaults"
-
-# Standardwerte für Gebäude
-building_defaults:
-  inherit: "../common_config.yml:common.building_defaults"
-
-# Datenquellenwahl
-data_source:
-  osm:
-    config_file: "cfg/osm/osm_config.yml"
-  citygml:
-    base_path: "data/citygml"
-    file_pattern: "*.gml"
-    namespaces:
-      gml: "http://www.opengis.net/gml"
-      bldg: "http://www.opengis.net/citygml/building/2.0"
-      gen: "http://www.opengis.net/citygml/generics/2.0"
-      xAL: "urn:oasis:names:tc:ciq:xsdschema:xAL:2.0"
-      xlink: "http://www.w3.org/1999/xlink"
-      xsi: "http://www.w3.org/2001/XMLSchema-instance"
-
-# Projektinformationen
+# Projektspezifische Konfigurationen
 project:
   name: "Test Project"
   location: "Wien"
@@ -38,49 +6,129 @@ project:
   scenario: "baseline"
   crs: "EPSG:31256"
 
-# Logging-Konfiguration wird aus common_config.yml importiert
-logging:
-  inherit: "../common_config.yml:common.logging"
+  # Referenzen zu spezifischen Konfigurationsdateien
+  config_files:
+    cea:
+      base: "local/cfg/cea/cea_config.yml"
+      fields: "local/cfg/cea/cea_fields.yml"
+      mapping: "local/cfg/cea/cea_mapping.yml"
+      workflow: "local/cfg/cea/cea_workflow.yml"
+    osm:
+      config: "local/cfg/osm/osm_config.yml"
+    wfs:
+      config: "local/cfg/wfs/wfs_config.yml"
+    citygml:
+      config: "local/cfg/citygml/vienna_citygml_normalized.yml"
+    logging:
+      config: "local/cfg/logging/logging_config.yml"
 
-site_polygon:
-  buffer_distance: "../common_config.yml:common.spatial.buffer_distance"
-  simplify_tolerance: "../common_config.yml:common.spatial.intersection_tolerance"
+  # Basis-Pfadstruktur
+  paths:
+    base:
+      root: "local"
+      data: "local/data"
+      config: "local/cfg"
+      outputs: "local/data/outputs"
+      logs: "local/logs"
+    
+    data_sources:
+      citygml: "local/data/citygml"
+      osm: "local/data/osm"
+      wfs: "local/data/wfs"
+    
+    outputs:
+      citygml: "local/data/outputs/citygml"
+      buildings: "local/data/outputs/buildings"
+      energy: "local/data/outputs/energy"
+      solar: "local/data/outputs/solar"
+      green: "local/data/outputs/green"
+      landuse: "local/data/outputs/landuse"
+      noise: "local/data/outputs/noise"
 
-surroundings:
-  buffer_distance: "../common_config.yml:common.spatial.site_buffer"
+# Datenquellen-Konfiguration
+data_source:
+  citygml:
+    base_path: "local/data/citygml"
+    file_pattern: "*.gml"
+    default_file: "099082.gml"
+    namespaces:
+      gml: "http://www.opengis.net/gml"
+      bldg: "http://www.opengis.net/citygml/building/2.0"
+      gen: "http://www.opengis.net/citygml/generics/2.0"
+      xAL: "urn:oasis:names:tc:ciq:xsdschema:xAL:2.0"
+      xlink: "http://www.w3.org/1999/xlink"
+      xsi: "http://www.w3.org/2001/XMLSchema-instance"
+  
+  osm:
+    config_file: "local/cfg/osm/osm_config.yml"
+
+  wfs:
+    endpoint: "https://data.wien.gv.at/daten/geo"
+    version: "2.0.0"
+    typename: "ogdwien:BEZIRKSGRENZEOGD"
+    srsname: "EPSG:31256"
+    bbox:
+      minx: -25000
+      miny: 330000
+      maxx: -23000
+      maxy: 342000
+
+# CEA-spezifische Konfigurationen
+cea:
+  env:
+    cea_env_path: "F:/Users/ambi/Documents/CityEnergyAnalyst/dependencies/cea-env.bat"
+    weather_base: "F:/Users/ambi/Documents/CityEnergyAnalyst/CityEnergyAnalyst/cea/databases/weather"
+    database_base: "F:/Users/ambi/Documents/CityEnergyAnalyst/CityEnergyAnalyst/cea/database"
+
+  geometry:
+    surrounding_buildings_distance: 200  # Meter
+    osm_defaults:
+      height: 10
+      floors: 3
+      year: 1990
+
   building_defaults:
-    inherit: "../common_config.yml:common.building_defaults"
+    height: 10
+    floors: 3
+    year: 1990
+    use_type: "RESIDENTIAL"
+    construction_type: "SOLID"
 
-file_formats:
-  shp_driver: "ESRI Shapefile"
-  gml_encoding: "utf-8"
+  validation:
+    required_fields:
+      buildings:
+        - "geometry"
+        - "height"
+        - "floors"
+      streets:
+        - "geometry"
+        - "highway"
+        - "lanes"
 
-paths:
-  inputs:
-    citygml: "data/inputs/citygml"
-    osm: "data/inputs/osm"
-    wfs: "data/inputs/wfs"
-  outputs:
-    buildings: "data/outputs/buildings"
-    energy: "data/outputs/energy"
-    solar: "data/outputs/solar"
-    green: "data/outputs/green"
-    landuse: "data/outputs/landuse"
-    noise: "data/outputs/noise"
-  projects: "projects"
-  scenarios: "scenarios"
+# Logging-Konfiguration
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "local/logs/cea_workflow.log"
+  config_file: "local/cfg/logging/logging_config.yml"
 
-defaults:
-  project_name: "CityGMLProject"
-  scenario_name: "baseline"
+# Verarbeitungseinstellungen
+processing:
+  site_polygon:
+    buffer_distance: 3  # Meter - für create_site_polygon
+    simplify_tolerance: 0.5  # Meter - für Polygon-Vereinfachung
 
-validation:
-  required_fields:
-    buildings:
-      - "geometry"
-      - "height"
-      - "floors"
-    streets:
-      - "geometry"
-      - "highway"
-      - "lanes"
+  surroundings:
+    buffer_distance: 100  # Meter - für Umgebungsgebäude
+    building_defaults:
+      height: 10
+      floors: 3
+      year: 1990
+      use_type: "RESIDENTIAL"
+      construction_type: "SOLID"
+
+  file_formats:
+    shp_driver: "ESRI Shapefile"
+    gml_encoding: "utf-8"
+
+  config_file: "local/cfg/processing/processing_config.yml"
