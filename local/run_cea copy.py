@@ -11,7 +11,6 @@ from shapely.geometry import Point
 import logging
 from typing import Optional, Dict
 from pyproj import Transformer
-import numpy as np
 
 # Konfiguriere Logger
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -23,12 +22,7 @@ sys.path.append(str(local_dir))
 
 from utils.data_processing.create_site_polygon import create_site_polygon, save_site_polygon
 from utils.data_sources.fetch_citygml_buildings import fetch_citygml_buildings, CityGMLBuildingProcessor as CityGMLFetcher
-from utils.data_sources.fetch_osm_buildings import (
-    fetch_surrounding_buildings,
-    process_osm_buildings,
-    save_surrounding_buildings,
-    fetch_osm_buildings
-)
+from utils.data_sources.fetch_osm_buildings import fetch_surrounding_buildings, process_osm_buildings, save_surrounding_buildings
 from utils.data_sources.fetch_osm_streets import fetch_osm_streets
 from utils.data_sources.fetch_wfs_data import ViennaWFS
 from utils.config_loader import load_config
@@ -403,18 +397,26 @@ def main():
         
         # Hole Umgebungsgebäude
         logger.info("🔄 Hole Umgebungsgebäude...")
-        if 'osm' in config:
-            osm_config = config['osm']
-            surroundings_gdf = fetch_surrounding_buildings(site_gdf, osm_config)
-        else:
-            logger.warning("⚠️ Keine OSM-Konfiguration gefunden, verwende Standardwerte")
-            surroundings_gdf = fetch_surrounding_buildings(site_gdf, {'buildings': {'buffer_distance': 100}})
+        buffer_meters = 100  # 100 Meter Buffer für Umgebungsgebäude
 
+        # Erstelle OSM-Konfiguration
+        osm_config = {
+            'buildings': {
+                'buffer_distance': buffer_meters,
+                'defaults': {
+                    'height': 10,
+                    'floors': 3,
+                    'year': 1990
+                }
+            }
+        }
+
+        # Hole Umgebungsgebäude von OSM
+        surroundings_gdf = fetch_surrounding_buildings(site_gdf, osm_config)
         if not surroundings_gdf.empty:
-            logger.info(f"✅ {len(surroundings_gdf)} Umgebungsgebäude gefunden")
-            # Verarbeite und speichere Umgebungsgebäude
-            processed_surroundings = process_osm_buildings(surroundings_gdf, osm_config.get('osm', {}).get('buildings', {}).get('defaults', {}))
-            save_surrounding_buildings(processed_surroundings, created_dirs['inputs_building-geometry'] / 'surroundings.shp')
+            surroundings_path = created_dirs['inputs_building-geometry'] / 'surroundings.shp'
+            surroundings_gdf.to_file(surroundings_path)
+            logger.info(f"✅ {len(surroundings_gdf)} Umgebungsgebäude gespeichert: {surroundings_path}")
         else:
             logger.warning("⚠️ Keine Umgebungsgebäude gefunden")
         
@@ -463,137 +465,136 @@ def create_cea_files(zone_gdf: gpd.GeoDataFrame, output_dir: Path, config: dict)
         if 'zone_mappings' not in mapping_config or 'typology_mappings' not in mapping_config:
             raise ValueError("❌ CEA-Mapping-Konfiguration fehlt erforderliche Mappings")
         
-        # Entferne problematische Felder
-        fields_to_remove = ['Gebäudemo', 'Gebäudein']
-        clean_zone_gdf = zone_gdf.copy()
-        for field in fields_to_remove:
-            if field in clean_zone_gdf.columns:
-                clean_zone_gdf = clean_zone_gdf.drop(columns=[field])
-                logger.info(f"✅ Feld {field} entfernt")
+        # Logge verfügbare Spalten
+        logger.info("📋 Verfügbare Spalten im Input:")
+        for col in zone_gdf.columns:
+            if col != 'geometry':
+                logger.info(f"  - {col}")
         
-        # 1. Erstelle zone.shp
-        zone_gdf_filtered = gpd.GeoDataFrame(geometry=clean_zone_gdf.geometry, crs=clean_zone_gdf.crs)
+        # Erstelle zone.shp
+        zone_mappings = mapping_config['zone_mappings']
+        zone_gdf_filtered = gpd.GeoDataFrame(geometry=zone_gdf.geometry)
         
-        # Wende zone_mappings an
-        for field, mapping in mapping_config['zone_mappings'].items():
+        # Mappe und transformiere Felder
+        for target_col, mapping in zone_mappings.items():
             try:
-                # Spezialbehandlung für floors_ag
-                if field == 'floors_ag':
-                    # Versuche zuerst GESCH_ANZ zu verwenden
-                    if 'Gebäudeinfo_GESCH_ANZ' in clean_zone_gdf.columns:
-                        value = pd.to_numeric(clean_zone_gdf['Gebäudeinfo_GESCH_ANZ'], errors='coerce')
-                        logger.info("✅ floors_ag: Verwende Werte aus GESCH_ANZ")
-                    # Fallback auf measuredHeight
-                    elif 'measuredHeight' in clean_zone_gdf.columns:
-                        value = pd.to_numeric(clean_zone_gdf['measuredHeight'], errors='coerce')
-                        # Konvertiere Höhe zu Stockwerken (3m pro Stockwerk)
-                        value = (value / 3.0).round()
-                        logger.info("✅ floors_ag: Berechnet aus measuredHeight (3m pro Stockwerk)")
-                    else:
-                        value = pd.Series([3] * len(clean_zone_gdf))  # Default: 3 Stockwerke
-                        logger.info("ℹ️ floors_ag: Verwende Default-Wert 3")
-                    
-                    # Bereinige und validiere
-                    value = value.fillna(3)  # Setze NaN auf 3
-                    value = value.clip(lower=1, upper=30)  # Begrenze auf sinnvolle Werte
-                    value = value.astype('Int64')  # Konvertiere zu Integer
-                    zone_gdf_filtered[field] = value
+                if not isinstance(mapping, dict):
+                    logger.warning(f"⚠️ Ungültiges Mapping für {target_col}: {mapping}")
                     continue
-
-                # Normale Verarbeitung für andere Felder
-                value = None
-                if 'sources' in mapping:
-                    for source, source_field in mapping['sources'].items():
-                        if source_field in clean_zone_gdf.columns:
-                            value = clean_zone_gdf[source_field]
-                            logger.info(f"✅ {field}: Verwende Werte aus {source_field}")
-                            break
-                
-                if value is None and 'default' in mapping:
-                    value = mapping['default']
-                    logger.info(f"ℹ️ {field}: Verwende Default-Wert {value}")
-                
-                # Wende Transformation an
-                if value is not None and 'transform' in mapping:
-                    transform_name = mapping['transform']
-                    if transform_name in mapping_config['transformations']:
-                        transform_config = mapping_config['transformations'][transform_name]
-                        if transform_config['function'] == 'to_int':
-                            value = pd.to_numeric(value, errors='coerce').fillna(mapping.get('default', 0)).astype('Int64')
-                        elif transform_config['function'] == 'to_float':
-                            value = pd.to_numeric(value, errors='coerce').fillna(mapping.get('default', 0.0))
-                        elif transform_config['function'] == 'shorten_id':
-                            value = value.astype(str).str[:10]  # Begrenze ID auf 10 Zeichen
-                        logger.info(f"✅ {field}: Transformation {transform_name} angewendet")
-                
-                if value is not None:
-                    zone_gdf_filtered[field] = value
                     
-            except Exception as e:
-                logger.warning(f"⚠️ Fehler beim Mapping von {field}: {str(e)}")
-                if mapping.get('required', False):
-                    raise
-        
-        # Setze floors_bg und height_bg
-        zone_gdf_filtered['floors_bg'] = 1
-        zone_gdf_filtered['height_bg'] = zone_gdf_filtered['floors_bg'] * 3
-        
-        # 2. Erstelle typology.shp
-        typology_gdf = gpd.GeoDataFrame(geometry=clean_zone_gdf.geometry, crs=clean_zone_gdf.crs)
-        
-        # Wende typology_mappings an
-        for field, mapping in mapping_config['typology_mappings'].items():
-            try:
-                # Prüfe Datenquellen in Prioritätsreihenfolge
-                value = None
                 if 'sources' in mapping:
-                    for source, source_field in mapping['sources'].items():
-                        if source_field in clean_zone_gdf.columns:
-                            value = clean_zone_gdf[source_field]
-                            logger.info(f"✅ {field}: Verwende Werte aus {source_field}")
+                    value_found = False
+                    # Versuche Daten aus verschiedenen Quellen zu holen
+                    for source, source_col in mapping['sources'].items():
+                        if source_col in zone_gdf.columns:
+                            zone_gdf_filtered[target_col] = zone_gdf[source_col]
+                            value_found = True
+                            logger.info(f"✅ {target_col} aus {source_col} gemappt")
                             break
-                
-                if value is None and 'default' in mapping:
-                    value = mapping['default']
-                    logger.info(f"ℹ️ {field}: Verwende Default-Wert {value}")
-                
-                # Wende Mapping-Regeln an
-                if value is not None and 'mapping' in mapping:
-                    value = value.map(mapping['mapping']).fillna(mapping.get('default'))
-                    logger.info(f"✅ {field}: Mapping-Regeln angewendet")
-                
-                # Wende Transformation an
-                if value is not None and 'transform' in mapping:
-                    transform_name = mapping['transform']
-                    if transform_name in mapping_config['transformations']:
-                        transform_config = mapping_config['transformations'][transform_name]
-                        if transform_config['function'] == 'to_int':
-                            value = pd.to_numeric(value, errors='coerce').fillna(mapping.get('default', 0)).astype('Int64')
-                        elif transform_config['function'] == 'to_float':
-                            value = pd.to_numeric(value, errors='coerce').fillna(mapping.get('default', 0.0))
-                        elif transform_config['function'] == 'shorten_id':
-                            value = value.astype(str).str[:10]  # Begrenze ID auf 10 Zeichen
-                        logger.info(f"✅ {field}: Transformation {transform_name} angewendet")
-                
-                if value is not None:
-                    typology_gdf[field] = value
                     
+                    if not value_found:
+                        logger.warning(f"⚠️ Keine gültige Quelle für {target_col} gefunden")
+                        if 'default' in mapping:
+                            default_value = mapping['default']
+                            # Konvertiere Dictionary zu String
+                            if isinstance(default_value, dict):
+                                default_value = str(default_value)
+                            zone_gdf_filtered[target_col] = default_value
+                            logger.info(f"ℹ️ {target_col} mit Default-Wert {default_value} gesetzt")
+                        continue
+                        
+                elif 'default' in mapping:
+                    default_value = mapping['default']
+                    # Konvertiere Dictionary zu String
+                    if isinstance(default_value, dict):
+                        default_value = str(default_value)
+                    zone_gdf_filtered[target_col] = default_value
+                    logger.info(f"ℹ️ {target_col} mit Default-Wert {default_value} gesetzt")
+                else:
+                    logger.warning(f"⚠️ Keine gültige Mapping-Konfiguration für {target_col}")
+                    continue
+                    
+                # Wende Transformationen an
+                if 'transformations' in mapping:
+                    for transform in mapping['transformations']:
+                        if transform == 'to_float':
+                            zone_gdf_filtered[target_col] = pd.to_numeric(zone_gdf_filtered[target_col], errors='coerce')
+                        elif transform == 'to_int':
+                            zone_gdf_filtered[target_col] = pd.to_numeric(zone_gdf_filtered[target_col], errors='coerce').astype('Int64')
+                        elif transform == 'to_string':
+                            zone_gdf_filtered[target_col] = zone_gdf_filtered[target_col].astype(str)
+                            
             except Exception as e:
-                logger.warning(f"⚠️ Fehler beim Mapping von {field}: {str(e)}")
+                logger.error(f"❌ Fehler beim Mapping von {target_col}: {str(e)}")
+                continue
         
-        # Speichere Dateien
-        zone_output = output_dir / 'building-geometry' / 'zone.shp'
-        typology_output = output_dir / 'building-properties' / 'typology.shp'
-        
-        zone_output.parent.mkdir(parents=True, exist_ok=True)
-        typology_output.parent.mkdir(parents=True, exist_ok=True)
-        
+        # Speichere zone.shp
+        zone_output = output_dir / 'zone.shp'
         zone_gdf_filtered.to_file(zone_output)
-        typology_gdf.to_file(typology_output)
-        
         logger.info(f"✅ Zone-Datei gespeichert: {zone_output}")
+        
+        # Erstelle typology.shp
+        typology_mappings = mapping_config['typology_mappings']
+        typology_gdf = gpd.GeoDataFrame(geometry=zone_gdf.geometry)
+        
+        # Mappe und transformiere Felder für Typology
+        for target_col, mapping in typology_mappings.items():
+            try:
+                if not isinstance(mapping, dict):
+                    logger.warning(f"⚠️ Ungültiges Mapping für {target_col}: {mapping}")
+                    continue
+                    
+                if 'sources' in mapping:
+                    value_found = False
+                    for source, source_col in mapping['sources'].items():
+                        if source_col in zone_gdf.columns:
+                            typology_gdf[target_col] = zone_gdf[source_col]
+                            value_found = True
+                            logger.info(f"✅ {target_col} aus {source_col} gemappt")
+                            break
+                    
+                    if not value_found:
+                        logger.warning(f"⚠️ Keine gültige Quelle für {target_col} gefunden")
+                        if 'default' in mapping:
+                            default_value = mapping['default']
+                            # Konvertiere Dictionary zu String
+                            if isinstance(default_value, dict):
+                                default_value = str(default_value)
+                            typology_gdf[target_col] = default_value
+                            logger.info(f"ℹ️ {target_col} mit Default-Wert {default_value} gesetzt")
+                        continue
+                        
+                elif 'default' in mapping:
+                    default_value = mapping['default']
+                    # Konvertiere Dictionary zu String
+                    if isinstance(default_value, dict):
+                        default_value = str(default_value)
+                    typology_gdf[target_col] = default_value
+                    logger.info(f"ℹ️ {target_col} mit Default-Wert {default_value} gesetzt")
+                else:
+                    logger.warning(f"⚠️ Keine gültige Mapping-Konfiguration für {target_col}")
+                    continue
+                    
+                # Wende Transformationen an
+                if 'transformations' in mapping:
+                    for transform in mapping['transformations']:
+                        if transform == 'to_float':
+                            typology_gdf[target_col] = pd.to_numeric(typology_gdf[target_col], errors='coerce')
+                        elif transform == 'to_int':
+                            typology_gdf[target_col] = pd.to_numeric(typology_gdf[target_col], errors='coerce').astype('Int64')
+                        elif transform == 'to_string':
+                            typology_gdf[target_col] = typology_gdf[target_col].astype(str)
+                            
+            except Exception as e:
+                logger.error(f"❌ Fehler beim Mapping von {target_col}: {str(e)}")
+                continue
+        
+        # Speichere typology.shp
+        typology_output = output_dir / 'typology.shp'
+        typology_gdf.to_file(typology_output)
         logger.info(f"✅ Typology-Datei gespeichert: {typology_output}")
         
+        logger.info("✅ CEA-Dateien erfolgreich erstellt")
         return True
         
     except Exception as e:
