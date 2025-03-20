@@ -22,7 +22,12 @@ sys.path.append(str(local_dir))
 
 from utils.data_processing.create_site_polygon import create_site_polygon, save_site_polygon
 from utils.data_sources.fetch_citygml_buildings import fetch_citygml_buildings, CityGMLBuildingProcessor as CityGMLFetcher
-from utils.data_sources.fetch_osm_buildings import fetch_surrounding_buildings, process_osm_buildings, save_surrounding_buildings
+from utils.data_sources.fetch_osm_buildings import (
+    fetch_surrounding_buildings,
+    process_osm_buildings,
+    save_surrounding_buildings,
+    fetch_osm_buildings
+)
 from utils.data_sources.fetch_osm_streets import fetch_osm_streets
 from utils.data_sources.fetch_wfs_data import ViennaWFS
 from utils.config_loader import load_config
@@ -397,19 +402,18 @@ def main():
         
         # Hole Umgebungsgebäude
         logger.info("🔄 Hole Umgebungsgebäude...")
-        osm_config = project_config.get('project', {}).get('config_files', {}).get('osm', {}).get('config')
-        if osm_config:
-            osm_config = load_yaml_config(osm_config)
-            surroundings_gdf = fetch_osm_buildings(site_gdf, config=osm_config)
+        if 'osm' in config:
+            osm_config = config['osm']
+            surroundings_gdf = fetch_surrounding_buildings(site_gdf, osm_config)
         else:
             logger.warning("⚠️ Keine OSM-Konfiguration gefunden, verwende Standardwerte")
-            surroundings_gdf = fetch_osm_buildings(site_gdf, config={'buildings': {'buffer_distance': 100}})
+            surroundings_gdf = fetch_surrounding_buildings(site_gdf, {'buildings': {'buffer_distance': 100}})
 
         if not surroundings_gdf.empty:
             logger.info(f"✅ {len(surroundings_gdf)} Umgebungsgebäude gefunden")
             # Verarbeite und speichere Umgebungsgebäude
             processed_surroundings = process_osm_buildings(surroundings_gdf, osm_config.get('osm', {}).get('buildings', {}).get('defaults', {}))
-            save_surrounding_buildings(processed_surroundings, project_path / 'inputs' / 'building-geometry' / 'surroundings.shp')
+            save_surrounding_buildings(processed_surroundings, created_dirs['inputs_building-geometry'] / 'surroundings.shp')
         else:
             logger.warning("⚠️ Keine Umgebungsgebäude gefunden")
         

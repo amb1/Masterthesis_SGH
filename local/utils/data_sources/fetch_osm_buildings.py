@@ -8,6 +8,9 @@ import sys
 import os
 import overpy
 from shapely.geometry import Polygon
+from pyproj import Transformer
+from pyproj import transform
+import pandas as pd
 
 # Füge den Root-Pfad zum Python-Path hinzu
 root_dir = str(Path(__file__).resolve().parent.parent.parent)
@@ -19,97 +22,116 @@ from utils.config_loader import load_config
 logger = logging.getLogger(__name__)
 
 def fetch_surrounding_buildings(site_gdf: gpd.GeoDataFrame, config: dict) -> gpd.GeoDataFrame:
-    """Holt Gebäude aus OpenStreetMap im Umkreis des Standorts.
-    
-    Args:
-        site_gdf (gpd.GeoDataFrame): GeoDataFrame mit dem Site-Polygon
-        config (dict): Konfiguration für die Umgebungsgebäude
-        
-    Returns:
-        gpd.GeoDataFrame: GeoDataFrame mit den Umgebungsgebäuden
-    """
+    """Holt Gebäude aus OpenStreetMap im Umkreis des Standorts."""
     try:
         if site_gdf is None or site_gdf.empty:
             logger.error("⚠️ Ungültiges oder leeres site_gdf übergeben")
-            return gpd.GeoDataFrame(geometry=[], crs=site_gdf.crs if site_gdf is not None else "EPSG:31256")
+            return gpd.GeoDataFrame(geometry=[], crs="EPSG:4326")
 
         # Hole Konfigurationswerte
-        buffer_distance = config.get('buildings', {}).get('buffer_distance', 100)
+        buffer_distance = min(config.get('buildings', {}).get('buffer_distance', 100), 500)  # Begrenze auf 500m
         building_defaults = config.get('buildings', {}).get('defaults', {
             'height': 10,
             'floors': 3,
             'year': 1990
         })
-        
+
         logger.info(f"📡 OSM-Abfrage: Gebäude im Umkreis von {buffer_distance}m")
 
-        # Konvertiere zu WGS84 für OSM-Abfrage
-        site_wgs84 = site_gdf.to_crs("EPSG:4326")
-        
-        # Erstelle Buffer für Suche
-        search_area = site_wgs84.geometry.buffer(buffer_distance).unary_union
-        
-        # Erstelle Overpass-Query für Gebäude
-        bbox = search_area.bounds  # (minx, miny, maxx, maxy)
-        overpass_query = f"""
-            [out:json][timeout:180];
-            (
-              way["building"]({bbox[1]},{bbox[0]},{bbox[3]},{bbox[2]});
-              relation["building"]({bbox[1]},{bbox[0]},{bbox[3]},{bbox[2]});
-            );
-            out body;
-            >;
-            out skel qt;
-        """
-        
-        # Führe Overpass-Query aus
-        api = overpy.Overpass()
-        result = api.query(overpass_query)
-        
-        if not result.ways and not result.relations:
-            logger.warning("⚠️ Keine OSM-Gebäude gefunden!")
-            return gpd.GeoDataFrame(geometry=[], crs=site_gdf.crs)
+        # Speichere ursprüngliches CRS
+        original_crs = site_gdf.crs if site_gdf.crs else "EPSG:31256"
 
-        # Verarbeite Gebäude
-        buildings = []
-        for way in result.ways:
+        # Stelle sicher, dass ein CRS vorhanden ist
+        if not site_gdf.crs:
+            site_gdf.set_crs(epsg=31256, inplace=True)
+
+        # Erstelle Buffer für Suche
+        site_polygon = site_gdf.geometry.iloc[0]
+        search_area = site_polygon.buffer(buffer_distance)
+        search_gdf = gpd.GeoDataFrame(geometry=[search_area], crs=site_gdf.crs)
+        search_wgs84 = search_gdf.to_crs("EPSG:4326")
+
+        # OSM-Abfrage mit features_from_polygon
+        buildings_gdf = ox.features_from_polygon(
+            search_wgs84.geometry.iloc[0],
+            tags={'building': True}
+        )
+
+        if buildings_gdf.empty:
+            logger.warning("⚠️ Keine OSM-Gebäude gefunden!")
+            return gpd.GeoDataFrame(
+                columns=['Name', 'height_ag', 'floors_ag', 'category', 'REFERENCE', 'geometry'],
+                geometry='geometry',
+                crs=original_crs
+            )
+
+        # Konvertiere zum ursprünglichen CRS
+        buildings_gdf = buildings_gdf.to_crs(original_crs)
+
+        # Filtere Gebäude: Nur die, die außerhalb des site_polygon aber innerhalb des Suchbereichs liegen
+        buildings_gdf = buildings_gdf[
+            ~buildings_gdf.geometry.intersects(site_polygon) &  # Nicht im site_polygon
+            buildings_gdf.geometry.intersects(search_area)      # Im Suchbereich
+        ]
+
+        # Verarbeite Gebäudeattribute
+        processed_buildings = []
+        for idx, row in buildings_gdf.iterrows():
             try:
-                coords = [(float(node.lon), float(node.lat)) for node in way.nodes]
-                if len(coords) >= 3:
-                    poly = Polygon(coords)
-                    buildings.append({
-                        'geometry': poly,
-                        'osm_id': way.id,
-                        'height': way.tags.get('height', building_defaults['height']),
-                        'floors': way.tags.get('building:levels', building_defaults['floors']),
-                        'year': way.tags.get('start_date', building_defaults['year']),
-                        'building_type': way.tags.get('building', 'yes')
-                    })
+                if not hasattr(row.geometry, 'exterior'):
+                    continue
+
+                # Hole Stockwerke mit Fehlerbehandlung
+                try:
+                    floors = row.get('building:levels')
+                    if pd.isna(floors):
+                        floors = building_defaults['floors']
+                    else:
+                        floors = int(float(floors))
+                except (ValueError, TypeError):
+                    floors = building_defaults['floors']
+
+                # Hole Höhe mit Fehlerbehandlung
+                try:
+                    height = row.get('height')
+                    if pd.isna(height):
+                        height = building_defaults['height']
+                    else:
+                        height = float(height)
+                except (ValueError, TypeError):
+                    height = building_defaults['height']
+
+                processed_buildings.append({
+                    'Name': f'OSM_{idx}',
+                    'height_ag': height,
+                    'floors_ag': floors,
+                    'category': 'residential',
+                    'REFERENCE': '',
+                    'geometry': row.geometry
+                })
             except Exception as e:
                 logger.warning(f"⚠️ Fehler bei der Verarbeitung eines Gebäudes: {str(e)}")
                 continue
 
-        if not buildings:
+        if not processed_buildings:
             logger.warning("⚠️ Keine gültigen Gebäude gefunden!")
-            return gpd.GeoDataFrame(geometry=[], crs=site_gdf.crs)
+            return gpd.GeoDataFrame(
+                columns=['Name', 'height_ag', 'floors_ag', 'category', 'REFERENCE', 'geometry'],
+                geometry='geometry',
+                crs=original_crs
+            )
 
-        # Erstelle GeoDataFrame
-        buildings_gdf = gpd.GeoDataFrame(buildings, crs="EPSG:4326")
-        
-        # Konvertiere zum ursprünglichen CRS
-        buildings_gdf = buildings_gdf.to_crs(site_gdf.crs)
-        
-        # Filtere Gebäude im Suchbereich
-        buildings_gdf = buildings_gdf[buildings_gdf.geometry.intersects(search_area)]
-        
+        buildings_gdf = gpd.GeoDataFrame(processed_buildings, crs=original_crs)
         logger.info(f"✅ OSM-Gebäude gefunden: {len(buildings_gdf)}")
         return buildings_gdf
 
     except Exception as e:
         logger.error(f"❌ Fehler beim OSM-Gebäude Abruf: {str(e)}")
-        if site_gdf is not None:
-            return gpd.GeoDataFrame(geometry=[], crs=site_gdf.crs)
-        return gpd.GeoDataFrame(geometry=[], crs="EPSG:31256")
+        return gpd.GeoDataFrame(
+            columns=['Name', 'height_ag', 'floors_ag', 'category', 'REFERENCE', 'geometry'],
+            geometry='geometry',
+            crs=original_crs if 'original_crs' in locals() else "EPSG:4326"
+        )
 
 def process_osm_buildings(buildings_gdf, osm_defaults):
     """
