@@ -190,18 +190,31 @@ vienna_wfs:
       - suitability
 
   # Bauperioden-Mapping
-  periods:
-    "1848 - 1918": 
-      categories: ["_A", "_B"]
-    "1919 - 1945": 
-      categories: ["_C"]
-    "nach 1945":
-      categories: ["_D", "_E", "_F", "_G", "_H", "_I", "_J", "_K", "_L"]
+  building_periods:
+    - {start: null, end: 1859, suffix: "_A"}
+    - {start: 1860, end: 1918, suffix: "_B"}
+    - {start: 1919, end: 1948, suffix: "_C"}
+    - {start: 1949, end: 1957, suffix: "_D"}
+    - {start: 1958, end: 1968, suffix: "_E"}
+    - {start: 1969, end: 1978, suffix: "_F"}
+    - {start: 1979, end: 1983, suffix: "_G"}
+    - {start: 1984, end: 1994, suffix: "_H"}
+    - {start: 1995, end: 2001, suffix: "_I"}
+    - {start: 2002, end: 2009, suffix: "_J"}
+    - {start: 2010, end: 2015, suffix: "_K"}
+    - {start: 2016, end: null, suffix: "_L"}
+
+  # Bauperioden-Text-Mapping
+  period_ranges:
+    "1848 -1918": [1848, 1918]
+    "1919 - 1945": [1919, 1945]
+    "nach 1945": [1946, 2025]
 
   # Gebäudetyp-Mappings
   building_types:
     # Mapping für STANDARD-Prefix
     standard_prefix:
+      "4.-Bauten der öffentl.u.privaten Repräsentation u.Verwaltung": "AB"
       "5.-Bauten der Erziehung und Bildung": "AB"
       "6.-Bauten der öffentlichen und privaten Wirtschaft": "AB"
       "10.-Kaufhäuser": "AB"
@@ -219,6 +232,7 @@ vienna_wfs:
       "W3.3.-Mieth.s.d.Gründerzeit-Doppeltrakter mit Verbindungstr.": "TH"
       "W3.4.-Mieth.s.d.Gründerzeit-Doppeltrakter,zweihüft. Hoftrakt": "TH"
       "W3.7.-Mieth.s.d.Gründerzeit-Eckhaus": "TH"
+      "W3.8.-Mieth.s.d.Gründerzeit-Hoftrakt": "TH"
       "W4.1.-soz.u.gemeinn.Wohnb.-Baulückenbebauungen": "MFH"
       "W4.2.-soz.u.gemeinn.Wohnb.-Hofbebauungen/Superblocks": "MFH"
       "W4.3.-soz.u.gemeinn.Wohnb.-Siedlungen in Zeilenbauweise": "MFH"
@@ -230,6 +244,7 @@ vienna_wfs:
 
     # Mapping für USE_TYPE (1ST_USE)
     use_type:
+      "4.-Bauten der öffentl.u.privaten Repräsentation u.Verwaltung": "OFFICE"
       "5.-Bauten der Erziehung und Bildung": "SCHOOL"
       "6.-Bauten der öffentlichen und privaten Wirtschaft": "OFFICE"
       "10.-Kaufhäuser": "RETAIL"
@@ -247,6 +262,7 @@ vienna_wfs:
       "W3.3.-Mieth.s.d.Gründerzeit-Doppeltrakter mit Verbindungstr.": "MULTI_RES"
       "W3.4.-Mieth.s.d.Gründerzeit-Doppeltrakter,zweihüft. Hoftrakt": "MULTI_RES"
       "W3.7.-Mieth.s.d.Gründerzeit-Eckhaus": "MULTI_RES"
+      "W3.8.-Mieth.s.d.Gründerzeit-Hoftrakt": "MULTI_RES"
       "W4.1.-soz.u.gemeinn.Wohnb.-Baulückenbebauungen": "MULTI_RES"
       "W4.2.-soz.u.gemeinn.Wohnb.-Hofbebauungen/Superblocks": "MULTI_RES"
       "W4.3.-soz.u.gemeinn.Wohnb.-Siedlungen in Zeilenbauweise": "MULTI_RES"

@@ -11,6 +11,8 @@ from shapely.geometry import Point
 import logging
 from typing import Optional, Dict
 from pyproj import Transformer
+import numpy as np
+import random
 
 # Konfiguriere Logger
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -22,7 +24,12 @@ sys.path.append(str(local_dir))
 
 from utils.data_processing.create_site_polygon import create_site_polygon, save_site_polygon
 from utils.data_sources.fetch_citygml_buildings import fetch_citygml_buildings, CityGMLBuildingProcessor as CityGMLFetcher
-from utils.data_sources.fetch_osm_buildings import fetch_surrounding_buildings, process_osm_buildings, save_surrounding_buildings
+from utils.data_sources.fetch_osm_buildings import (
+    fetch_surrounding_buildings,
+    process_osm_buildings,
+    save_surrounding_buildings,
+    fetch_osm_buildings
+)
 from utils.data_sources.fetch_osm_streets import fetch_osm_streets
 from utils.data_sources.fetch_wfs_data import ViennaWFS
 from utils.config_loader import load_config
@@ -397,26 +404,18 @@ def main():
         
         # Hole Umgebungsgebäude
         logger.info("🔄 Hole Umgebungsgebäude...")
-        buffer_meters = 100  # 100 Meter Buffer für Umgebungsgebäude
+        if 'osm' in config:
+            osm_config = config['osm']
+            surroundings_gdf = fetch_surrounding_buildings(site_gdf, osm_config)
+        else:
+            logger.warning("⚠️ Keine OSM-Konfiguration gefunden, verwende Standardwerte")
+            surroundings_gdf = fetch_surrounding_buildings(site_gdf, {'buildings': {'buffer_distance': 100}})
 
-        # Erstelle OSM-Konfiguration
-        osm_config = {
-            'buildings': {
-                'buffer_distance': buffer_meters,
-                'defaults': {
-                    'height': 10,
-                    'floors': 3,
-                    'year': 1990
-                }
-            }
-        }
-
-        # Hole Umgebungsgebäude von OSM
-        surroundings_gdf = fetch_surrounding_buildings(site_gdf, osm_config)
         if not surroundings_gdf.empty:
-            surroundings_path = created_dirs['inputs_building-geometry'] / 'surroundings.shp'
-            surroundings_gdf.to_file(surroundings_path)
-            logger.info(f"✅ {len(surroundings_gdf)} Umgebungsgebäude gespeichert: {surroundings_path}")
+            logger.info(f"✅ {len(surroundings_gdf)} Umgebungsgebäude gefunden")
+            # Verarbeite und speichere Umgebungsgebäude
+            processed_surroundings = process_osm_buildings(surroundings_gdf, osm_config.get('osm', {}).get('buildings', {}).get('defaults', {}))
+            save_surrounding_buildings(processed_surroundings, created_dirs['inputs_building-geometry'] / 'surroundings.shp')
         else:
             logger.warning("⚠️ Keine Umgebungsgebäude gefunden")
         
@@ -452,6 +451,46 @@ def adjust_field_widths(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
         logger.error(f"❌ Fehler beim Anpassen der Feldbreiten: {str(e)}")
         return gdf
 
+def get_year_and_suffix(period_str, wfs_config):
+    """
+    Bestimmt das Jahr und den Suffix basierend auf der Bauperiode.
+    
+    Args:
+        period_str: String der Bauperiode (z.B. "1848 -1918")
+        wfs_config: WFS Konfigurationsdaten
+        
+    Returns:
+        tuple: (year, suffix)
+    """
+    if pd.isna(period_str):
+        logging.warning(f"Keine Bauperiode gefunden, verwende Standardwerte")
+        return 2000, "_I"
+        
+    # Zuerst prüfen wir das period_ranges Mapping
+    period_ranges = wfs_config.get('period_ranges', {})
+    if period_str in period_ranges:
+        start_year, end_year = period_ranges[period_str]
+        year = random.randint(start_year, end_year)
+        logging.info(f"Zufälliges Jahr {year} generiert für Periode {period_str}")
+    else:
+        # Wenn keine Zuordnung gefunden wurde, verwenden wir Standardwerte
+        logging.warning(f"Keine Zuordnung für Periode {period_str} gefunden, verwende Jahr 2000")
+        year = 2000
+
+    # Suffix basierend auf dem Jahr bestimmen
+    building_periods = wfs_config.get('building_periods', [])
+    for period in building_periods:
+        start = period['start'] if period['start'] is not None else float('-inf')
+        end = period['end'] if period['end'] is not None else float('inf')
+        if start <= year <= end:
+            suffix = period['suffix']
+            logging.info(f"Suffix {suffix} zugewiesen für Jahr {year}")
+            return year, suffix
+            
+    # Fallback wenn kein passendes Intervall gefunden wurde
+    logging.warning(f"Kein passendes Intervall für Jahr {year} gefunden, verwende _I")
+    return year, "_I"
+
 def create_cea_files(zone_gdf: gpd.GeoDataFrame, output_dir: Path, config: dict):
     """Erstellt die CEA-Dateien aus den Gebäudedaten"""
     try:
@@ -465,136 +504,230 @@ def create_cea_files(zone_gdf: gpd.GeoDataFrame, output_dir: Path, config: dict)
         if 'zone_mappings' not in mapping_config or 'typology_mappings' not in mapping_config:
             raise ValueError("❌ CEA-Mapping-Konfiguration fehlt erforderliche Mappings")
         
+        # Validiere WFS-Konfiguration
+        if 'wfs' not in config or 'building_types' not in config['wfs']:
+            raise ValueError("❌ WFS-Building-Types-Konfiguration fehlt")
+            
+        # Lade Building-Types Mapping
+        building_types_config = config['wfs']['building_types']
+        standard_prefix_mapping = building_types_config.get('standard_prefix', {})
+        use_type_mapping = building_types_config.get('use_type', {})
+        
+        # Definiere Perioden-Mapping
+        period_mapping = {
+            "1848 - 1918": {
+                "categories": ["_A", "_B"],
+                "year_range": (1848, 1918)
+            },
+            "1919 - 1945": {
+                "categories": ["_C"],
+                "year_range": (1919, 1945)
+            },
+            "nach 1945": {
+                "categories": ["_D", "_E", "_F", "_G", "_H", "_I", "_J", "_K", "_L"],
+                "year_range": (1946, 2025)
+            }
+        }
+        
+        # Entferne problematische Felder
+        fields_to_remove = ['Gebäudemo', 'Gebäudein']
+        clean_zone_gdf = zone_gdf.copy()
+        for field in fields_to_remove:
+            if field in clean_zone_gdf.columns:
+                clean_zone_gdf = clean_zone_gdf.drop(columns=[field])
+                logger.info(f"✅ Feld {field} entfernt")
+        
         # Logge verfügbare Spalten
         logger.info("📋 Verfügbare Spalten im Input:")
-        for col in zone_gdf.columns:
+        for col in clean_zone_gdf.columns:
             if col != 'geometry':
                 logger.info(f"  - {col}")
         
-        # Erstelle zone.shp
-        zone_mappings = mapping_config['zone_mappings']
-        zone_gdf_filtered = gpd.GeoDataFrame(geometry=zone_gdf.geometry)
+        # 1. Erstelle zone.shp
+        zone_gdf_filtered = gpd.GeoDataFrame(geometry=clean_zone_gdf.geometry, crs=clean_zone_gdf.crs)
         
-        # Mappe und transformiere Felder
-        for target_col, mapping in zone_mappings.items():
+        # Wende zone_mappings an
+        for field, mapping in mapping_config['zone_mappings'].items():
             try:
-                if not isinstance(mapping, dict):
-                    logger.warning(f"⚠️ Ungültiges Mapping für {target_col}: {mapping}")
-                    continue
+                # Spezialbehandlung für floors_ag
+                if field == 'floors_ag':
+                    # Versuche zuerst GESCH_ANZ zu verwenden
+                    if 'Gebäudeinfo_GESCH_ANZ' in clean_zone_gdf.columns:
+                        value = pd.to_numeric(clean_zone_gdf['Gebäudeinfo_GESCH_ANZ'], errors='coerce')
+                        logger.info("✅ floors_ag: Verwende Werte aus GESCH_ANZ")
+                    # Fallback auf measuredHeight
+                    elif 'measuredHeight' in clean_zone_gdf.columns:
+                        value = pd.to_numeric(clean_zone_gdf['measuredHeight'], errors='coerce')
+                        # Konvertiere Höhe zu Stockwerken (3m pro Stockwerk)
+                        value = (value / 3.0).round()
+                        logger.info("✅ floors_ag: Berechnet aus measuredHeight (3m pro Stockwerk)")
+                    else:
+                        value = pd.Series([3] * len(clean_zone_gdf))  # Default: 3 Stockwerke
+                        logger.info("ℹ️ floors_ag: Verwende Default-Wert 3")
                     
+                    # Bereinige und validiere
+                    value = value.fillna(3)  # Setze NaN auf 3
+                    value = value.clip(lower=1, upper=30)  # Begrenze auf sinnvolle Werte
+                    value = value.astype('Int64')  # Konvertiere zu Integer
+                    zone_gdf_filtered[field] = value
+                    continue
+
+                # Normale Verarbeitung für andere Felder
+                value = None
                 if 'sources' in mapping:
-                    value_found = False
-                    # Versuche Daten aus verschiedenen Quellen zu holen
-                    for source, source_col in mapping['sources'].items():
-                        if source_col in zone_gdf.columns:
-                            zone_gdf_filtered[target_col] = zone_gdf[source_col]
-                            value_found = True
-                            logger.info(f"✅ {target_col} aus {source_col} gemappt")
+                    for source, source_field in mapping['sources'].items():
+                        if source_field in clean_zone_gdf.columns:
+                            value = clean_zone_gdf[source_field]
+                            logger.info(f"✅ {field}: Verwende Werte aus {source_field}")
                             break
+                
+                if value is None and 'default' in mapping:
+                    value = mapping['default']
+                    logger.info(f"ℹ️ {field}: Verwende Default-Wert {value}")
+                
+                # Wende Transformation an
+                if value is not None and 'transform' in mapping:
+                    transform_name = mapping['transform']
+                    if transform_name in mapping_config['transformations']:
+                        transform_config = mapping_config['transformations'][transform_name]
+                        if transform_config['function'] == 'to_int':
+                            value = pd.to_numeric(value, errors='coerce').fillna(mapping.get('default', 0)).astype('Int64')
+                        elif transform_config['function'] == 'to_float':
+                            value = pd.to_numeric(value, errors='coerce').fillna(mapping.get('default', 0.0))
+                        elif transform_config['function'] == 'shorten_id':
+                            value = value.astype(str).str[:10]  # Begrenze ID auf 10 Zeichen
+                        logger.info(f"✅ {field}: Transformation {transform_name} angewendet")
+                
+                if value is not None:
+                    zone_gdf_filtered[field] = value
                     
-                    if not value_found:
-                        logger.warning(f"⚠️ Keine gültige Quelle für {target_col} gefunden")
-                        if 'default' in mapping:
-                            default_value = mapping['default']
-                            # Konvertiere Dictionary zu String
-                            if isinstance(default_value, dict):
-                                default_value = str(default_value)
-                            zone_gdf_filtered[target_col] = default_value
-                            logger.info(f"ℹ️ {target_col} mit Default-Wert {default_value} gesetzt")
-                        continue
-                        
-                elif 'default' in mapping:
-                    default_value = mapping['default']
-                    # Konvertiere Dictionary zu String
-                    if isinstance(default_value, dict):
-                        default_value = str(default_value)
-                    zone_gdf_filtered[target_col] = default_value
-                    logger.info(f"ℹ️ {target_col} mit Default-Wert {default_value} gesetzt")
-                else:
-                    logger.warning(f"⚠️ Keine gültige Mapping-Konfiguration für {target_col}")
-                    continue
-                    
-                # Wende Transformationen an
-                if 'transformations' in mapping:
-                    for transform in mapping['transformations']:
-                        if transform == 'to_float':
-                            zone_gdf_filtered[target_col] = pd.to_numeric(zone_gdf_filtered[target_col], errors='coerce')
-                        elif transform == 'to_int':
-                            zone_gdf_filtered[target_col] = pd.to_numeric(zone_gdf_filtered[target_col], errors='coerce').astype('Int64')
-                        elif transform == 'to_string':
-                            zone_gdf_filtered[target_col] = zone_gdf_filtered[target_col].astype(str)
-                            
             except Exception as e:
-                logger.error(f"❌ Fehler beim Mapping von {target_col}: {str(e)}")
-                continue
+                logger.warning(f"⚠️ Fehler beim Mapping von {field}: {str(e)}")
+                if mapping.get('required', False):
+                    raise
         
-        # Speichere zone.shp
-        zone_output = output_dir / 'zone.shp'
+        # 2. Erstelle typology.shp
+        typology_gdf = gpd.GeoDataFrame(geometry=clean_zone_gdf.geometry, crs=clean_zone_gdf.crs)
+        
+        # Kopiere Name und REFERENCE aus zone_gdf_filtered
+        if 'Name' in zone_gdf_filtered.columns:
+            typology_gdf['Name'] = zone_gdf_filtered['Name']
+            logger.info("✅ Name aus zone_gdf kopiert")
+        if 'REFERENCE' in zone_gdf_filtered.columns:
+            typology_gdf['REFERENCE'] = zone_gdf_filtered['REFERENCE']
+            logger.info("✅ REFERENCE aus zone_gdf kopiert")
+        
+        # Verarbeite YEAR, STANDARD und USE
+        try:
+            # Hole Gebäudetyp für Prefix
+            building_type_field = 'Gebäudetypologie_OBJ_STR'
+            if building_type_field not in clean_zone_gdf.columns:
+                building_type_field = 'Gebäudeinfo_L_BAUTYP'
+                logger.info(f"ℹ️ Verwende alternatives Feld für Gebäudetyp: {building_type_field}")
+            
+            if building_type_field in clean_zone_gdf.columns:
+                building_types = clean_zone_gdf[building_type_field]
+                unique_types = building_types.unique().tolist()
+                logger.info(f"📋 Gefundene Gebäudetypen: {unique_types}")
+                
+                # Hole Standard-Prefix aus Mapping
+                standard_prefixes = building_types.map(standard_prefix_mapping)
+                standard_prefixes = standard_prefixes.fillna('MFH')  # Default Prefix
+                unique_prefixes = standard_prefixes.unique().tolist()
+                logger.info(f"✅ Gemappte Standard-Prefixe: {unique_prefixes}")
+                
+                # Verarbeite Bauperiode und Kategorie
+                bauj_field = 'Gebäudeinfo_L_BAUJ'
+                
+                years = []
+                suffixes = []
+                
+                if bauj_field in clean_zone_gdf.columns:
+                    logger.info(f"✅ Verwende Bauperioden aus {bauj_field}")
+                    bauperioden = clean_zone_gdf[bauj_field]
+                    unique_periods = bauperioden.unique().tolist()
+                    logger.info(f"📋 Gefundene Bauperioden: {unique_periods}")
+                    
+                    for period in bauperioden:
+                        year, suffix = get_year_and_suffix(period, config['wfs'])
+                        years.append(year)
+                        suffixes.append(suffix)
+                else:
+                    logger.warning(f"⚠️ Bauperioden-Feld {bauj_field} nicht gefunden, verwende Standardwerte")
+                    for _ in range(len(clean_zone_gdf)):
+                        year, suffix = get_year_and_suffix(None, config['wfs'])
+                        years.append(year)
+                        suffixes.append(suffix)
+                
+                # Setze YEAR und STANDARD
+                typology_gdf['YEAR'] = pd.Series(years, index=clean_zone_gdf.index).astype('Int64')
+                typology_gdf['STANDARD'] = standard_prefixes + pd.Series(suffixes, index=clean_zone_gdf.index)
+                
+                # Verarbeite Nutzungstypen
+                if 'Realnutzung_NUTZUNG_LEVEL1' in clean_zone_gdf.columns:
+                    real_use = clean_zone_gdf['Realnutzung_NUTZUNG_LEVEL1']
+                    unique_uses = real_use.unique().tolist()
+                    logger.info(f"📋 Gefundene Nutzungstypen: {unique_uses}")
+                    
+                    mapped_use = real_use.map(use_type_mapping)
+                    unique_mapped = mapped_use.unique().tolist()
+                    logger.info(f"✅ Gemappte Nutzungstypen: {unique_mapped}")
+                    
+                    # Setze 1ST_USE
+                    typology_gdf['1ST_USE'] = mapped_use.fillna('RESIDENTIAL')
+                    typology_gdf['1ST_USE_R'] = 1.0
+                    
+                    # Setze 2ND_USE und 3RD_USE auf None/0.0
+                    typology_gdf['2ND_USE'] = None
+                    typology_gdf['2ND_USE_R'] = 0.0
+                    typology_gdf['3RD_USE'] = None
+                    typology_gdf['3RD_USE_R'] = 0.0
+                else:
+                    logger.warning("⚠️ Keine Realnutzung gefunden, verwende Default-Werte")
+                    # Default-Werte für alle USE-Felder
+                    typology_gdf['1ST_USE'] = 'RESIDENTIAL'
+                    typology_gdf['1ST_USE_R'] = 1.0
+                    typology_gdf['2ND_USE'] = None
+                    typology_gdf['2ND_USE_R'] = 0.0
+                    typology_gdf['3RD_USE'] = None
+                    typology_gdf['3RD_USE_R'] = 0.0
+            else:
+                logger.warning(f"⚠️ Gebäudetyp-Feld {building_type_field} nicht gefunden")
+                # Default-Werte
+                typology_gdf['YEAR'] = 1900
+                typology_gdf['STANDARD'] = 'MFH_C'
+                typology_gdf['1ST_USE'] = 'RESIDENTIAL'
+                typology_gdf['1ST_USE_R'] = 1.0
+                typology_gdf['2ND_USE'] = None
+                typology_gdf['2ND_USE_R'] = 0.0
+                typology_gdf['3RD_USE'] = None
+                typology_gdf['3RD_USE_R'] = 0.0
+            
+        except Exception as e:
+            logger.error(f"❌ Fehler bei der Typology-Verarbeitung: {str(e)}")
+            # Setze Notfall-Default-Werte
+            typology_gdf['YEAR'] = 1900
+            typology_gdf['STANDARD'] = 'MFH_C'
+            typology_gdf['1ST_USE'] = 'RESIDENTIAL'
+            typology_gdf['1ST_USE_R'] = 1.0
+            typology_gdf['2ND_USE'] = None
+            typology_gdf['2ND_USE_R'] = 0.0
+            typology_gdf['3RD_USE'] = None
+            typology_gdf['3RD_USE_R'] = 0.0
+        
+        # Speichere Dateien
+        zone_output = output_dir / 'building-geometry' / 'zone.shp'
+        typology_output = output_dir / 'building-properties' / 'typology.shp'
+        
+        zone_output.parent.mkdir(parents=True, exist_ok=True)
+        typology_output.parent.mkdir(parents=True, exist_ok=True)
+        
         zone_gdf_filtered.to_file(zone_output)
-        logger.info(f"✅ Zone-Datei gespeichert: {zone_output}")
-        
-        # Erstelle typology.shp
-        typology_mappings = mapping_config['typology_mappings']
-        typology_gdf = gpd.GeoDataFrame(geometry=zone_gdf.geometry)
-        
-        # Mappe und transformiere Felder für Typology
-        for target_col, mapping in typology_mappings.items():
-            try:
-                if not isinstance(mapping, dict):
-                    logger.warning(f"⚠️ Ungültiges Mapping für {target_col}: {mapping}")
-                    continue
-                    
-                if 'sources' in mapping:
-                    value_found = False
-                    for source, source_col in mapping['sources'].items():
-                        if source_col in zone_gdf.columns:
-                            typology_gdf[target_col] = zone_gdf[source_col]
-                            value_found = True
-                            logger.info(f"✅ {target_col} aus {source_col} gemappt")
-                            break
-                    
-                    if not value_found:
-                        logger.warning(f"⚠️ Keine gültige Quelle für {target_col} gefunden")
-                        if 'default' in mapping:
-                            default_value = mapping['default']
-                            # Konvertiere Dictionary zu String
-                            if isinstance(default_value, dict):
-                                default_value = str(default_value)
-                            typology_gdf[target_col] = default_value
-                            logger.info(f"ℹ️ {target_col} mit Default-Wert {default_value} gesetzt")
-                        continue
-                        
-                elif 'default' in mapping:
-                    default_value = mapping['default']
-                    # Konvertiere Dictionary zu String
-                    if isinstance(default_value, dict):
-                        default_value = str(default_value)
-                    typology_gdf[target_col] = default_value
-                    logger.info(f"ℹ️ {target_col} mit Default-Wert {default_value} gesetzt")
-                else:
-                    logger.warning(f"⚠️ Keine gültige Mapping-Konfiguration für {target_col}")
-                    continue
-                    
-                # Wende Transformationen an
-                if 'transformations' in mapping:
-                    for transform in mapping['transformations']:
-                        if transform == 'to_float':
-                            typology_gdf[target_col] = pd.to_numeric(typology_gdf[target_col], errors='coerce')
-                        elif transform == 'to_int':
-                            typology_gdf[target_col] = pd.to_numeric(typology_gdf[target_col], errors='coerce').astype('Int64')
-                        elif transform == 'to_string':
-                            typology_gdf[target_col] = typology_gdf[target_col].astype(str)
-                            
-            except Exception as e:
-                logger.error(f"❌ Fehler beim Mapping von {target_col}: {str(e)}")
-                continue
-        
-        # Speichere typology.shp
-        typology_output = output_dir / 'typology.shp'
         typology_gdf.to_file(typology_output)
+        
+        logger.info(f"✅ Zone-Datei gespeichert: {zone_output}")
         logger.info(f"✅ Typology-Datei gespeichert: {typology_output}")
         
-        logger.info("✅ CEA-Dateien erfolgreich erstellt")
         return True
         
     except Exception as e:

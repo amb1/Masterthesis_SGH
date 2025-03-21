@@ -10,14 +10,16 @@ data_source_priority:
 zone_mappings:
   Name:
     sources:
-      citygml: "gml_id"
-    transform: "shorten_id"
+      street: "Gebäudeinfo_STRNAML"
+      house_no: "Gebäudeinfo_VONN"
+    transform: "combine_address"
+    default: "Unknown"
   
   floors_ag:
     sources:
+      wfs: "GEBAEUDEINFOOGD_GESCH_ANZ"
       citygml: "measuredHeight"
-      wfs: "Gebäudeinfo_GESCH_ANZ"
-    transform: "to_int"
+    transform: "floors_from_height"
     default: 4
     required: true
   
@@ -36,15 +38,14 @@ zone_mappings:
     default: 12.0
   
   height_bg:
-    sources:
-      wfs: "HoeheGrund"
+    calculation: "floors_bg * 3"
     transform: "to_float"
     default: 3.0
   
   REFERENCE:
     sources:
       citygml: "gml_id"
-    transform: "shorten_id"
+    transform: "none"  # Keine Kürzung mehr
   
   house_no:
     sources:
@@ -77,7 +78,7 @@ typology_mappings:
   Name:
     sources:
       citygml: "gml_id"
-    transform: "shorten_id"
+    transform: "none"  # Keine Kürzung mehr
   
   YEAR:
     sources:
@@ -103,44 +104,65 @@ typology_mappings:
       wfs2: "Gebäudetypologie_BAUTYP_TXT"
     default: "STANDARD"
   
-  USE1:
+  1ST_USE:
     sources:
       wfs: "Gebäudeinfo_L_NUTZUNG"
-      wfs2: "Realnutzung_NUTZUNG_LEVEL1"
     mapping:
-      "Wohnen": "RESIDENTIAL"
-      "Büro": "OFFICE"
-      "Handel": "RETAIL"
-      "Industrie": "INDUSTRIAL"
-      "Öffentlich": "PUBLIC"
+      "4.-Bauten der öffentl.u.privaten Repräsentation u.Verwaltung": "OFFICE"
+      "5.-Bauten der Erziehung und Bildung": "SCHOOL"
+      "6.-Bauten der öffentlichen und privaten Wirtschaft": "OFFICE"
+      "10.-Kaufhäuser": "RETAIL"
+      "11.-Einkaufszentren": "RETAIL"
+      "12.-Gewerbebetriebe": "INDUSTRIAL"
+      "13.-Industriebauten": "INDUSTRIAL"
+      "14.-Bauten des öffentlichen und privaten Verkehrs": "OFFICE"
+      "15.-Bauten der öffentlichen und privaten Wohlfahrt": "OFFICE"
+      "W1.1.-bäuerl.dom.Baustrukt.-Streck- u. Hakenhof": "RESIDENTIAL"
+      "W1.2.-bäuerl.dom.Baustrukt.-Zwerchh.u.Gassenfrontenhaus": "RESIDENTIAL"
+      "W2.1.-Bürgerhaus-kleine Haustypen ohne Hof": "RESIDENTIAL"
+      "W2.2.-Bürgerhaus-Haus auf tiefer,schmaler Parzelle,ohne Hof": "RESIDENTIAL"
+      "W3.1.-Mieth.s.d.Gründerzeit-Straßentrakter": "RESIDENTIAL"
+      "W3.2.-Mieth.s.d.Gründerzeit-Seitenflügelhaus": "RESIDENTIAL"
+      "W3.3.-Mieth.s.d.Gründerzeit-Doppeltrakter mit Verbindungstr.": "RESIDENTIAL"
+      "W3.4.-Mieth.s.d.Gründerzeit-Doppeltrakter,zweihüft. Hoftrakt": "RESIDENTIAL"
+      "W3.7.-Mieth.s.d.Gründerzeit-Eckhaus": "RESIDENTIAL"
+      "W3.8.-Mieth.s.d.Gründerzeit-Hoftrakt": "RESIDENTIAL"
+      "W4.1.-soz.u.gemeinn.Wohnb.-Baulückenbebauungen": "RESIDENTIAL"
+      "W4.2.-soz.u.gemeinn.Wohnb.-Hofbebauungen/Superblocks": "RESIDENTIAL"
+      "W4.3.-soz.u.gemeinn.Wohnb.-Siedlungen in Zeilenbauweise": "RESIDENTIAL"
+      "W4.4.-soz.u.gemeinn.Wohnb.-Siedlungen,1-,2-u.Mehrfamilienh.": "RESIDENTIAL"
+      "W5.1.-freist.1-,2-u.Mehrfamilienh.-Villen in Randbebauung": "RESIDENTIAL"
+      "W5.2.-freist.1-,2-u.Mehrfamilienh.-freistehende Villen": "RESIDENTIAL"
+      "W6.1.-Sonderwohnbauten-Hotel und Pension": "HOTEL"
+      "W6.2.-Sonderwohnbauten-Heim,Pflegeanstalt,Spitalsbauten": "HOSPITAL"
     default: "RESIDENTIAL"
   
-  USE1_R:
-    sources:
-      wfs: "Realnutzung_NUTZUNG_LEVEL1"
+  1ST_USE_R:
     transform: "to_float"
     default: 1.0
   
-  USE2:
-    sources:
-      wfs: "Realnutzung_NUTZUNG_LEVEL2"
+  2ND_USE:
     default: "NONE"
   
-  USE2_R:
+  2ND_USE_R:
     default: 0
   
-  USE3:
+  3RD_USE:
     default: "NONE"
   
-  USE3_R:
+  3RD_USE_R:
     default: 0
 
 # Transformationsfunktionen
 transformations:
-  shorten_id:
-    description: "Kürzt lange IDs auf 10 Zeichen"
-    function: "shorten_id"
-    max_length: 10
+  combine_address:
+    description: "Kombiniert Straße und Hausnummer"
+    function: "combine_address"
+  
+  floors_from_height:
+    description: "Berechnet Geschosse aus Höhe wenn keine direkte Angabe vorhanden"
+    function: "floors_from_height"
+    height_per_floor: 3.0
   
   to_int:
     description: "Konvertiert Werte zu Integer"
@@ -149,6 +171,10 @@ transformations:
   to_float:
     description: "Konvertiert Werte zu Float"
     function: "to_float"
+  
+  none:
+    description: "Keine Transformation"
+    function: "none"
 
 # CEA-Mapping-Definitionen
 building_type_mapping:
