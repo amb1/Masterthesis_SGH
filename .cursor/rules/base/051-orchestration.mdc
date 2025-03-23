@@ -1,0 +1,96 @@
+---
+description: Regeln für die Pipeline-Orchestrierung und Ablaufsteuerung
+globs: pipeline/orchestrator.py
+---
+
+# Orchestrierungs-Regeln
+
+## Pipeline-Struktur
+
+### Komponenten
+- Datenquellen (CityGML, OSM, WFS)
+- Prozessoren (CEA, Base, Data)
+- Writer (Output-Formate)
+- Validator (Datenqualität)
+
+### Abhängigkeiten
+- Komponentenreihenfolge
+- Datenfluss
+- Ressourcenverwaltung
+- Fehlerfortpflanzung
+
+## Ablaufsteuerung
+
+### Initialisierung
+- Konfigurationsvalidierung
+- Ressourcenallokation
+- Logger-Setup
+- Abhängigkeitsprüfung
+
+### Ausführung
+- Sequenzielle vs. Parallele Verarbeitung
+- Fortschrittsüberwachung
+- Zwischenergebnisse
+- Checkpointing
+
+### Finalisierung
+- Ressourcenfreigabe
+- Ergebnisvalidierung
+- Cleanup-Operationen
+- Reporting
+
+## Fehlerbehandlung
+
+### Strategien
+- Retry-Mechanismen
+- Fallback-Optionen
+- Graceful Degradation
+- Circuit Breaker
+
+### Protokollierung
+- Fehlerkontext
+- Stack Traces
+- Performance-Metriken
+- Systemzustand
+
+## Monitoring
+
+### Metriken
+- Verarbeitungszeit
+- Ressourcenverbrauch
+- Erfolgsrate
+- Datendurchsatz
+
+### Reporting
+- Status-Updates
+- Fehlerberichte
+- Performance-Analysen
+- Qualitätsmetriken
+
+## Performance
+
+### Optimierung
+- Parallelisierung
+- Caching
+- Lazy Loading
+- Batch-Verarbeitung
+
+### Ressourcen
+- Memory Management
+- CPU-Auslastung
+- Disk I/O
+- Network I/O
+
+## Integration
+
+### Schnittstellen
+- CLI-Integration
+- API-Endpoints
+- Event-Handling
+- Callback-Mechanismen
+
+### Konfiguration
+- Umgebungsvariablen
+- Konfigurationsdateien
+- Runtime-Parameter
+- Feature Flags 

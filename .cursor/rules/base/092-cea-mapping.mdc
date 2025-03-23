@@ -1,0 +1,106 @@
+---
+description: Regeln für das CEA-Mapping und die Gebäudeanalyse
+globs: pipeline/processing/cea_mapper.py
+---
+
+# CEA-Mapping-Regeln
+
+## Gebäudeattribute
+
+### Pflichtattribute
+- Gebäude-ID
+- Gebäudetyp
+- Baujahr
+- Geschosszahl
+- Grundfläche
+- Höhe
+
+### Optionale Attribute
+- Renovierungsjahr
+- Energieverbrauch
+- Nutzungsart
+- Materialien
+
+## Geometrische Anforderungen
+
+### Grundriss
+- Geschlossene Polygone
+- Korrekte Topologie
+- Minimale Selbstüberschneidungen
+- Gültige Orientierung
+
+### 3D-Modellierung
+- Höhenattribute
+- Geschosshöhen
+- Dachformen
+- Gebäudeöffnungen
+
+## Dateiverarbeitung
+
+### Zone.shp
+- Attributschema
+- Geometrievalidierung
+- Koordinatensystem
+- Topologische Regeln
+
+### Typology.dbf
+- Attributzuordnung
+- Wertebereichsprüfung
+- Schlüsselbeziehungen
+- Datenintegrität
+
+## Validierung
+
+### Datenprüfung
+- Vollständigkeit
+- Konsistenz
+- Plausibilität
+- Genauigkeit
+
+### Qualitätssicherung
+- Fehlerprotokollierung
+- Warnmeldungen
+- Korrekturvorschläge
+- Dokumentation
+
+## Datenvorbereitung
+
+### Bereinigung
+- Geometriekorrektur
+- Attributbereinigung
+- Duplikatentfernung
+- Lückenfüllung
+
+### Anreicherung
+- Standardwerte
+- Berechnete Attribute
+- Metadaten
+- Zusatzinformationen
+
+## Fehlerbehandlung
+
+### Validierungsfehler
+- Geometriefehler
+- Attributfehler
+- Beziehungsfehler
+- Formatfehler
+
+### Prozessfehler
+- Datenzugriffsfehler
+- Transformationsfehler
+- Speicherfehler
+- Systemfehler
+
+## Performance
+
+### Optimierung
+- Batch-Verarbeitung
+- Parallelisierung
+- Caching
+- Indexierung
+
+### Ressourcen
+- Speichernutzung
+- CPU-Auslastung
+- I/O-Operationen
+- Netzwerkzugriffe 

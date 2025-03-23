@@ -1,30 +1,28 @@
 # Migrated from local/cfg/project_config.yml and local/cfg/wfs/wfs_config.yml
-wfs:
-  endpoint: "https://data.wien.gv.at/daten/geo"
-  version: "2.0.0"
-  srsname: "EPSG:31256"
-  
-  layers:
-    buildings:
-      typename: "ogdwien:GEBAEUDEINFOOGD"
-      bbox:
-        minx: -25000
-        miny: 330000
-        maxx: -23000
-        maxy: 342000
-      fields:
-        - name: "id"
-          type: "string"
-        - name: "year_built"
-          type: "integer"
-        - name: "building_type"
-          type: "string"
-        - name: "height"
-          type: "float"
-        - name: "floors"
-          type: "integer"
+endpoint: "https://data.wien.gv.at/daten/geo"
+version: "2.0.0"
+srsname: "EPSG:31256"
+layers:
+  buildings:
+    typename: "ogdwien:GEBAEUDEINFOOGD"
+    bbox:
+      minx: -25000
+      miny: 330000
+      maxx: -23000
+      maxy: 342000
+    fields:
+      - name: "id"
+        type: "string"
+      - name: "year_built"
+        type: "integer"
+      - name: "building_type"
+        type: "string"
+      - name: "height"
+        type: "float"
+      - name: "floors"
+        type: "integer"
 
-  cache:
-    enabled: true
-    directory: "data/cache/wfs"
-    expiry: 86400  # 24 Stunden in Sekunden 
+cache:
+  enabled: true
+  directory: "data/cache/wfs"
+  expiry: 86400  # 24 Stunden in Sekunden 

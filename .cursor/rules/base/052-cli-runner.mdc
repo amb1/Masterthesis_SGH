@@ -1,0 +1,90 @@
+---
+description: Regeln für die CLI-Schnittstellen und Ausführungssteuerung
+globs: cli/*.py
+---
+
+# CLI-Runner-Regeln
+
+## Grundstruktur
+
+### Hauptfunktion
+- Eindeutiger Einstiegspunkt
+- Click-Dekoratoren für CLI-Optionen
+- Typisierte Parameter
+- Hilfreiche Beschreibungen
+
+### Konfiguration
+- Standardwerte für alle Parameter
+- Validierung der Eingabepfade
+- Umgebungsvariablen-Unterstützung
+- Konfigurationsdatei-Handling
+
+## Fehlerbehandlung
+
+### Exception Handling
+- Spezifische Ausnahmen abfangen
+- Strukturierte Fehlermeldungen
+- Fehlerkontext bereitstellen
+- Logging vor Exception-Weitergabe
+
+### Logging
+- Logger pro Modul konfigurieren
+- Angemessene Log-Level
+- Kontextreiche Meldungen
+- Formatierte Ausgaben
+
+## Benutzerinteraktion
+
+### Feedback
+- Fortschrittsanzeigen
+- Farbige Ausgaben
+- Klare Erfolgsmeldungen
+- Verständliche Fehlermeldungen
+
+### Hilfe
+- Kommandozeilenhilfe
+- Beispielaufrufe
+- Parametervalidierung
+- Interaktive Hilfe
+
+## Tests
+
+### Unit Tests
+- CLI-Parameter-Tests
+- Konfigurationsvalidierung
+- Fehlerbehandlungstests
+- Mock-Objekte für externe Abhängigkeiten
+
+### Integrationstests
+- End-to-End-Szenarien
+- Fehlerszenarien
+- Konfigurationsvarianten
+- Verzeichnisstruktur-Tests
+
+## Performance
+
+### Ressourcen
+- Speichernutzung überwachen
+- CPU-Auslastung prüfen
+- I/O-Operationen optimieren
+- Cleanup durchführen
+
+### Parallelisierung
+- Nebenläufige Verarbeitung
+- Prozess-Management
+- Ressourcen-Koordination
+- Timeout-Handling
+
+## Sicherheit
+
+### Eingabevalidierung
+- Pfadvalidierung
+- Parameter-Sanitization
+- Berechtigungsprüfung
+- Ressourcenzugriffskontrolle
+
+### Fehlerausgabe
+- Keine sensiblen Daten loggen
+- Stacktraces nur im Debug-Mode
+- Sichere Fehlermeldungen
+- Logging-Richtlinien 

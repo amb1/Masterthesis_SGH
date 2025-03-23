@@ -1,0 +1,90 @@
+---
+description: Regeln für die Datentransformation und Konvertierung
+globs: pipeline/processing/transformations.py
+---
+
+# Transformationsregeln
+
+## Grundlegende Transformationen
+
+### Geometrische Transformationen
+- Koordinatensystemkonvertierung
+- Projektionsänderungen
+- Maßstabsanpassungen
+- Geometrische Vereinfachung
+
+### Attributtransformationen
+- Datentyp-Konvertierung
+- Einheitenumrechnung
+- Wertebereichsanpassung
+- Formatierung
+
+## Spezielle Transformationen
+
+### Räumliche Transformationen
+- Buffer-Operationen
+- Verschneidungen
+- Flächenberechnungen
+- Topologische Operationen
+
+### Zeitliche Transformationen
+- Zeitreihenanalyse
+- Aggregation nach Zeitintervallen
+- Trendberechnung
+- Saisonale Anpassungen
+
+## Datenbereinigung
+
+### Qualitätsverbesserung
+- Ausreißererkennung
+- Lückenfüllung
+- Glättung
+- Normalisierung
+
+### Standardisierung
+- Namenskonventionen
+- Formatstandards
+- Kodierungen
+- Metadaten-Anreicherung
+
+## Performance
+
+### Optimierung
+- Batch-Verarbeitung
+- Parallelisierung
+- Caching
+- Ressourcenmanagement
+
+### Skalierbarkeit
+- Chunking
+- Streaming
+- Verteilte Verarbeitung
+- Speicheroptimierung
+
+## Validierung
+
+### Transformationsprüfung
+- Vollständigkeitschecks
+- Konsistenzprüfung
+- Wertebereichsvalidierung
+- Formatvalidierung
+
+### Qualitätssicherung
+- Stichprobenprüfung
+- Vergleichsanalysen
+- Fehlermetriken
+- Dokumentation
+
+## Integration
+
+### Schnittstellen
+- Input-Formate
+- Output-Formate
+- Zwischenformate
+- Konvertierungsregeln
+
+### Workflow
+- Transformationsketten
+- Abhängigkeiten
+- Fehlerbehandlung
+- Logging 

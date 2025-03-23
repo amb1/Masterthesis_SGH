@@ -1,0 +1,76 @@
+---
+description: Regeln für die Datenspeicherung und Formatierung in writer.py
+globs: pipeline/output/writer.py
+---
+
+# Writer-Regeln
+
+## Datenspeicherung
+
+### Unterstützte Formate
+- GeoJSON
+- Shapefile
+- CSV
+- YAML (für Metadaten)
+
+### GeoDataFrame-Handling
+- Validierung der Geometrien vor dem Speichern
+- Korrekte CRS-Transformation
+- Behandlung von MultiPolygon vs. Polygon
+- Null-Wert-Behandlung
+
+### Dateioperationen
+- Automatische Verzeichniserstellung
+- Überschreibschutz
+- Backup-Strategien
+- Fehlerbehandlung bei I/O-Operationen
+
+## Formatierung
+
+### GeoJSON
+- Kompakt vs. Pretty Print Option
+- Koordinaten-Präzision
+- Feature-Properties-Struktur
+
+### Shapefile
+- Feldnamen-Länge (max. 10 Zeichen)
+- Feldtypen-Mapping
+- Koordinaten-Präzision
+
+### CSV
+- Trennzeichen-Konfiguration
+- Header-Handling
+- Datentyp-Konvertierung
+
+## Metadaten
+
+### YAML-Format
+- Versionsinformationen
+- Zeitstempel
+- Datenquelle
+- Verarbeitungsschritte
+- Validierungsergebnisse
+
+## Fehlerbehandlung
+
+### Validierung
+- Geometrie-Validierung
+- Attribut-Validierung
+- Format-Kompatibilität
+
+### Fehlerprotokollierung
+- Detaillierte Fehlermeldungen
+- Stack Traces
+- Kontextinformationen
+
+## Performance
+
+### Optimierungen
+- Chunk-basiertes Schreiben
+- Speichermanagement
+- Parallelisierung wo möglich
+
+### Ressourcen
+- Temporäre Dateien
+- Cache-Strategien
+- Cleanup-Routinen 

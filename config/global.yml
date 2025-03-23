@@ -1,4 +1,5 @@
 # Migrated from local/cfg/project_config.yml
+# Globale Projektkonfiguration
 project:
   name: "SGH-Master"
   version: "1.0.0"
@@ -8,7 +9,11 @@ project:
   
   paths:
     data: "data"
-    output: "outputs"
+    outputs:
+      citygml: "data/processed/output/citygml"
+      wfs: "data/processed/output/wfs"
+      cea: "data/processed/output/cea"
+      osm: "data/processed/output/osm"
     temp: "temp"
     logs: "logs"
 
@@ -21,13 +26,13 @@ pipeline:
   steps:
     - name: "fetch_data"
       enabled: true
-      config: "wfs/stream_config.yml"
+      config: "config/wfs/stream_config.yml"
     - name: "process_data"
       enabled: true
-      config: "cea/mapping.yml"
+      config: "config/cea/mapping.yml"
     - name: "enrich_data"
       enabled: true
-      config: "osm/sources.yml"
+      config: "config/osm/config.yml"
     - name: "export_data"
       enabled: true
 
@@ -38,13 +43,20 @@ processing:
 
   surroundings:
     buffer_distance: 100  # Meter - für Umgebungsgebäude
-    building_defaults:
-      height: 10
-      floors: 3
-      year: 1990
-      use_type: "RESIDENTIAL"
-      construction_type: "SOLID"
 
   file_formats:
     shp_driver: "ESRI Shapefile"
-    gml_encoding: "utf-8" 
+    gml_encoding: "utf-8"
+
+# Verweise auf spezifische Konfigurationsdateien
+config_files:
+  citygml: "config/citygml/config.yml"
+  wfs: "config/wfs/stream_config.yml"
+  cea: "config/cea/mapping.yml"
+  osm: "config/osm/config.yml"
+
+data_source:
+  citygml:
+    base_path: "data/raw/citygml"
+    default_file: "099082.gml"
+    config_file: "config/citygml/config.yml" 

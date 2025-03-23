@@ -12,6 +12,11 @@ def setup_logging(level: int = logging.INFO) -> None:
     Args:
         level: Logging-Level (default: INFO)
     """
+    # Prüfe, ob Logger bereits konfiguriert ist
+    root_logger = logging.getLogger()
+    if root_logger.handlers:
+        return
+    
     # Formatter erstellen
     formatter = logging.Formatter(
         '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -22,9 +27,11 @@ def setup_logging(level: int = logging.INFO) -> None:
     console_handler.setFormatter(formatter)
     
     # Root Logger konfigurieren
-    root_logger = logging.getLogger()
     root_logger.setLevel(level)
     root_logger.addHandler(console_handler)
+    
+    # Bestätige Initialisierung
+    root_logger.debug("🔧 Logging-System initialisiert")
 
 @contextmanager
 def LoggedOperation(operation_name: str):

@@ -5,7 +5,7 @@ import pytest
 from pathlib import Path
 from lxml import etree
 import geopandas as gpd
-from shapely.geometry import Polygon
+from shapely.geometry import Polygon, MultiPolygon
 from pipeline.data_sources.citygml_fetcher import CityGMLBuildingProcessor
 
 # Fixture-Pfade
@@ -385,3 +385,106 @@ def test_extract_buildings_with_invalid_xml(processor, tmp_path):
     
     buildings_gdf = processor.extract_buildings(str(invalid_file))
     assert buildings_gdf is None 
+
+def test_extract_polygon_from_poslist(processor):
+    """Test der Polygon-Extraktion aus einer posList."""
+    xml = """
+    <bldg:Building xmlns:bldg="http://www.opengis.net/citygml/building/1.0"
+                   xmlns:gml="http://www.opengis.net/gml">
+        <bldg:lod1Solid>
+            <gml:Solid>
+                <gml:exterior>
+                    <gml:CompositeSurface>
+                        <gml:surfaceMember>
+                            <gml:Polygon>
+                                <gml:exterior>
+                                    <gml:LinearRing>
+                                        <gml:posList>
+                                            0 0 0  0 1 0  1 1 0  1 0 0  0 0 0
+                                        </gml:posList>
+                                    </gml:LinearRing>
+                                </gml:exterior>
+                            </gml:Polygon>
+                        </gml:surfaceMember>
+                    </gml:CompositeSurface>
+                </gml:exterior>
+            </gml:Solid>
+        </bldg:lod1Solid>
+    </bldg:Building>
+    """
+    building = etree.fromstring(xml)
+    polygon = processor._extract_building_footprint(building)
+    assert polygon is not None
+    assert polygon.is_valid
+    assert isinstance(polygon, Polygon)
+    assert polygon.area == 1.0
+
+def test_extract_polygon_with_invalid_coordinates(processor):
+    """Test der Fehlerbehandlung bei ungültigen Koordinaten."""
+    xml = """
+    <bldg:Building xmlns:bldg="http://www.opengis.net/citygml/building/1.0"
+                   xmlns:gml="http://www.opengis.net/gml">
+        <bldg:lod1Solid>
+            <gml:Solid>
+                <gml:exterior>
+                    <gml:CompositeSurface>
+                        <gml:surfaceMember>
+                            <gml:Polygon>
+                                <gml:exterior>
+                                    <gml:LinearRing>
+                                        <gml:posList>
+                                            0 0 0  invalid 1 0  1 1 0  1 0 0  0 0 0
+                                        </gml:posList>
+                                    </gml:LinearRing>
+                                </gml:exterior>
+                            </gml:Polygon>
+                        </gml:surfaceMember>
+                    </gml:CompositeSurface>
+                </gml:exterior>
+            </gml:Solid>
+        </bldg:lod1Solid>
+    </bldg:Building>
+    """
+    building = etree.fromstring(xml)
+    polygon = processor._extract_building_footprint(building)
+    assert polygon is None
+
+def test_extract_multipolygon(processor):
+    """Test der MultiPolygon-Extraktion."""
+    xml = """
+    <bldg:Building xmlns:bldg="http://www.opengis.net/citygml/building/1.0"
+                   xmlns:gml="http://www.opengis.net/gml">
+        <bldg:lod1Solid>
+            <gml:Solid>
+                <gml:exterior>
+                    <gml:CompositeSurface>
+                        <gml:surfaceMember>
+                            <gml:Polygon>
+                                <gml:exterior>
+                                    <gml:LinearRing>
+                                        <gml:posList>0 0 0  0 1 0  1 1 0  1 0 0  0 0 0</gml:posList>
+                                    </gml:LinearRing>
+                                </gml:exterior>
+                            </gml:Polygon>
+                        </gml:surfaceMember>
+                        <gml:surfaceMember>
+                            <gml:Polygon>
+                                <gml:exterior>
+                                    <gml:LinearRing>
+                                        <gml:posList>2 2 0  2 3 0  3 3 0  3 2 0  2 2 0</gml:posList>
+                                    </gml:LinearRing>
+                                </gml:exterior>
+                            </gml:Polygon>
+                        </gml:surfaceMember>
+                    </gml:CompositeSurface>
+                </gml:exterior>
+            </gml:Solid>
+        </bldg:lod1Solid>
+    </bldg:Building>
+    """
+    building = etree.fromstring(xml)
+    geometry = processor._extract_building_footprint(building)
+    assert geometry is not None
+    assert isinstance(geometry, MultiPolygon)
+    assert geometry.is_valid
+    assert len(geometry.geoms) == 2 

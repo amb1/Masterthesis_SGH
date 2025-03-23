@@ -1,44 +1,72 @@
 """
-Unit-Tests für die CEA-Utils.
+Unit-Tests für den CEA-Gebäudeprozessor.
 """
 
 import pytest
 import pandas as pd
 import geopandas as gpd
-from shapely.geometry import Polygon
+import numpy as np
+from shapely.geometry import Polygon, MultiPolygon, Point
+from pathlib import Path
+from unittest.mock import MagicMock, patch
 from pipeline.processing.cea_processor import CEABuildingProcessor
 
 @pytest.fixture
 def sample_config():
     """Beispielkonfiguration für Tests."""
     return {
-        'cea': {
-            'period_ranges': {
-                '1848-1918': [1848, 1918],
-                '1919-1945': [1919, 1945],
-                '1946-1960': [1946, 1960],
-                '1961-1976': [1961, 1976],
-                '1977-1989': [1977, 1989],
-                '1990-2002': [1990, 2002],
-                '2003-2009': [2003, 2009],
-                '2010-2020': [2010, 2020]
-            },
-            'building_periods': [
-                {'start': 1800, 'end': 1918, 'suffix': '_B'},
-                {'start': 1919, 'end': 1945, 'suffix': '_C'}
-            ],
-            'defaults': {
-                'height': 10.0,
-                'floors': 3,
-                'year_built': 1950
+        'project': {
+            'paths': {
+                'output': 'local/data/outputs'
             }
-        }
+        },
+        'cea': {
+            'config': 'cea/test_config.yml',
+            'mapping': {
+                'periods': {
+                    '1848-1918': {
+                        'categories': ['_B'],
+                        'default_year': 1900
+                    }
+                },
+                'building_types': {
+                    'standard_prefix': {
+                        'WOHNGEBAEUDE': 'MFH',
+                        'BUEROGEBAEUDE': 'OFFICE'
+                    }
+                },
+                'defaults': {
+                    'floors_ag': 4,
+                    'floors_bg': 1,
+                    'year': 1960,
+                    'use_type': 'NONE'
+                },
+                'field_mappings': {
+                    'floors_ag': {
+                        'source': 'measured_height',
+                        'calculation': 'value / 3'
+                    },
+                    'floors_bg': {
+                        'source': 'NS',
+                        'mapping': {'1': 1, '2': 2, '*': 1}
+                    },
+                    'year': {
+                        'sources': [
+                            {'field': 'L_BAUJ', 'type': 'direct'},
+                            {'field': 'OBJ_STR2_TXT', 'type': 'period_mapping'}
+                        ]
+                    },
+                    'use_type': {
+                        'sources': [
+                            {'field': 'L_BAUTYP'},
+                            {'field': 'BAUTYP_TXT'}
+                        ]
+                    }
+                }
+            }
+        },
+        'crs': 'EPSG:31256'
     }
-
-@pytest.fixture
-def processor(sample_config):
-    """Erstellt eine Instanz des CEA-Prozessors"""
-    return CEABuildingProcessor(sample_config)
 
 @pytest.fixture
 def sample_buildings_gdf():
@@ -46,108 +74,175 @@ def sample_buildings_gdf():
     geometry = Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])
     data = {
         'geometry': [geometry],
-        'Name': ['Test Building'],
-        'height_m': [10.5],
-        'year_built': [1950]
+        'measured_height': [12.0],
+        'NS': ['1'],
+        'L_BAUJ': [1950],
+        'L_BAUTYP': ['WOHNGEBAEUDE'],
+        'OBJ_STR2_TXT': ['1848-1918']
     }
-    return gpd.GeoDataFrame(data, crs='EPSG:4326')
+    return gpd.GeoDataFrame(data, geometry='geometry')
 
 @pytest.fixture
-def sample_wfs_data():
-    """Beispiel-WFS-Daten für Tests."""
-    return {
-        'buildings': {
-            'features': [
-                {
-                    'properties': {
-                        'id': '1',
-                        'year_built': 1900,
-                        'building_type': 'residential'
-                    }
-                },
-                {
-                    'properties': {
-                        'id': '2',
-                        'year_built': 1930,
-                        'building_type': 'commercial'
-                    }
-                }
-            ]
-        }
-    }
+def processor(sample_config):
+    """Erstellt eine Instanz des CEA-Prozessors."""
+    with patch('pathlib.Path.exists', return_value=True), \
+         patch('pipeline.processing.base_processor.BuildingProcessorInterface.load_config', 
+               return_value=sample_config['cea']):
+        return CEABuildingProcessor(sample_config)
 
-def test_get_year_and_suffix_known_range(sample_config):
-    """Test get_year_and_suffix mit bekanntem Zeitraum."""
-    year, suffix = get_year_and_suffix("1848-1918", sample_config)
-    assert 1848 <= year <= 1918
-    assert suffix == "_B"
+def test_init_with_valid_config(sample_config):
+    """Test: Initialisierung mit gültiger Konfiguration."""
+    with patch('pathlib.Path.exists', return_value=True), \
+         patch('pipeline.processing.base_processor.BuildingProcessorInterface.load_config', 
+               return_value=sample_config['cea']):
+        processor = CEABuildingProcessor(sample_config)
+        assert processor.cea_config is not None
+        assert processor.cea_config == sample_config['cea']
 
-def test_get_year_and_suffix_unknown_range(sample_config):
-    """Test get_year_and_suffix mit unbekanntem Zeitraum."""
-    year, suffix = get_year_and_suffix("2000-2020", sample_config)
-    assert year == 2000  # Sollte den Startwert nehmen
-    assert suffix == "_I"  # Sollte den Default-Suffix nehmen
+def test_init_with_invalid_config():
+    """Test: Initialisierung mit ungültiger Konfiguration."""
+    with pytest.raises(ValueError, match="❌ Keine gültige CEA-Konfiguration gefunden"):
+        CEABuildingProcessor({})
 
-def test_adjust_field_widths(sample_buildings_gdf):
-    """Test adjust_field_widths mit Beispieldaten."""
-    # Füge problematische Felder hinzu
-    sample_buildings_gdf['Gebäudemo'] = 'Test'
-    sample_buildings_gdf['Gebäudein'] = 'Test'
+def test_map_construction_period(processor):
+    """Test: Mapping von Bauperioden."""
+    # Test mit gültiger Periode
+    period = "1848-1918"
+    result = processor._map_construction_period(period)
+    assert result == "_B"
     
-    adjusted_gdf = adjust_field_widths(sample_buildings_gdf)
-    assert 'Gebäudemo' not in adjusted_gdf.columns
-    assert 'Gebäudein' not in adjusted_gdf.columns
-    assert 'Name' in adjusted_gdf.columns  # Originale Felder bleiben erhalten
+    # Test mit ungültiger Periode
+    period = "1919-1944"
+    result = processor._map_construction_period(period)
+    assert result == ""
 
-def test_enrich_building_data(sample_buildings_gdf, sample_wfs_data):
-    """Test enrich_building_data mit Beispieldaten."""
-    enriched_gdf = enrich_building_data(sample_buildings_gdf, sample_wfs_data)
+def test_get_year_from_period(processor):
+    """Test: Berechnung des Jahres aus der Bauperiode."""
+    # Test mit gültiger Periode
+    period = "1848-1918"
+    result = processor._get_year_from_period(period)
+    assert result == 1900
     
-    # Prüfe, ob neue Felder hinzugefügt wurden
-    assert 'buildings_id' in enriched_gdf.columns
-    assert 'buildings_year_built' in enriched_gdf.columns
-    assert 'buildings_building_type' in enriched_gdf.columns
-    
-    # Prüfe die Werte
-    assert enriched_gdf['buildings_year_built'].iloc[0] == 1900
-    assert enriched_gdf['buildings_building_type'].iloc[0] == 'residential'
+    # Test mit ungültiger Periode
+    period = "1919-1944"
+    result = processor._get_year_from_period(period)
+    assert result == processor.cea_config['mapping']['defaults']['year']
 
-@pytest.mark.parametrize("field_name,expected_type", [
-    ("Name", str),
-    ("height_m", float)
-])
-def test_field_types_after_adjustment(sample_buildings_gdf, field_name, expected_type):
-    """Test die Feldtypen nach der Anpassung."""
-    adjusted_gdf = adjust_field_widths(sample_buildings_gdf)
-    assert isinstance(adjusted_gdf[field_name].iloc[0], expected_type)
+def test_map_building_type(processor):
+    """Test: Mapping von Gebäudetypen."""
+    # Test mit gültigem Typ
+    building_type = "WOHNGEBAEUDE"
+    result = processor._map_building_type(building_type)
+    assert result == "MFH"
+    
+    # Test mit ungültigem Typ
+    building_type = "UNBEKANNT"
+    result = processor._map_building_type(building_type)
+    assert result == "NONE"
 
-def test_process_building(processor, sample_buildings_gdf):
-    """Test für die Verarbeitung eines einzelnen Gebäudes"""
-    building_data = {
-        'geometry': sample_buildings_gdf.iloc[0].geometry,
-        'properties': {
-            'Name': 'Test Building',
-            'height_m': 10.5,
-            'year_built': 1950
-        }
-    }
+def test_create_standard_value(processor):
+    """Test: Erstellung von Standardwerten."""
+    # Test mit gültigen Werten
+    period = "1848-1918"
+    building_type = "WOHNGEBAEUDE"
+    result = processor._create_standard_value(period, building_type)
+    assert result == "MFH_B"
     
-    result = processor.process_building(building_data)
-    
-    assert result is not None
-    assert 'Name' in result
-    assert result['height_m'] == 10.5
-    assert result['year_built'] == 1950
+    # Test mit ungültigen Werten
+    period = "1919-1944"
+    building_type = "UNBEKANNT"
+    result = processor._create_standard_value(period, building_type)
+    assert result == "NONE"
 
 def test_validate_building(processor, sample_buildings_gdf):
-    """Test für die Validierung eines Gebäudes"""
+    """Test: Validierung von Gebäudedaten."""
+    # Test mit gültigen Daten
     building_data = {
         'geometry': sample_buildings_gdf.iloc[0].geometry,
-        'properties': {
-            'Name': 'Test Building',
-            'height_m': 10.5,
-            'year_built': 1950
-        }
+        'measured_height': 12.0,
+        'NS': '1',
+        'L_BAUJ': 1950,
+        'L_BAUTYP': 'WOHNGEBAEUDE',
+        'OBJ_STR2_TXT': '1848-1918'
     }
+    assert processor.validate_building(building_data) is True
     
-    assert processor.validate_building(building_data) is True 
+    # Test mit ungültigen Daten
+    invalid_data = {}
+    assert processor.validate_building(invalid_data) is False
+
+def test_process_building(processor, sample_buildings_gdf):
+    """Test: Verarbeitung eines Gebäudes."""
+    # Test mit gültigen Daten
+    building_data = {
+        'geometry': sample_buildings_gdf.iloc[0].geometry,
+        'measured_height': 12.0,
+        'NS': '1',
+        'L_BAUJ': 1950,
+        'L_BAUTYP': 'WOHNGEBAEUDE',
+        'OBJ_STR2_TXT': '1848-1918'
+    }
+    result = processor.process_building(building_data)
+    assert result is not None
+    assert 'floors_ag' in result
+    assert 'floors_bg' in result
+    assert 'year' in result
+    assert 'use_type' in result
+    
+    # Test mit ungültigen Daten
+    invalid_data = {}
+    result = processor.process_building(invalid_data)
+    assert result == invalid_data
+
+@patch('pathlib.Path')
+def test_create_cea_files(mock_path, processor, sample_buildings_gdf, tmp_path):
+    """Test: Erstellung von CEA-Dateien."""
+    # Mock für temporäre Verzeichnisse
+    geometry_dir = tmp_path / "geometry"
+    properties_dir = tmp_path / "properties"
+    geometry_dir.mkdir(parents=True)
+    properties_dir.mkdir(parents=True)
+    
+    # Test mit gültigen Daten
+    zone_gdf, typology_gdf = processor._create_cea_files(geometry_dir, properties_dir)
+    assert isinstance(zone_gdf, gpd.GeoDataFrame)
+    assert isinstance(typology_gdf, gpd.GeoDataFrame)
+    assert not zone_gdf.empty
+    assert not typology_gdf.empty
+
+def test_validate_geometry(processor):
+    """Test: Validierung von Geometrien."""
+    # Test mit gültiger Geometrie
+    geometry = Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])
+    gdf = gpd.GeoDataFrame({'geometry': [geometry]})
+    assert processor.validate_geometry(gdf, ['Polygon']) is True
+    
+    # Test mit ungültiger Geometrie
+    point = Point(0, 0)
+    gdf = gpd.GeoDataFrame({'geometry': [point]})
+    assert processor.validate_geometry(gdf, ['Polygon']) is False
+
+def test_validate_fields(processor):
+    """Test: Validierung von Feldern."""
+    # Test mit gültigen Feldern
+    data = {
+        'geometry': [Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])],
+        'field1': [1],
+        'field2': ['test']
+    }
+    gdf = gpd.GeoDataFrame(data)
+    assert processor.validate_fields(gdf, ['field1', 'field2']) is True
+    
+    # Test mit fehlenden Feldern
+    assert processor.validate_fields(gdf, ['field3']) is False
+
+def test_validate_crs(processor):
+    """Test: Validierung des Koordinatensystems."""
+    # Test mit gültigem CRS
+    geometry = Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])
+    gdf = gpd.GeoDataFrame({'geometry': [geometry]}, crs='EPSG:31256')
+    assert processor.validate_crs(gdf, 'EPSG:31256') is True
+    
+    # Test mit ungültigem CRS
+    gdf = gpd.GeoDataFrame({'geometry': [geometry]}, crs='EPSG:4326')
+    assert processor.validate_crs(gdf, 'EPSG:31256') is False 

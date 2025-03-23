@@ -1,0 +1,100 @@
+# CEA-Umgebungsvariablen
+cea_env:
+  cea_env_path: "F:/Users/ambi/Documents/CityEnergyAnalyst/dependencies/cea-env.bat"
+  weather_base: "F:/Users/ambi/Documents/CityEnergyAnalyst/CityEnergyAnalyst/cea/databases/weather"
+  database_base: "F:/Users/ambi/Documents/CityEnergyAnalyst/CityEnergyAnalyst/cea/database"
+
+# Umgebungseinstellungen
+geometry:
+  site_buffer_distance: "../common_config.yml:common.spatial.site_buffer"
+  surrounding_buildings_distance: "../common_config.yml:common.spatial.surrounding_buildings"
+  osm_defaults:
+    inherit: "../common_config.yml:common.building_defaults"
+
+# Standardwerte für Gebäude
+building_defaults:
+  inherit: "../common_config.yml:common.building_defaults"
+
+# Datenquellenwahl
+data_source:
+  osm:
+    overpass_endpoint: "https://overpass-api.de/api/interpreter"
+    timeout: 300
+  citygml:
+    base_path: "data/citygml"
+    file_pattern: "*.gml"
+    namespaces:
+      gml: "http://www.opengis.net/gml"
+      bldg: "http://www.opengis.net/citygml/building/2.0"
+      gen: "http://www.opengis.net/citygml/generics/2.0"
+      xAL: "urn:oasis:names:tc:ciq:xsdschema:xAL:2.0"
+      xlink: "http://www.w3.org/1999/xlink"
+      xsi: "http://www.w3.org/2001/XMLSchema-instance"
+
+# Projektinformationen
+project:
+  name: "Test Project"
+  location: "Wien"
+  description: "Test project for CEA workflow"
+  scenario: "baseline"
+  crs: "EPSG:31256"
+
+# Logging-Konfiguration wird aus common_config.yml importiert
+logging:
+  inherit: "../common_config.yml:common.logging"
+
+site_polygon:
+  buffer_distance: "../common_config.yml:common.spatial.buffer_distance"
+  simplify_tolerance: "../common_config.yml:common.spatial.intersection_tolerance"
+
+surroundings:
+  buffer_distance: "../common_config.yml:common.spatial.site_buffer"
+  building_defaults:
+    inherit: "../common_config.yml:common.building_defaults"
+
+file_formats:
+  shp_driver: "ESRI Shapefile"
+  gml_encoding: "utf-8"
+
+paths:
+  inputs:
+    citygml: "data/inputs/citygml"
+    osm: "data/inputs/osm"
+    wfs: "data/inputs/wfs"
+  outputs:
+    buildings: "data/outputs/buildings"
+    energy: "data/outputs/energy"
+    solar: "data/outputs/solar"
+    green: "data/outputs/green"
+    landuse: "data/outputs/landuse"
+    noise: "data/outputs/noise"
+  projects: "projects"
+  scenarios: "scenarios"
+
+osm:
+  timeout: 30
+  retries: 3
+  tags:
+    buildings:
+      - "building"
+    infrastructure:
+      - "highway"
+      - "railway"
+    natural:
+      - "natural"
+      - "landuse"
+
+defaults:
+  project_name: "CityGMLProject"
+  scenario_name: "baseline"
+
+validation:
+  required_fields:
+    buildings:
+      - "geometry"
+      - "height"
+      - "floors"
+    streets:
+      - "geometry"
+      - "highway"
+      - "lanes"

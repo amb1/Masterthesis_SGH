@@ -171,4 +171,34 @@ Neue Konfigurationsmodule müssen:
    - Regelmäßige Schema-Updates
    - Migrations-Skripte
    - Changelog
-   - Backup-Strategie 
+   - Backup-Strategie
+
+# Konfigurationsmanagement
+description: Regeln für das Konfigurationsmanagement
+globs: config/**/*.yml
+
+## 🔁 Verweise statt Wiederholungen
+- Wenn eine Konfiguration bereits in einer spezifischen Datei (z.B. `config/osm/config.yml`) definiert ist,
+  darf sie **nicht** zusätzlich direkt in `global.yml` erscheinen.
+
+## 🔗 Strukturierte Referenzierung
+- `global.yml` enthält **nur Verweise** (z.B. `config_files:`-Block).
+- Beim Zugriff auf Konfigurationswerte sind diese per `load_config` zu **resolven**.
+
+## 📁 Dateiorganisation
+- Jedes Modul hat eine eigene Konfigurationsdatei im entsprechenden Unterverzeichnis.
+- Die Konfigurationsdatei enthält alle modulspezifischen Einstellungen.
+- Gemeinsam genutzte Einstellungen gehören in die `global.yml`.
+
+## 🔄 Konfigurationsstruktur
+- Modulspezifische Konfigurationen haben einen eindeutigen Top-Level-Key (z.B. `osm:`).
+- Unterstrukturen folgen einer klaren Hierarchie:
+  - `defaults:` für Standardwerte
+  - `output:` für Ausgabeformate
+  - `validation:` für Validierungsregeln
+  - etc.
+
+## 🧪 Testen
+- Neue Konfigurationen müssen mit dem `ConfigManager` getestet werden.
+- Verwende `load_config()` mit rekursivem Merge für verschachtelte Konfigurationen.
+- Stelle sicher, dass alle erforderlichen Werte verfügbar sind. 

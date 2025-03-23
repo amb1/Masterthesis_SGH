@@ -1,0 +1,36 @@
+---
+description: Regel zur Sicherstellung, dass neue Funktionen eine passende MDC-Datei erhalten
+globs: 
+  - pipeline/**/*.py
+  - core/**/*.py
+  - cli/**/*.py
+  - !**/__init__.py
+---
+
+# MDC-Autorenschaft für neue Module & Funktionen
+
+## Ziel
+
+Jedes neue Modul oder neue zentrale Funktion soll durch eine korrespondierende `.mdc`-Regel dokumentiert werden.
+
+## Anforderungen
+
+- Jede neu hinzugefügte Datei muss eine Regeldatei in `.cursor/rules/` bekommen
+- Der Regelname soll der Konvention folgen: `###-<thema>.mdc`
+- Die Regel muss mindestens enthalten:
+  - `description` mit Zweck der Funktion
+  - `globs`, die auf die implementierte Datei zeigen
+  - Anforderungen an Verhalten, Inputs, Outputs
+- Optional: Beispiele, Constraints, Testhinweise
+
+## Integration
+
+- Erinnere im Cursor-Prompt an fehlende `.mdc`
+- CI-Prüfung über `.cursorci` kann später ergänzen: `mdc_links`, `mdc_coverage`
+
+## Beispiel
+
+Wenn `pipeline/processing/feature_analyzer.py` hinzugefügt wird, sollte auch
+
+```plaintext
+.cursor/rules/base/093-feature-analyzer.mdc

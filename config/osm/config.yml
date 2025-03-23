@@ -1,37 +1,49 @@
-osm:
-  # Gemeinsame Einstellungen
-  bbox: [16.3, 48.2, 16.4, 48.3]  # Wien
-  filters: {}
-  defaults: {}
-  cache:
-    enabled: true
-    directory: "cache/osm"
-  
-  # Gebäude-spezifische Einstellungen
+# OSM Konfiguration
+bbox:
+  min_lat: 48.1
+  min_lon: 16.3
+  max_lat: 48.3
+  max_lon: 16.5
+
+filters:
   buildings:
     tags:
-      - building
-      - amenity
-    filters:
-      building: true
-    defaults:
-      height: 10
-      floors: 3
-      year: 1990
-      category: "residential"
-      REFERENCE: ""
-  
-  # Straßen-spezifische Einstellungen
+      - key: "building"
+        values: ["yes", "residential", "commercial", "industrial", "office"]
   streets:
     tags:
-      - highway
-    filters:
-      highway: ["primary", "secondary", "tertiary", "residential"]
-    defaults:
-      width: 10
-      lanes: 2
-    street_types:
-      primary: true
-      secondary: true
-      tertiary: true
-      residential: true 
+      - key: "highway"
+        values: ["primary", "secondary", "tertiary", "residential"]
+
+defaults:
+  buildings:
+    height: 10
+    floors: 3
+    year: 1990
+    category: "residential"
+    REFERENCE: ""
+  streets:
+    lanes: 2
+    width: 6
+
+street_types:
+  primary: true
+  secondary: true
+  tertiary: true
+  residential: true
+
+cache:
+  enabled: true
+  directory: "cache/osm"
+  expiry: 86400  # 24 Stunden
+
+output:
+  formats:
+    - type: "geojson"
+      directory: "outputs/osm/geojson"
+      options:
+        simplify_tolerance: 0.5
+    - type: "shp"
+      directory: "outputs/osm/shp"
+      options:
+        encoding: "utf-8"

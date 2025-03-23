@@ -1,0 +1,108 @@
+---
+description: Regeln für die Schnittstellendefinitionen und Verträge zwischen Komponenten
+globs: pipeline/processing/interfaces.py
+---
+
+# Interface-Regeln
+
+## Grundprinzipien
+
+### Abstraktion
+- Klare Trennung von Interface und Implementierung
+- Minimale Kopplung
+- Maximale Kohäsion
+- Single Responsibility Principle
+
+### Verträge
+- Pre- und Post-Conditions
+- Invarianten
+- Typsicherheit
+- Dokumentation
+
+## Prozessor-Interfaces
+
+### BaseProcessor
+- Standardmethoden
+- Lifecycle-Management
+- Fehlerbehandlung
+- Statusverwaltung
+
+### DataProcessor
+- Datenvalidierung
+- Transformationen
+- Aggregationen
+- Caching
+
+### CEAProcessor
+- Gebäudeverarbeitung
+- Energieberechnungen
+- Attributmapping
+- Geometrievalidierung
+
+## Datenmodell-Interfaces
+
+### Geometrie
+- Polygon/MultiPolygon
+- Koordinatentransformation
+- Topologieprüfung
+- Validierung
+
+### Attribute
+- Pflichtfelder
+- Datentypen
+- Wertebereich
+- Beziehungen
+
+### Metadaten
+- Versionierung
+- Provenienz
+- Qualitätsmetriken
+- Zeitstempel
+
+## Pipeline-Interfaces
+
+### Orchestrierung
+- Workflow-Definition
+- Abhängigkeitsmanagement
+- Zustandsverwaltung
+- Event-Handling
+
+### Datenfluss
+- Input/Output-Spezifikation
+- Datentransformation
+- Validierung
+- Fehlerbehandlung
+
+## Service-Interfaces
+
+### Logging
+- Log-Level
+- Formatierung
+- Routing
+- Filterung
+
+### Konfiguration
+- Parameter-Management
+- Umgebungsvariablen
+- Validierung
+- Defaults
+
+### Monitoring
+- Metriken
+- Health-Checks
+- Alerts
+- Reporting
+
+## Erweiterbarkeit
+
+### Plugin-System
+- Registrierung
+- Lifecycle
+- Konfiguration
+- Versionierung
+
+### Adapter
+- Datenquellenanpassung
+- Format-Konvertierung
+- Protokoll-Übersetzung
+- Fehlerhandling 

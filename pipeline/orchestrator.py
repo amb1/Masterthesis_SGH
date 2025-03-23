@@ -10,12 +10,14 @@ import yaml
 from pathlib import Path
 from typing import Dict, Any, List, Tuple, Optional
 
-from core.logging_config import setup_logging
+from core.logging_config import setup_logging, LoggedOperation
 from pipeline.data_sources.citygml_fetcher import fetch_citygml_buildings
 from pipeline.data_sources.wfs_fetcher import fetch_wfs_buildings
 from pipeline.processing.cea_processor import CEABuildingProcessor
 from pipeline.output.writer import write_output
 
+# Konfiguriere Logging
+setup_logging()
 logger = logging.getLogger(__name__)
 
 class PipelineError(Exception):
@@ -34,7 +36,7 @@ class PipelineOrchestrator:
             config_path: Pfad zur Konfigurationsdatei
         """
         self.config_path = Path(config_path)
-        self.logger = setup_logging()
+        self.logger = logging.getLogger(__name__)
         self.config = self._load_config()
         
     def _load_config(self) -> Dict[str, Any]:
@@ -59,23 +61,73 @@ class PipelineOrchestrator:
         Returns:
             Tuple mit CityGML und WFS Daten
         """
+        citygml_data = None
+        wfs_data = None
+        
         try:
-            self.logger.info("🔄 Hole CityGML Daten...")
-            citygml_data = fetch_citygml_buildings()
-            if not citygml_data:
-                raise PipelineError("Keine CityGML Daten gefunden", "fetch_citygml")
+            # Lade CityGML-Konfiguration aus der referenzierten Datei
+            citygml_config_path = self.config.get("config_files", {}).get("citygml")
+            if not citygml_config_path:
+                raise PipelineError(
+                    "CityGML Konfigurationspfad nicht in config_files definiert",
+                    "fetch_data"
+                )
+            
+            try:
+                with open(citygml_config_path, 'r', encoding='utf-8') as f:
+                    citygml_config = yaml.safe_load(f)
+                    
+                # Füge die CityGML-Konfiguration zur globalen Konfiguration hinzu
+                if 'data_source' not in self.config:
+                    self.config['data_source'] = {}
+                self.config['data_source']['citygml'] = citygml_config
                 
-            self.logger.info("🔄 Hole WFS Daten...")
-            wfs_data = fetch_wfs_buildings()
-            if not wfs_data:
-                raise PipelineError("Keine WFS Daten gefunden", "fetch_wfs")
+            except Exception as e:
+                raise PipelineError(
+                    f"Fehler beim Laden der CityGML-Konfiguration: {str(e)}",
+                    "fetch_data"
+                )
+            
+            base_path = Path(citygml_config.get("base_path", "data/raw/citygml"))
+            default_file = citygml_config.get("default_file")
+            
+            if not base_path.exists():
+                base_path.mkdir(parents=True, exist_ok=True)
+                
+            if not default_file:
+                raise PipelineError(
+                    "CityGML Dateiname nicht in Konfiguration definiert", 
+                    "fetch_data"
+                )
+            
+            citygml_file = base_path / default_file
+            output_dir = Path(self.config.get("project", {}).get("paths", {}).get("output", "outputs"))
+            
+            with LoggedOperation("CityGML Daten abrufen"):
+                citygml_data = fetch_citygml_buildings(
+                    citygml_file=str(citygml_file),
+                    output_dir=str(output_dir),
+                    config=self.config  # Übergebe die gesamte Konfiguration
+                )
+                if citygml_data is None or citygml_data.empty:
+                    raise PipelineError("Keine CityGML Daten gefunden", "fetch_citygml")
+            
+            with LoggedOperation("WFS Daten abrufen"):
+                wfs_data = fetch_wfs_buildings()
+                if wfs_data is None:
+                    self.logger.warning("⚠️ Keine WFS Daten gefunden")
+                    wfs_data = {}
                 
             return citygml_data, wfs_data
             
-        except PipelineError:
-            raise
         except Exception as e:
-            raise PipelineError("Fehler beim Laden der Daten", "fetch_data", e)
+            if isinstance(e, PipelineError):
+                raise
+            raise PipelineError(
+                f"Fehler beim Laden der Daten: {str(e)}", 
+                "fetch_data",
+                e
+            )
     
     def _process_data(self, citygml_data: Dict[str, Any], wfs_data: Dict[str, Any]) -> Dict[str, Any]:
         """Verarbeitet die Daten für CEA.

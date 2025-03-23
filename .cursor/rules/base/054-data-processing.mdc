@@ -1,0 +1,108 @@
+---
+description: Regeln für die allgemeine Datenverarbeitung und Transformation
+globs: pipeline/processing/data_processor.py
+---
+
+# Datenverarbeitungs-Regeln
+
+## Grundprinzipien
+
+### Datenqualität
+- Vollständigkeitsprüfung
+- Konsistenzvalidierung
+- Datentyp-Konformität
+- Wertebereichsprüfung
+
+### Modularität
+- Wiederverwendbare Komponenten
+- Klare Schnittstellen
+- Unabhängige Module
+- Testbarkeit
+
+## Verarbeitungspipeline
+
+### Eingangsdaten
+- Formatvalidierung
+- Schema-Prüfung
+- Datenbereinigung
+- Fehlerprotokollierung
+
+### Transformation
+- Koordinatentransformation
+- Attribut-Mapping
+- Einheitenumrechnung
+- Datenkonvertierung
+
+### Aggregation
+- Räumliche Aggregation
+- Zeitliche Aggregation
+- Statistische Berechnungen
+- Gruppierungen
+
+### Anreicherung
+- Externe Datenquellen
+- Berechnete Attribute
+- Metadaten
+- Qualitätsmetriken
+
+## Datenvalidierung
+
+### Geometrie
+- Topologie-Checks
+- Koordinatenvalidierung
+- Flächenberechnung
+- Überlappungsprüfung
+
+### Attribute
+- Pflichtfeldprüfung
+- Formatvalidierung
+- Beziehungsprüfung
+- Wertebereichsvalidierung
+
+### Performance
+- Batch-Verarbeitung
+- Parallelisierung
+- Caching-Strategien
+- Ressourcenoptimierung
+
+## Fehlerbehandlung
+
+### Validierungsfehler
+- Fehlertypen
+- Fehlermeldungen
+- Korrekturvorschläge
+- Fehlerprotokollierung
+
+### Prozessfehler
+- Retry-Mechanismen
+- Fallback-Strategien
+- Zustandswiederherstellung
+- Fehlerbenachrichtigung
+
+## Monitoring
+
+### Metriken
+- Verarbeitungszeit
+- Fehlerrate
+- Datendurchsatz
+- Ressourcenverbrauch
+
+### Reporting
+- Verarbeitungsstatus
+- Qualitätsberichte
+- Performance-Analysen
+- Fehlerstatistiken
+
+## Integration
+
+### Datenquellen
+- Quellsysteme
+- Formate
+- Protokolle
+- Authentifizierung
+
+### Datenziele
+- Zielsysteme
+- Exportformate
+- Metadaten
+- Versionierung 

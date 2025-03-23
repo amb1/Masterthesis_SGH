@@ -1,0 +1,98 @@
+---
+description: Regeln für die CEA-Datenverarbeitung und Gebäudeanalyse
+globs: pipeline/processing/cea_processor.py
+---
+
+# CEA-Prozessor-Regeln
+
+## Datenmodell
+
+### Gebäude-Attribute
+- YEAR (Baujahr)
+- USE_TYPE (Gebäudenutzung)
+- HEIGHT_AG (Höhe über Grund)
+- FLOORS_AG (Stockwerke über Grund)
+- HEIGHT_BG (Höhe unter Grund)
+- FLOORS_BG (Stockwerke unter Grund)
+
+### Geometrie-Anforderungen
+- Gültige Polygon/MultiPolygon-Geometrien
+- Korrekte Topologie
+- Keine selbstüberschneidenden Polygone
+- Minimale Gebäudefläche
+
+## Dateiverarbeitung
+
+### zone.shp
+- Geometrie-Validierung
+- Attribut-Vollständigkeit
+- CRS-Konformität (EPSG:2056)
+- Topologie-Checks
+
+### typology.dbf
+- USE_TYPE-Mapping
+- Baujahr-Validierung
+- Geschosshöhen-Berechnung
+- Energiekennwerte
+
+## Validierungen
+
+### Geometrie
+- Flächenberechnung
+- Höhenvalidierung
+- Geschossflächenberechnung
+- Volumenberechnung
+
+### Attribute
+- Pflichtfeld-Prüfung
+- Wertebereich-Validierung
+- Konsistenzprüfungen
+- Datentyp-Validierung
+
+### Energetische Aspekte
+- U-Werte
+- Heizwärmebedarf
+- Kühlbedarf
+- Energiebezugsfläche
+
+## Datenaufbereitung
+
+### Transformation
+- Koordinatentransformation
+- Attribut-Mapping
+- Einheitenumrechnung
+- Normalisierung
+
+### Anreicherung
+- Klimadaten
+- Gebäudetypologie
+- Energiekennwerte
+- Nutzungsprofile
+
+## Fehlerbehandlung
+
+### Validierungsfehler
+- Geometrie-Fehler
+- Attribut-Fehler
+- Konsistenz-Fehler
+- Topologie-Fehler
+
+### Prozessierung
+- Timeout-Handling
+- Speicherüberwachung
+- Fortschrittsprotokollierung
+- Fehlerprotokollierung
+
+## Performance
+
+### Optimierung
+- Parallele Verarbeitung
+- Batch-Prozessierung
+- Cache-Nutzung
+- Index-Optimierung
+
+### Ressourcen
+- Speichermanagement
+- CPU-Auslastung
+- I/O-Optimierung
+- Temporäre Dateien 
