@@ -1,0 +1,136 @@
+description: MDC-Format: Standardisierte Struktur und Formatierung von MDC-Dateien
+globs: .cursor/rules/*.mdc
+alwaysApply: true
+
+# MDC-Formatregeln
+
+## Dateistruktur
+
+```
+description: <Bereich: Zweck>
+globs: <Kommagetrennte Datei-Pfade>
+alwaysApply: <true|false>
+
+# Hauptüberschrift
+
+## Unterabschnitte
+
+### Details
+```
+
+## Frontmatter
+
+### Pflichtfelder
+
+- `description`: Kurze Beschreibung im Format "Bereich: Zweck"
+- `globs`: Kommagetrennte Liste von Dateipfaden
+- `alwaysApply`: Boolean für automatische Anwendung
+
+### Beispiel
+
+```yaml
+description: CityGML: Verarbeitung und Konvertierung von CityGML-Dateien
+globs: local/utils/data_processing/citygml_processor.py,local/tests/test_citygml_processor.py
+alwaysApply: true
+```
+
+## Markdown-Formatierung
+
+### Überschriften
+
+- `#` für Hauptüberschrift (nur eine pro Datei)
+- `##` für Hauptabschnitte
+- `###` für Unterabschnitte
+- `####` für Details (sparsam verwenden)
+
+### Codeblöcke
+
+- Sprache explizit angeben
+- Einrückung mit 2 oder 4 Leerzeichen
+- Aussagekräftige Beispiele
+- Kommentare für Erklärungen
+
+```python
+def example_function():
+    """Docstring mit Beschreibung"""
+    # Kommentar
+    pass
+```
+
+### Listen
+
+- Aufzählungen mit `-`
+- Nummerierte Listen mit `1.`
+- Maximal 3 Ebenen tief
+- Konsistente Einrückung
+
+### Links
+
+- Interne Links zu anderen MDC-Dateien:
+  ```markdown
+  [Name](mdc:pfad.zur.datei.mdc)
+  ```
+- Externe Links mit vollständiger URL:
+  ```markdown
+  [Name](https://example.com)
+  ```
+
+## Inhaltliche Struktur
+
+### Pflichtabschnitte
+
+1. Modulstruktur/Schnittstellen
+2. Konfiguration (wenn relevant)
+3. Funktionalität/Verarbeitung
+4. Fehlerbehandlung
+5. Testabdeckung
+6. Abhängigkeiten
+7. Erweiterbarkeit
+
+### Optionale Abschnitte
+
+- Performance-Optimierung
+- Best Practices
+- Beispiele
+- Migrationshinweise
+
+## Namenskonventionen
+
+### Dateinamen
+
+- Nummerisches Präfix für Sortierung
+- Beschreibender Name in Kleinbuchstaben
+- `.mdc`-Erweiterung
+- Beispiel: `010-citygml.mdc`
+
+### Verweise
+
+- Relative Pfade bevorzugen
+- Eindeutige Bezeichner
+- Konsistente Namensgebung
+
+## Best Practices
+
+1. Dokumentation:
+   - Klare, prägnante Beschreibungen
+   - Praktische Beispiele
+   - Kontextinformationen
+   - Versionierung
+
+2. Formatierung:
+   - Konsistente Einrückung
+   - Leere Zeilen für Lesbarkeit
+   - Maximal 80 Zeichen pro Zeile
+   - Sparsamer Einsatz von Hervorhebungen
+
+3. Wartung:
+   - Regelmäßige Aktualisierung
+   - Überprüfung der Links
+   - Anpassung an Codeänderungen
+   - Changelog
+
+4. Integration:
+   - CI/CD-Pipeline
+   - Automatische Formatierung
+   - Validierung der Links
+   - Konsistenzprüfung 

@@ -1,0 +1,53 @@
+# Testing-Strategie für Utils-Module
+
+## Beschreibung
+Definiert die Teststrategie für die Utility-Module der Pipeline.
+
+## Globs
+- `local/utils/*.py`
+- `local/utils/tests/*.py`
+
+## Testtypen
+
+### Unit Tests
+- Isolierte Tests einzelner Funktionen
+- Mocking externer Abhängigkeiten (WFS, OSM)
+- Fokus auf Funktionslogik und Fehlerbehandlung
+
+### Integrationstests
+- Zusammenspiel mehrerer Module
+- End-to-End Szenarien mit realen Datenformaten
+- Validierung der Datentransformationen
+
+## Teststruktur
+
+### Fixtures
+- Dummy-Geodaten (GeoDataFrame mit 1-2 Punkten/Polygonen)
+- Mock-Konfigurationen
+- Temporäre Dateien und Verzeichnisse
+
+### Parametrisierte Tests
+- Mapping-Funktionen mit verschiedenen Eingabewerten
+- Fehlerszenarien
+- Grenzwerte und Sonderfälle
+
+### Mocking-Strategie
+- Externe API-Aufrufe (WFS, OSM)
+- Dateisystemoperationen
+- Zeitabhängige Funktionen
+
+## Test Coverage
+- Minimale Coverage: 80%
+- Kritische Pfade: 100%
+- Fehlerbehandlung: 100%
+
+## Best Practices
+- Aussagekräftige Testbenennungen
+- Dokumentation der Testfälle
+- Verwendung von pytest.mark für Kategorisierung
+- Cleanup nach Tests
+
+## Validierung
+- Linting der Testdateien
+- Regelmäßige Ausführung
+- Review der Testabdeckung 

@@ -1,0 +1,59 @@
+# CityGML Verarbeitungskonfiguration
+
+input:
+  directory: "data/citygml"
+  file_pattern: "*.gml"
+  encoding: "utf-8"
+
+processing:
+  crs:
+    input: "EPSG:25832"  # Standard-CRS für Berlin
+    output: "EPSG:4326"  # WGS84
+  lod_level: 2
+  validation:
+    check_geometry: true
+    fix_invalid: true
+  attributes:
+    required:
+      - building_id
+      - height
+      - storeys
+    optional:
+      - roof_type
+      - ground_height
+      - year_of_construction
+
+output:
+  formats:
+    - type: "3dtiles"
+      directory: "data/processed/citygml/3dtiles"
+      options:
+        geometric_error: 10.0
+        refinement: "REPLACE"
+    - type: "geojson"
+      directory: "data/processed/citygml/geojson"
+      options:
+        simplify_tolerance: 0.1
+        include_height: true
+
+transformations:
+  building_id:
+    function: "shorten_id"
+    max_length: 10
+  height:
+    function: "convert_units"
+    from: "m"
+    to: "m"
+  storeys:
+    function: "to_integer"
+
+logging:
+  level: "INFO"
+  file: "logs/citygml_processing.log"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+cache:
+  enabled: true
+  directory: "cache/citygml"
+  max_size_mb: 1000
+  ttl_hours: 24 

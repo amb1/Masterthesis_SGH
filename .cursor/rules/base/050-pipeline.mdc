@@ -1,0 +1,161 @@
+# Pipeline-Struktur
+
+## Verzeichnisstruktur
+
+```
+/
+├── local/                    # Lokale Verarbeitungsskripte
+│   ├── data/                # Lokale Datenspeicherung
+│   ├── cache/               # Zwischenspeicher für Verarbeitung
+│   ├── cfg/                 # Konfigurationsdateien
+│   │   ├── citygml/        # CityGML-spezifische Konfiguration
+│   │   ├── wfs/            # WFS-spezifische Konfiguration
+│   │   ├── osm/            # OSM-spezifische Konfiguration
+│   │   ├── cea/            # CEA-spezifische Konfiguration
+│   │   └── logging/        # Logging-Konfiguration
+│   ├── utils/              # Hilfsfunktionen
+│   │   ├── citygml.py      # CityGML Verarbeitung
+│   │   ├── wfs.py          # WFS Datenabruf
+│   │   ├── osm.py          # OSM Datenverarbeitung
+│   │   └── ifc.py          # IFC Verarbeitung
+│   └── tests/              # Tests für lokale Verarbeitung
+│       ├── test_citygml.py
+│       ├── test_wfs.py
+│       ├── test_osm.py
+│       └── test_ifc.py
+│
+└── web/                     # Webanwendung
+    ├── pipeline/           # Datenverarbeitungs-Pipeline
+    │   ├── converters/    # Format-Konverter
+    │   ├── extractors/    # Metadaten-Extraktion
+    │   ├── storage/       # Supabase Integration
+    │   └── visualization/ # Visualisierungs-Module
+    └── supabase/          # Supabase Konfiguration und Skripte
+
+## Konfigurationsstruktur
+
+### CityGML Konfiguration (cfg/citygml/config.yml)
+```yaml
+input:
+  directory: "data/citygml"
+  file_pattern: "*.gml"
+processing:
+  crs: "EPSG:25832"
+  lod_level: 2
+  attributes:
+    - building_id
+    - height
+    - storeys
+output:
+  format: "3dtiles"
+  directory: "data/processed/citygml"
+```
+
+### WFS Konfiguration (cfg/wfs/config.yml)
+```yaml
+service:
+  url: "https://example.com/wfs"
+  version: "2.0.0"
+layers:
+  - name: "building_metadata"
+    attributes:
+      - usage
+      - construction_year
+output:
+  format: "geojson"
+  directory: "data/processed/wfs"
+```
+
+### OSM Konfiguration (cfg/osm/config.yml)
+```yaml
+area:
+  bbox: [13.3, 52.4, 13.5, 52.6]
+features:
+  - buildings
+  - roads
+output:
+  format: "geojson"
+  directory: "data/processed/osm"
+```
+
+## Modulare Struktur
+
+### Lokale Verarbeitung (local/utils/)
+
+```python
+class CityGMLProcessor:
+    """Verarbeitet CityGML Dateien basierend auf Konfiguration"""
+    def __init__(self, config_path: str):
+        self.config = self._load_config(config_path)
+    
+    def process(self) -> bool:
+        """Führt die Verarbeitung gemäß Konfiguration durch"""
+        pass
+
+class WFSClient:
+    """WFS Datenabruf und Verarbeitung"""
+    def __init__(self, config_path: str):
+        self.config = self._load_config(config_path)
+    
+    def fetch_data(self) -> dict:
+        """Ruft Daten vom WFS-Service ab"""
+        pass
+
+class OSMProcessor:
+    """Verarbeitet OSM Daten"""
+    def __init__(self, config_path: str):
+        self.config = self._load_config(config_path)
+    
+    def extract_features(self) -> dict:
+        """Extrahiert Features gemäß Konfiguration"""
+        pass
+```
+
+## Test-Struktur
+
+### Unit Tests (local/tests/)
+
+```python
+def test_citygml_processing():
+    """Test der CityGML Verarbeitung"""
+    processor = CityGMLProcessor("cfg/citygml/test_config.yml")
+    assert processor.process()
+    # Validiere Ausgabe
+    
+def test_wfs_client():
+    """Test des WFS-Clients"""
+    client = WFSClient("cfg/wfs/test_config.yml")
+    data = client.fetch_data()
+    assert data is not None
+    # Validiere Datenstruktur
+
+def test_osm_processing():
+    """Test der OSM Verarbeitung"""
+    processor = OSMProcessor("cfg/osm/test_config.yml")
+    features = processor.extract_features()
+    assert features is not None
+    # Validiere Features
+```
+
+## Datenfluss
+
+1. Lokale Verarbeitung:
+   - CityGML -> Geometrie & Gebäudedaten
+   - WFS -> Metadaten & Nutzung
+   - OSM -> Straßen & Umgebungsgebäude
+   - IFC -> Detaillierte Gebäudeattribute
+
+2. Datenaufbereitung:
+   - Zusammenführung der Daten
+   - Validierung
+   - Transformation
+
+3. CEA Integration:
+   - Übergabe an CEA
+   - Simulation
+   - Ergebnisaufbereitung
+
+4. Web-Integration:
+   - Upload zu Supabase
+   - 3D-Visualisierung
+   - Analyse-Dashboard 

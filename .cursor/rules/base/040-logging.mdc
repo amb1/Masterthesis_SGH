@@ -1,0 +1,183 @@
+description: Logging: Standardisierte Protokollierung und Fehlerbehandlung
+globs: local/utils/logging_config.py,local/cfg/logging/*.yml
+alwaysApply: true
+
+# Logging-Regeln
+
+## Konfigurationsstruktur
+
+```yaml
+logging:
+  version: 1
+  disable_existing_loggers: false
+  
+  formatters:
+    standard:
+      format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+      datefmt: "%Y-%m-%d %H:%M:%S"
+    
+  handlers:
+    console:
+      class: logging.StreamHandler
+      level: INFO
+      formatter: standard
+      stream: ext://sys.stdout
+      
+    file:
+      class: logging.FileHandler
+      level: DEBUG
+      formatter: standard
+      filename: "logs/processing.log"
+      encoding: utf-8
+      
+  loggers:
+    citygml:
+      level: INFO
+      handlers: [console, file]
+      propagate: false
+```
+
+## Logger-Initialisierung
+
+```python
+def setup_logging(
+    config_path: str = "cfg/logging/logging.yml",
+    default_level: int = logging.INFO
+) -> None:
+    """Initialisiert das Logging-System.
+    
+    Args:
+        config_path: Pfad zur Logging-Konfiguration
+        default_level: Standard-Loglevel
+    """
+```
+
+## Log-Level
+
+### Standard-Level
+
+- CRITICAL (50): Kritische Fehler, die zum Programmabbruch führen
+- ERROR (40): Fehler, die eine Operation verhindern
+- WARNING (30): Warnungen über unerwartete Situationen
+- INFO (20): Allgemeine Informationen über den Programmablauf
+- DEBUG (10): Detaillierte Debugging-Informationen
+
+### Verwendung
+
+```python
+logger = logging.getLogger(__name__)
+
+# Kritischer Fehler
+logger.critical("❌ Fataler Fehler beim Laden der Konfiguration")
+
+# Fehler
+logger.error("❌ Fehler bei der Geometrie-Extraktion: %s", str(e))
+
+# Warnung
+logger.warning("⚠️ Ungültiger Gebäudetyp: %s", building_type)
+
+# Information
+logger.info("ℹ️ Verarbeite Datei: %s", file_path)
+
+# Debug
+logger.debug("🔍 Extrahierte Attribute: %s", attributes)
+```
+
+## Fehlerbehandlung
+
+### Try-Except Blöcke
+
+```python
+try:
+    # Operation
+    process_file(file_path)
+except FileNotFoundError as e:
+    logger.error("❌ Datei nicht gefunden: %s", file_path)
+    raise ProcessingError(f"Datei nicht gefunden: {file_path}") from e
+except Exception as e:
+    logger.exception("❌ Unerwarteter Fehler")
+    raise
+```
+
+### Context Manager
+
+```python
+class LoggedOperation:
+    """Context Manager für protokollierte Operationen"""
+    
+    def __init__(self, operation_name: str):
+        self.operation_name = operation_name
+        self.logger = logging.getLogger(__name__)
+    
+    def __enter__(self):
+        self.logger.info("▶️ Starte %s", self.operation_name)
+        self.start_time = time.time()
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        duration = time.time() - self.start_time
+        if exc_type:
+            self.logger.error("❌ %s fehlgeschlagen: %s", 
+                            self.operation_name, str(exc_val))
+        else:
+            self.logger.info("✅ %s abgeschlossen (%.2fs)", 
+                           self.operation_name, duration)
+```
+
+## Testabdeckung
+
+### Logger-Tests
+
+```python
+def test_logger_initialization():
+    """Test der Logger-Initialisierung"""
+    setup_logging("test_logging.yml")
+    logger = logging.getLogger("test")
+    assert logger.level == logging.INFO
+    assert len(logger.handlers) > 0
+
+def test_logged_operation():
+    """Test des LoggedOperation Context Managers"""
+    with LoggedOperation("test_op"):
+        # Operation
+        pass
+    # Prüfe Log-Ausgabe
+```
+
+## Best Practices
+
+1. Logger-Namensgebung:
+   - Modulbasierte Namen (`__name__`)
+   - Hierarchische Struktur
+   - Aussagekräftige Bezeichner
+
+2. Log-Nachrichten:
+   - Emoji für visuelle Kategorisierung
+   - Strukturierte Informationen
+   - Relevante Kontextdaten
+   - Keine sensiblen Daten
+
+3. Performance:
+   - Lazy Evaluation von Log-Nachrichten
+   - Angemessene Log-Level
+   - Rotation von Log-Dateien
+   - Periodische Bereinigung
+
+4. Monitoring:
+   - Aggregation von Logs
+   - Fehler-Tracking
+   - Performance-Metriken
+   - Warnungs-Schwellwerte
+
+## Abhängigkeiten
+
+- [Config Loader](mdc:020-config.mdc)
+
+## Erweiterbarkeit
+
+Neue Logger müssen:
+
+1. In der Konfiguration definiert sein
+2. Angemessene Handler haben
+3. Sinnvolle Log-Level verwenden
+4. Konsistente Formatierung nutzen 

@@ -1,0 +1,161 @@
+description: CityGML: Verarbeitung und Konvertierung von CityGML-Dateien
+globs: local/utils/data_processing/citygml_processor.py,local/tests/test_citygml_processor.py,local/cfg/citygml/*.yml
+alwaysApply: true
+
+# CityGML-Verarbeitungsregeln
+
+## Modulstruktur
+
+```python
+class CityGMLProcessor:
+    """Hauptklasse für die CityGML-Verarbeitung"""
+    
+    def __init__(self, config_path: str):
+        """Initialisierung mit Konfigurationspfad"""
+    
+    def process_file(self, file_path: str) -> bool:
+        """Verarbeitet eine CityGML-Datei"""
+    
+    def load_citygml(self, file_path: str) -> gpd.GeoDataFrame:
+        """Lädt CityGML in GeoDataFrame"""
+    
+    def transform_crs(self, gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+        """Transformiert Koordinatensystem"""
+```
+
+## Konfigurationsstruktur
+
+```yaml
+input:
+  directory: str  # Eingabeverzeichnis
+  file_pattern: str  # Dateimuster (*.gml)
+  encoding: str  # Zeichenkodierung
+
+processing:
+  crs:
+    input: str  # Quell-CRS (EPSG-Code)
+    output: str  # Ziel-CRS (EPSG-Code)
+  lod_level: int  # LoD-Level (2)
+  validation:
+    check_geometry: bool
+    fix_invalid: bool
+
+output:
+  formats:
+    - type: str  # Ausgabeformat
+      directory: str  # Ausgabeverzeichnis
+      options: dict  # Format-spezifische Optionen
+```
+
+## Datenverarbeitung
+
+### Geometrie-Extraktion
+
+- Unterstützung für LoD2-Geometrien
+- Extraktion von Solid und MultiSurface
+- Validierung der Geometrien
+- Automatische Reparatur ungültiger Geometrien
+
+```python
+def extract_geometry(self, building_element: Element) -> Polygon:
+    """Extrahiert Gebäudegeometrie aus CityGML-Element.
+    
+    Unterstützt:
+    - gml:Solid
+    - gml:MultiSurface
+    - gml:Polygon
+    """
+```
+
+### Attribut-Extraktion
+
+- Pflichtattribute:
+  - building_id (gml:id)
+  - height (bldg:measuredHeight)
+  - storeys (bldg:storeysAboveGround)
+- Optionale Attribute:
+  - roof_type
+  - ground_height
+  - year_of_construction
+
+```python
+def extract_attributes(self, building_element: Element) -> Dict[str, Any]:
+    """Extrahiert Gebäudeattribute aus CityGML-Element."""
+```
+
+## Ausgabeformate
+
+### 3D Tiles
+
+- Tileset.json mit Metadaten
+- B3DM-Dateien für Geometrien
+- Geometrische Fehlertoleranz
+- Verfeinerungsstrategie
+
+### GeoJSON
+
+- Vereinfachung der Geometrien
+- Höheninformationen
+- Attributtabelle
+- CRS-Definition
+
+## Fehlerbehandlung
+
+1. Validierung der Eingabedaten:
+   - Existenz der Datei
+   - XML-Wohlgeformtheit
+   - CityGML-Schema
+
+2. Geometrie-Validierung:
+   - Geschlossene Polygone
+   - Keine Selbstüberschneidungen
+   - Korrekte Orientierung
+
+3. Attribut-Validierung:
+   - Pflichtfelder
+   - Datentypen
+   - Wertebereich
+
+## Testabdeckung
+
+### Komponententests
+
+```python
+def test_load_citygml(processor, sample_citygml):
+    """Test des Ladens einer CityGML-Datei"""
+    gdf = processor.load_citygml(sample_citygml)
+    assert isinstance(gdf, gpd.GeoDataFrame)
+    assert len(gdf) == 1
+    assert gdf.crs.to_string() == "EPSG:25832"
+```
+
+### Integrationstests
+
+```python
+def test_process_file(processor, sample_citygml):
+    """Test der Gesamtverarbeitung"""
+    success = processor.process_file(sample_citygml)
+    assert success
+    # Validiere Ausgabedateien
+```
+
+## Performance-Optimierung
+
+1. Streaming-Verarbeitung für große Dateien
+2. Parallelverarbeitung mehrerer Gebäude
+3. Caching von Zwischenergebnissen
+4. Geometrie-Indexierung
+
+## Abhängigkeiten
+
+- [Transformationen](mdc:010-transformations.mdc)
+- [Config Loader](mdc:020-config.mdc)
+- [Logging](mdc:030-logging.mdc)
+
+## Erweiterungen
+
+Neue Funktionalitäten müssen:
+1. In der Konfiguration definierbar sein
+2. Tests besitzen
+3. Dokumentiert sein
+4. Bestehende Schnittstellen respektieren 

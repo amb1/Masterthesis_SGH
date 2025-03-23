@@ -4,16 +4,39 @@ setup(
     name="sgh-master",
     version="0.1.0",
     packages=find_packages(),
+    python_requires=">=3.8",
     install_requires=[
         "geopandas",
         "pandas",
         "numpy",
         "shapely",
-        "lxml",
         "pyyaml",
         "requests",
-        "tables",
-        "sqlalchemy",
+        "overpy",
+        "lxml",
+        "pyproj",
+        "pyogrio",
+        "osmnx",
+        "owslib",
+        "py3dtiles",
+        "supabase",
+        "python-dotenv",
+        "openpyxl",
+        "simpledbf",
+        "dbf",
+        "pyshp",
+        "ifcopenshell",
+        "isodate",
+        "networkx",
+        "click"
     ],
-    python_requires=">=3.8",
+    extras_require={
+        "dev": [
+            "pytest",
+            "pytest-cov",
+            "black",
+            "flake8",
+            "mypy"
+        ]
+    }
 ) 

@@ -1,0 +1,7 @@
+# Config Manager
+Verwaltet die Konfiguration des Projekts.
+
+## Funktionen
+- `load_config(config_path: str) -> Dict[str, Any]`: Lädt eine YAML-Konfigurationsdatei
+- `validate_config(config: Dict[str, Any]) -> bool`: Validiert die Konfiguration
+- `load_project_config() -> Dict[str, Any]`: Lädt die Projektkonfiguration 

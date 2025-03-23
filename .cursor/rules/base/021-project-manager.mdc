@@ -1,0 +1,18 @@
+# Project Manager
+Verwaltet die Projektstruktur und -organisation.
+
+## Klassen
+### ProjectManager
+Hauptklasse für die Projektverwaltung.
+
+#### Methoden
+- `__init__(self, project_name: str, scenario_name: str)`
+- `create_backup(self) -> bool`
+- `cleanup_project(self) -> bool`
+- `validate_project_structure(self) -> bool`
+- `setup_project_structure(self) -> bool`
+
+## Funktionen
+- `get_project_info() -> Tuple[str, str]`: Ermittelt Projekt- und Szenario-Namen
+- `ensure_directories(config: Dict[str, Any]) -> None`: Erstellt benötigte Verzeichnisse
+- `load_configs() -> Dict[str, Any]`: Lädt alle Konfigurationsdateien 

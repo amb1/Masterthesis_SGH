@@ -1,0 +1,6 @@
+# Geometry
+Funktionen für die Geometrieverarbeitung.
+
+## Funktionen
+- `create_site_polygon(buildings_gdf: gpd.GeoDataFrame) -> Polygon`: Erstellt ein Site-Polygon aus Gebäuden
+- `save_site_polygon(site_polygon: Polygon, output_path: Path) -> bool`: Speichert das Site-Polygon 

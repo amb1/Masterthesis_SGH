@@ -1,0 +1,109 @@
+description: Regeln für die Verarbeitung von OpenStreetMap-Daten
+globs: ["utils/osm_processor.py", "utils/tests/test_osm_processor.py"]
+alwaysApply: true
+
+# OpenStreetMap-Verarbeitung
+
+## Datenstruktur
+
+### OSM-Elemente
+```python
+class OSMElement:
+    id: str
+    tags: Dict[str, str]
+    geometry: Union[Point, LineString, Polygon]
+```
+
+### Gebäude-Attribute
+- building_type
+- building_levels
+- building_height
+- roof_type
+- construction_year
+- ground_height
+
+## Verarbeitungspipeline
+
+### 1. Daten-Download
+- Overpass API für gezielte Abfragen
+- Area-basierte Filterung
+- Caching-Strategie
+
+### 2. Geometrie-Verarbeitung
+- Koordinatentransformation (WGS84 → lokales CRS)
+- Gebäude-Footprint-Extraktion
+- Höhenberechnung aus Levels/Height-Tags
+
+### 3. Attribut-Mapping
+```yaml
+building_types:
+  residential: "Residential"
+  commercial: "Commercial"
+  industrial: "Industrial"
+  _default: "Mixed"
+```
+
+### 4. Qualitätssicherung
+- Geometrie-Validierung
+- Attribut-Vollständigkeit
+- Topologie-Prüfung
+
+## Test-Strategie
+
+### Unit Tests
+```python
+def test_building_extraction():
+    """Test die Extraktion von Gebäude-Geometrien"""
+    osm_data = load_test_data()
+    buildings = extract_buildings(osm_data)
+    assert all(isinstance(b.geometry, Polygon) for b in buildings)
+```
+
+### Integration Tests
+- Download-Funktionalität
+- Koordinatentransformation
+- Attribut-Mapping
+- Export-Formate
+
+## Fehlerbehandlung
+
+### Download-Fehler
+```python
+class OSMDownloadError(Exception):
+    """Fehler beim OSM-Daten-Download"""
+    pass
+```
+
+### Validierungsfehler
+- Ungültige Geometrien
+- Fehlende Pflichtattribute
+- CRS-Transformationsfehler
+
+## Performance
+
+### Optimierungen
+- Spatial Indexing
+- Batch-Processing
+- Parallelisierung
+
+### Caching
+- Lokaler Cache für OSM-Daten
+- Invalidierung nach Zeitstempel
+- Cache-Größenbegrenzung
+
+## Export-Formate
+
+### GeoJSON
+```python
+def to_geojson(buildings: List[OSMElement]) -> Dict:
+    """Konvertiert Gebäude in GeoJSON"""
+    return {
+        "type": "FeatureCollection",
+        "features": [b.to_feature() for b in buildings]
+    }
+```
+
+### 3D Tiles
+- Geometrie-Triangulierung
+- LOD-Generierung
+- Attribut-Integration 

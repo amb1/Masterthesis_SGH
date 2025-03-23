@@ -1,0 +1,72 @@
+# Migrated from local/cfg/cea/cea_mapping.yml and local/cfg/cea/cea_config.yml
+cea:
+  env:
+    cea_env_path: "F:/Users/ambi/Documents/CityEnergyAnalyst/dependencies/cea-env.bat"
+    weather_base: "F:/Users/ambi/Documents/CityEnergyAnalyst/CityEnergyAnalyst/cea/databases/weather"
+    database_base: "F:/Users/ambi/Documents/CityEnergyAnalyst/CityEnergyAnalyst/cea/database"
+
+  # Mapping von Bauperioden auf Jahresbereiche für die Zufallsgenerierung
+  construction_periods:
+    "1848–1918": [1848, 1918]
+    "1919–1945": [1919, 1945]
+    "nach 1945": [1946, 2025]
+
+  geometry:
+    surrounding_buildings_distance: 200  # Meter
+    defaults:
+      height: 10
+      floors: 3
+      year: 1990
+
+  building_types:
+    RESIDENTIAL:
+      cea_type: "RESIDENTIAL"
+      construction: "SOLID"
+      window_wall_ratio: 0.3
+      occupancy: "RESIDENTIAL"
+    OFFICE:
+      cea_type: "OFFICE"
+      construction: "SOLID"
+      window_wall_ratio: 0.4
+      occupancy: "OFFICE"
+    RETAIL:
+      cea_type: "RETAIL"
+      construction: "SOLID"
+      window_wall_ratio: 0.5
+      occupancy: "RETAIL"
+    INDUSTRIAL:
+      cea_type: "INDUSTRIAL"
+      construction: "SOLID"
+      window_wall_ratio: 0.2
+      occupancy: "INDUSTRIAL"
+
+  validation:
+    required_fields:
+      buildings:
+        - "geometry"
+        - "height"
+        - "floors"
+        - "year_built"
+        - "building_type"
+        - "construction_period"  # Neues Pflichtfeld
+      streets:
+        - "geometry"
+        - "highway"
+        - "lanes"
+    
+    construction_period:
+      required: true
+      mapping: "construction_periods"
+
+  field_mapping:
+    citygml:
+      height: "bldg:measuredHeight"
+      floors: "bldg:storeysAboveGround"
+      year: "bldg:yearOfConstruction"
+      type: "bldg:function"
+    
+    osm:
+      height: "height"
+      floors: "building:levels"
+      year: "start_date"
+      type: "building" 

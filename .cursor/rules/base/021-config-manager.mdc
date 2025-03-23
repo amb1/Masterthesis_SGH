@@ -1,0 +1,31 @@
+// Config-Manager Regeln
+module.exports = {
+    name: "config-manager",
+    description: "Regeln für den Konfigurations-Manager",
+    rules: [
+        {
+            name: "config-manager-imports",
+            description: "Korrekte Imports für den Config-Manager",
+            query: `
+                (import_statement
+                    (dotted_name) @import
+                    (#match? @import "^(core|pipeline)\\.")
+                )
+            `,
+            message: "Imports sollten aus core oder pipeline Modulen kommen"
+        },
+        {
+            name: "config-manager-docstring",
+            description: "Docstring für migrated files",
+            query: `
+                (module
+                    (string
+                        (string_content) @docstring
+                        (#not-match? @docstring "Migrated from")
+                    )
+                )
+            `,
+            message: "Module sollten einen Docstring mit 'Migrated from' enthalten"
+        }
+    ]
+} 

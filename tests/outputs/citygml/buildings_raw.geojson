@@ -1,0 +1,8 @@
+{
+"type": "FeatureCollection",
+"name": "buildings_raw",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:EPSG::31256" } },
+"features": [
+{ "type": "Feature", "properties": { "gml_id": "BLDG_0001", "building_parent_id": null, "is_building_part": false, "measuredHeight": 12.5, "storeysAboveGround": 4 }, "geometry": { "type": "Polygon", "coordinates": [ [ [ 385761.590000000025611, 5819928.009999999776483 ], [ 385780.520000000018626, 5819928.009999999776483 ], [ 385780.520000000018626, 5819947.46999999973923 ], [ 385761.590000000025611, 5819947.46999999973923 ], [ 385761.590000000025611, 5819928.009999999776483 ] ] ] } }
+]
+}

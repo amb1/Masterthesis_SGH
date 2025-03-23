@@ -1,0 +1,24 @@
+# OSM-Konfigurationsregeln
+
+## Struktur
+Die OSM-Konfiguration muss folgende Bereiche enthalten:
+- bbox: Bounding Box für den Datenextrakt
+- filters: Tag-Filter für Gebäude und Straßen
+- defaults: Standardwerte für fehlende Attribute
+- cache: Cache-Einstellungen
+
+## Validierung
+- Bbox-Koordinaten müssen gültige Lat/Lon-Werte sein
+- Filter müssen mindestens einen Tag definieren
+- Defaults müssen für alle erforderlichen Attribute definiert sein
+- Cache-Expiry muss in Sekunden angegeben sein
+
+## Beispiel
+```yaml
+osm:
+  bbox:
+    min_lat: 48.1
+    min_lon: 16.3
+    max_lat: 48.3
+    max_lon: 16.5
+``` 

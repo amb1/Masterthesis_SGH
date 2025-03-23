@@ -1,0 +1,24 @@
+# WFS-Konfigurationsregeln
+
+## Struktur
+Die WFS-Konfiguration muss folgende Bereiche enthalten:
+- endpoint: WFS-Service-Endpunkt
+- version: WFS-Version
+- layers: Layer-Definitionen mit Feldern
+- cache: Cache-Einstellungen
+
+## Validierung
+- Endpoint muss eine gültige URL sein
+- Version muss 1.0.0, 1.1.0 oder 2.0.0 sein
+- Layer müssen typename und fields definieren
+- Cache-Expiry muss in Sekunden angegeben sein
+
+## Beispiel
+```yaml
+wfs:
+  endpoint: "https://example.com/wfs"
+  version: "2.0.0"
+  layers:
+    buildings:
+      typename: "example:buildings"
+``` 

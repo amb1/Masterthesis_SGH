@@ -1,0 +1,23 @@
+# CEA-Konfigurationsregeln
+
+## Struktur
+Die CEA-Konfiguration muss folgende Bereiche enthalten:
+- env: CEA-Umgebungsvariablen und Pfade
+- geometry: Geometrische Einstellungen
+- building_types: Gebäudetyp-Mappings
+- validation: Feldvalidierung
+- field_mapping: Quell-zu-CEA Feldmappings
+
+## Validierung
+- Alle CEA-Pfade müssen absolut sein
+- Gebäudetypen müssen CEA-konforme Werte haben
+- Feldmappings müssen für alle Quellsysteme definiert sein
+
+## Beispiel
+```yaml
+cea:
+  building_types:
+    RESIDENTIAL:
+      cea_type: "RESIDENTIAL"
+      construction: "SOLID"
+``` 

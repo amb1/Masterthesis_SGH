@@ -1,0 +1,54 @@
+project:
+  name: "test_project"
+  scenario: "test_scenario"
+  paths:
+    inputs:
+      geometry: "inputs/building-geometry"
+      properties: "inputs/building-properties"
+      networks: "inputs/networks"
+    outputs:
+      data: "outputs/data"
+      citygml: "outputs/citygml"
+
+data_source:
+  citygml:
+    test_file: "tests/data/test.gml"
+    base_path: "data/raw/citygml"
+    default_file: "test.gml"
+  
+  wfs:
+    url: "https://data.wien.gv.at/daten/geo"
+    version: "2.0.0"
+    streams:
+      - name: "GEBAEUDEOGD"
+        typenames: "ogdwien:GEBAEUDEOGD"
+        properties: ["OBJECTID", "BAUJAHR", "BAUTYP"]
+      - name: "FMZKBKMOGD"
+        typenames: "ogdwien:FMZKBKMOGD"
+        properties: ["OBJECTID", "O_KOTE", "U_KOTE"]
+
+processing:
+  cea:
+    building_metrics:
+      required_fields: ["Name", "YEAR", "TYPE", "STANDARD"]
+      field_mappings:
+        zone_shp:
+          - source: "measuredHeight"
+            target: "height_ag"
+          - source: "storeysAboveGround"
+            target: "floors_ag"
+        typology_dbf:
+          - source: "YEAR"
+            target: "year_built"
+          - source: "TYPE"
+            target: "building_type"
+  
+  surroundings:
+    buffer_distance: 100
+    building_defaults:
+      height: 12
+      floors: 4
+      year: 1990
+      type: "MFH"
+
+crs: "EPSG:31256" 

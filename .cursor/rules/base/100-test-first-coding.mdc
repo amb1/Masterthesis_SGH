@@ -1,0 +1,142 @@
+description: Regeln für Test-First-Entwicklung und testgetriebene Entwicklung (TDD)
+globs: ["utils/tests/**/*.py", "web/tests/**/*.py"]
+alwaysApply: true
+
+# Test-First Development
+
+## Grundprinzipien
+
+### TDD-Zyklus
+1. Test schreiben (RED)
+2. Implementierung (GREEN)
+3. Refactoring (REFACTOR)
+
+### Test-Struktur
+```python
+def test_feature():
+    """
+    Given: Ausgangszustand
+    When: Aktion
+    Then: Erwartetes Ergebnis
+    """
+    # Arrange
+    initial_state = setup_test_state()
+    
+    # Act
+    result = perform_action(initial_state)
+    
+    # Assert
+    assert_expected_outcome(result)
+```
+
+## Test-Kategorien
+
+### Unit Tests
+- Isolierte Funktionalität
+- Keine externen Abhängigkeiten
+- Schnelle Ausführung
+
+### Integration Tests
+- Komponenteninteraktion
+- Externe Services
+- Datenbank-Operationen
+
+### End-to-End Tests
+- Vollständige Workflows
+- UI-Interaktionen
+- Systemgrenzen
+
+## Test-Implementierung
+
+### Fixtures
+```python
+@pytest.fixture
+def test_data():
+    """Testdaten bereitstellen"""
+    return {
+        "input": sample_input(),
+        "expected": expected_output()
+    }
+```
+
+### Mocks
+```python
+@patch('module.external_service')
+def test_with_mock(mock_service):
+    mock_service.return_value = mock_response()
+    result = process_with_service()
+    assert result == expected_result()
+```
+
+## Qualitätssicherung
+
+### Coverage
+- Minimale Coverage: 80%
+- Branch Coverage
+- Integration-Test-Coverage
+
+### Best Practices
+- Eindeutige Testbenennung
+- Ein Assert pro Test
+- Keine Test-Logik
+- Isolierte Tests
+
+## Automatisierung
+
+### CI/CD-Integration
+```yaml
+test:
+  stage: test
+  script:
+    - pytest --cov=.
+    - pytest --doctest-modules
+```
+
+### Pre-Commit Hooks
+- Automatische Tests
+- Linting
+- Type Checking
+
+## Dokumentation
+
+### Doctest-Integration
+```python
+def calculate_area(width: float, height: float) -> float:
+    """Berechnet die Fläche eines Rechtecks
+    
+    >>> calculate_area(2, 3)
+    6.0
+    >>> calculate_area(0, 1)
+    0.0
+    """
+    return width * height
+```
+
+### Test-Dokumentation
+- Testfälle beschreiben
+- Edge Cases dokumentieren
+- Abhängigkeiten aufzeigen
+
+## Wartung
+
+### Test-Refactoring
+- DRY-Prinzip
+- Shared Fixtures
+- Helper-Funktionen
+
+### Performance
+- Parallele Ausführung
+- Test-Isolation
+- Resource Cleanup
+
+## Agentenkompatibilität
+
+### Cursor-Integration
+- Automatische Test-Generierung
+- Test-Template-Erstellung
+- Fehleranalyse
+
+### Auto-Commits
+- Test-First Validierung
+- Coverage-Check
+- Style-Guide-Prüfung 

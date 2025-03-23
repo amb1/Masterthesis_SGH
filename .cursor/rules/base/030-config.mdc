@@ -1,0 +1,174 @@
+description: Konfiguration: Standardisierte Konfigurationsverwaltung und -validierung
+globs: local/utils/config_loader.py,local/cfg/**/*.yml
+alwaysApply: true
+
+# Konfigurationsregeln
+
+## Verzeichnisstruktur
+
+```
+local/cfg/
+├── citygml/           # CityGML-spezifische Konfiguration
+├── wfs/               # WFS-spezifische Konfiguration
+├── osm/               # OSM-spezifische Konfiguration
+├── cea/               # CEA-spezifische Konfiguration
+└── logging/           # Logging-Konfiguration
+```
+
+## Konfigurationsformat
+
+### YAML-Standards
+
+- UTF-8 Kodierung
+- 2 Leerzeichen Einrückung
+- Keine Tabs
+- Kommentare mit `#`
+- Listen mit `-`
+- Schlüssel in `snake_case`
+
+### Grundstruktur
+
+```yaml
+# Modul-Identifikation
+module: "citygml"
+version: "1.0"
+
+# Hauptkonfiguration
+config:
+  input:
+    # Eingabe-Konfiguration
+  processing:
+    # Verarbeitungs-Konfiguration
+  output:
+    # Ausgabe-Konfiguration
+
+# Optionale Erweiterungen
+extensions:
+  # Modul-spezifische Erweiterungen
+```
+
+## Konfigurationsverwaltung
+
+### Laden der Konfiguration
+
+```python
+def load_config(config_path: str) -> Dict[str, Any]:
+    """Lädt und validiert eine Konfigurationsdatei.
+    
+    Args:
+        config_path: Pfad zur Konfigurationsdatei
+        
+    Returns:
+        Dict mit validierter Konfiguration
+        
+    Raises:
+        ConfigError: Bei Lade- oder Validierungsfehlern
+    """
+```
+
+### Validierung
+
+```python
+def validate_config(config: Dict[str, Any], schema: Dict[str, Any]) -> bool:
+    """Validiert eine Konfiguration gegen ein Schema.
+    
+    Args:
+        config: Zu validierende Konfiguration
+        schema: JSON-Schema für Validierung
+        
+    Returns:
+        True wenn valid, sonst False
+    """
+```
+
+## Fehlerbehandlung
+
+1. Datei-Fehler:
+   - Nicht existierende Datei
+   - Ungültige Kodierung
+   - Syntax-Fehler
+
+2. Validierungs-Fehler:
+   - Fehlende Pflichtfelder
+   - Ungültige Datentypen
+   - Ungültige Werte
+
+3. Pfad-Fehler:
+   - Relative vs. absolute Pfade
+   - Nicht existierende Verzeichnisse
+   - Zugriffsrechte
+
+```python
+class ConfigError(Exception):
+    """Basis-Klasse für Konfigurationsfehler"""
+    pass
+
+class ConfigValidationError(ConfigError):
+    """Fehler bei der Konfigurationsvalidierung"""
+    pass
+
+class ConfigFileError(ConfigError):
+    """Fehler beim Laden der Konfigurationsdatei"""
+    pass
+```
+
+## Testabdeckung
+
+### Unit Tests
+
+```python
+def test_load_config():
+    """Test des Konfigurationsladens"""
+    config = load_config("test_config.yml")
+    assert isinstance(config, dict)
+    assert "module" in config
+    assert "version" in config
+
+def test_validate_config():
+    """Test der Konfigurationsvalidierung"""
+    assert validate_config(valid_config, schema)
+    assert not validate_config(invalid_config, schema)
+```
+
+### Integrationstests
+
+```python
+def test_config_integration():
+    """Test der Konfigurationsintegration"""
+    processor = CityGMLProcessor("citygml_config.yml")
+    assert processor.config is not None
+    assert processor.config["input"]["directory"]
+```
+
+## Abhängigkeiten
+
+- [Logging](mdc:030-logging.mdc)
+
+## Erweiterbarkeit
+
+Neue Konfigurationsmodule müssen:
+
+1. Ein definiertes Schema haben
+2. In der Verzeichnisstruktur organisiert sein
+3. Validierungsregeln implementieren
+4. Tests besitzen
+
+## Best Practices
+
+1. Konfigurationsdateien:
+   - Versionierung
+   - Dokumentation
+   - Beispiele
+   - Schema-Definition
+
+2. Validierung:
+   - Frühe Validierung
+   - Klare Fehlermeldungen
+   - Fallback-Werte
+   - Typ-Konvertierung
+
+3. Wartung:
+   - Regelmäßige Schema-Updates
+   - Migrations-Skripte
+   - Changelog
+   - Backup-Strategie 

@@ -1,0 +1,44 @@
+// Project-Manager Regeln
+module.exports = {
+    name: "project-manager",
+    description: "Regeln für den Projekt-Manager",
+    rules: [
+        {
+            name: "project-manager-imports",
+            description: "Korrekte Imports für den Project Manager",
+            query: `
+                (import_statement
+                    (dotted_name) @import
+                    (#match? @import "^(core|pipeline)\\.")
+                )
+            `,
+            message: "Imports sollten aus core oder pipeline Modulen kommen"
+        },
+        {
+            name: "project-manager-docstring",
+            description: "Docstring für migrated files",
+            query: `
+                (module
+                    (string
+                        (string_content) @docstring
+                        (#not-match? @docstring "Migrated from")
+                    )
+                )
+            `,
+            message: "Module sollten einen Docstring mit 'Migrated from' enthalten"
+        },
+        {
+            name: "project-manager-logging",
+            description: "Logging mit LoggedOperation",
+            query: `
+                (function_definition
+                    (block
+                        (try_statement) @try
+                        (#not-match? @try "LoggedOperation")
+                    )
+                )
+            `,
+            message: "Funktionen sollten LoggedOperation für Logging verwenden"
+        }
+    ]
+} 

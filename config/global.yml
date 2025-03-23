@@ -1,0 +1,50 @@
+# Migrated from local/cfg/project_config.yml
+project:
+  name: "SGH-Master"
+  version: "1.0.0"
+  location: "Wien"
+  description: "Sustainability Geo Hub Master Project"
+  crs: "EPSG:31256"
+  
+  paths:
+    data: "data"
+    output: "outputs"
+    temp: "temp"
+    logs: "logs"
+
+logging:
+  level: "INFO"
+  format: "%(asctime)s [%(levelname)8s] %(message)s (%(filename)s:%(lineno)d)"
+  file: "logs/pipeline.log"
+
+pipeline:
+  steps:
+    - name: "fetch_data"
+      enabled: true
+      config: "wfs/stream_config.yml"
+    - name: "process_data"
+      enabled: true
+      config: "cea/mapping.yml"
+    - name: "enrich_data"
+      enabled: true
+      config: "osm/sources.yml"
+    - name: "export_data"
+      enabled: true
+
+processing:
+  site_polygon:
+    buffer_distance: 3  # Meter - für create_site_polygon
+    simplify_tolerance: 0.5  # Meter - für Polygon-Vereinfachung
+
+  surroundings:
+    buffer_distance: 100  # Meter - für Umgebungsgebäude
+    building_defaults:
+      height: 10
+      floors: 3
+      year: 1990
+      use_type: "RESIDENTIAL"
+      construction_type: "SOLID"
+
+  file_formats:
+    shp_driver: "ESRI Shapefile"
+    gml_encoding: "utf-8" 

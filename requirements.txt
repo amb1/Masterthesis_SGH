@@ -1,0 +1,56 @@
+# Core Dependencies
+geopandas
+pandas
+numpy
+shapely
+pyyaml
+requests
+
+# Data Processing
+overpy
+lxml
+pyproj
+
+# Geodaten-Verarbeitung
+pyogrio
+osmnx
+owslib
+
+# CityGML und 3D-Verarbeitung
+py3dtiles
+
+# Datenbank und API
+supabase
+python-dotenv
+
+# Datei-Formate
+openpyxl
+simpledbf
+dbf
+pyshp
+
+# IFC-Verarbeitung
+ifcopenshell
+isodate
+networkx
+
+# CLI
+click
+
+# Development Tools
+pytest
+pytest-cov
+black
+flake8
+mypy
+
+# Utilities
+typing_extensions
+pillow
+certifi
+charset-normalizer
+python-dateutil
+pytz
+six
+tzdata
+urllib3 

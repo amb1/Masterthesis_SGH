@@ -1,0 +1,3 @@
+"""
+Module für die Datenquellen.
+"""

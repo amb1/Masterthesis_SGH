@@ -1,0 +1,127 @@
+description: Transformationen: Standardisierte Konvertierung von Gebäudedaten und Attributen
+globs: local/utils/transformations.py,local/tests/test_transformations.py
+alwaysApply: true
+
+# Transformationsregeln
+
+## Allgemeine Struktur
+
+- Jede Transformationsfunktion muss rein und idempotent sein
+- Eingabe- und Ausgabetypen müssen explizit definiert werden
+- Fehlerbehandlung durch Logging und Fallback-Werte
+- Konfigurationsbasierte Transformationen über YAML-Dateien
+
+## Namenskonventionen
+
+```python
+# Funktionsnamen: Verb + Substantiv
+def transform_value()
+def map_building_use()
+def get_period_suffix()
+
+# Konfigurationspfade: Relativ zu local/cfg/
+config_path: str = "cfg/wfs/wfs_config.yml"
+```
+
+## Funktionssignaturen
+
+### Periodenzuordnung
+```python
+def get_period_suffix(year: int) -> str:
+    """Bestimmt das Periodensuffix basierend auf dem Baujahr.
+    
+    Args:
+        year: Baujahr des Gebäudes
+        
+    Returns:
+        str: Periodensuffix (_A bis _L)
+    """
+```
+
+### Gebäudetyp-Mapping
+```python
+def map_building_use(
+    building_type: str, 
+    config_path: str = "cfg/wfs/wfs_config.yml"
+) -> str:
+    """Mappt den WFS-Gebäudetyp auf einen CEA-Standard-Gebäudetyp.
+    
+    Args:
+        building_type: WFS-Gebäudetyp
+        config_path: Pfad zur Mapping-Konfiguration
+        
+    Returns:
+        str: CEA-Gebäudetyp
+    """
+```
+
+## Konfigurationsstruktur
+
+```yaml
+building_types:
+  use_type:
+    wohngebäude: MULTI_RES
+    geschäftshaus: RETAIL
+  standard_prefix:
+    wohngebäude: MFH
+    geschäftshaus: SCR
+```
+
+## Fehlerbehandlung
+
+- Logging von Fehlern mit aussagekräftigen Nachrichten
+- Fallback-Werte für unbekannte Eingaben
+- Validierung von Konfigurationspfaden
+
+```python
+try:
+    config = load_config(config_path)
+    if not config:
+        logger.warning("⚠️ Keine Konfiguration geladen")
+        return "MULTI_RES"  # Fallback
+except Exception as e:
+    logger.error(f"❌ Fehler beim Mapping: {str(e)}")
+    return "MULTI_RES"  # Fallback
+```
+
+## Testabdeckung
+
+Erforderliche Tests für jede Transformationsfunktion:
+
+1. Standardfälle mit validen Eingaben
+2. Grenzfälle (z.B. Jahresgrenzen)
+3. Fehlerszenarien:
+   - Fehlende Konfiguration
+   - Ungültige Eingaben
+   - Nicht existierende Mappings
+
+```python
+def test_map_building_use():
+    # Valide Fälle
+    assert map_building_use("wohngebäude") == "MULTI_RES"
+    
+    # Fallback-Logik
+    assert map_building_use("unbekannt") == "MULTI_RES"
+    
+    # Fehlerszenarien
+    assert map_building_use(None) == "MULTI_RES"
+```
+
+## Abhängigkeiten
+
+- [Config Loader](mdc:020-config.mdc)
+- [Logging](mdc:030-logging.mdc)
+
+## Erweiterbarkeit
+
+Neue Transformationen müssen:
+1. Eine eindeutige Funktion im Transformationsmodul haben
+2. In der Konfiguration definiert sein
+3. Entsprechende Tests besitzen
+4. Logging für Fehler implementieren
+
+## Performance
+
+- Caching von Konfigurationen
+- Effiziente String-Operationen
+- Vermeidung von wiederholten Datei-I/O 

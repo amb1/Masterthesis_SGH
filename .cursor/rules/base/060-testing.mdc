@@ -1,0 +1,130 @@
+# Teststrategie
+
+## Allgemeine Prinzipien
+
+- Test-Driven Development (TDD) wo möglich
+- Klare Test-Beschreibungen
+- Isolierte Tests
+- Realistische Test-Daten
+
+## Test-Arten
+
+### Unit Tests
+
+- Framework: Jest
+- Komponenten: React Testing Library
+- Coverage-Ziel: 80%
+- Fokus auf Geschäftslogik
+
+```typescript
+describe('ComponentName', () => {
+  it('should render correctly', () => {
+    const { getByTestId } = render(<ComponentName />)
+    expect(getByTestId('component')).toBeInTheDocument()
+  })
+})
+```
+
+### Integration Tests
+
+- Framework: Cypress
+- E2E-Tests für kritische Pfade
+- API-Integration Tests
+- Datenbank-Integration Tests
+
+```typescript
+describe('Feature', () => {
+  it('should work end-to-end', () => {
+    cy.visit('/feature')
+    cy.getByTestId('button').click()
+    cy.getByTestId('result').should('be.visible')
+  })
+})
+```
+
+### Python Tests
+
+- Framework: pytest
+- Fixtures für Testdaten
+- Mock für externe Services
+- Coverage-Ziel: 80%
+
+```python
+def test_function():
+    result = my_function()
+    assert result == expected_result
+```
+
+## Test-Organisation
+
+### Frontend
+
+```
+ComponentName/
+├── __tests__/
+│   ├── unit/
+│   │   └── ComponentName.test.tsx
+│   └── integration/
+│       └── ComponentName.cy.tsx
+└── __mocks__/
+    └── data.ts
+```
+
+### Backend
+
+```
+tests/
+├── unit/
+│   └── test_module.py
+├── integration/
+│   └── test_api.py
+└── fixtures/
+    └── test_data.json
+```
+
+## Best Practices
+
+### Komponenten-Tests
+- Teste Benutzerinteraktionen
+- Teste Rendering-Logik
+- Teste Error States
+- Teste Loading States
+
+### Hook-Tests
+- Teste Custom Hooks isoliert
+- Teste State Updates
+- Teste Side Effects
+- Teste Error Handling
+
+### API-Tests
+- Teste Erfolgsszenarien
+- Teste Fehlerszenarien
+- Teste Validierung
+- Teste Authentifizierung
+
+### Datenbank-Tests
+- Teste CRUD-Operationen
+- Teste Constraints
+- Teste Migrations
+- Teste Indizes
+
+## Continuous Integration
+
+- Automatische Tests bei Pull Requests
+- Coverage-Reports
+- Performance-Tests
+- Security-Tests
+
+## Test-Daten
+
+### Mock-Daten
+- Realistische Testdaten
+- Factories für Datengenerierung
+- Konsistente Test-IDs
+- Dokumentierte Fixtures
+
+### Test-Umgebung
+- Isolierte Testdatenbank
+- Gemockte externe Services
+- Konfigurierbare Umgebungsvariablen
+- Cleanup nach Tests 

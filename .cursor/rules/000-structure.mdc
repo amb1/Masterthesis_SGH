@@ -1,0 +1,128 @@
+description: Struktur: Organisation und Hierarchie der MDC-Regeldateien
+globs: .cursor/rules/**/*.mdc
+alwaysApply: true
+
+# MDC-Strukturregeln
+
+## Verzeichnisorganisation
+
+```
+.cursor/rules/
+├── base/               # Grundlegende Verarbeitungsregeln
+│   ├── 010-transformations.mdc
+│   ├── 020-citygml.mdc
+│   ├── 030-config.mdc
+│   ├── 040-logging.mdc
+│   ├── 050-pipeline.mdc
+│   ├── 060-testing.mdc
+│   ├── 070-osm.mdc
+│   ├── 080-wfs.mdc
+│   ├── 090-cea-mapping.mdc
+│   └── 100-test-first-coding.mdc
+├── components/         # Frontend-Komponenten-Regeln
+│   ├── atoms/
+│   ├── molecules/
+│   └── organisms/
+└── meta/              # Metadaten und Formatierung
+    └── 999-mdc-format.mdc
+```
+
+## Regeltypen
+
+### Basis-Regeln (01x-10x)
+- Grundlegende Verarbeitungslogik
+- Datenkonvertierung
+- Systemkonfiguration
+- Logging und Monitoring
+- Pipeline-Verarbeitung
+- Test-Strategien
+- OSM-Integration
+- WFS-Integration
+- CEA-Mapping
+- Test-First-Entwicklung
+
+### Komponenten-Regeln (1xx-8xx)
+- React/Next.js Komponenten
+- Styling-Richtlinien
+- Komponenten-Tests
+- Dokumentation
+
+### Meta-Regeln (9xx)
+- MDC-Format
+- Versionierung
+- Wartung
+- Best Practices
+
+## Entwicklungsstandards
+
+### Technologie-Stack
+- Frontend: TypeScript mit React/Next.js
+- Backend: Python 3.8+
+- Datenbank: Supabase/PostgreSQL
+
+### Code-Formatierung
+- TypeScript: ESLint + Prettier (100 Zeichen/Zeile, 2 Spaces)
+- Python: PEP 8 + Type Hints (120 Zeichen/Zeile, 4 Spaces)
+
+### Dokumentation
+- TypeScript: JSDoc für öffentliche APIs
+- Python: Google-Style Docstrings
+- Modulbeschreibungen am Dateianfang
+
+### Fehlerbehandlung
+- TypeScript: Error Boundaries, Custom Error Types
+- Python: Spezifische Exceptions, strukturiertes Logging
+- Ressourcen-Management
+
+### Sicherheit
+- Keine Hardcoded Credentials
+- Environment Variables
+- Input Validation
+- XSS-Prevention
+
+### Performance
+- Lazy Loading
+- Caching-Strategien
+- Optimierte Datenbankabfragen
+- Bundle-Optimierung
+
+## Abhängigkeiten
+
+- Basis-Regeln können untereinander abhängig sein
+- Komponenten-Regeln können von Basis-Regeln abhängen
+- Meta-Regeln sind unabhängig
+
+## Integration
+
+### Continuous Integration
+```yaml
+ci:
+  validate:
+    - mdc_structure
+    - mdc_format
+    - mdc_links
+    - code_style
+    - tests
+```
+
+### Versionierung
+- Semantic Versioning für MDC-Dateien
+- Changelog pro Regelgruppe
+- Migration-Guides bei Breaking Changes
+
+## Wartung
+
+1. Regelmäßige Überprüfung:
+   - Aktualität der Regeln
+   - Konsistenz der Abhängigkeiten
+   - Vollständigkeit der Dokumentation
+
+2. Updates:
+   - Anpassung an neue Technologien
+   - Integration von Feedback
+   - Performance-Optimierungen
+
+3. Qualitätssicherung:
+   - Automatische Validierung
+   - Code-Review-Integration
+   - Test-Coverage 

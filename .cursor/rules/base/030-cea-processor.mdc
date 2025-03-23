@@ -1,0 +1,16 @@
+# CEA Processor
+Verarbeitet Gebäudedaten für die CEA-Analyse.
+
+## Klassen
+### CEABuildingProcessor
+Prozessiert Gebäudedaten für CEA.
+
+#### Methoden
+- `__init__(self, project_path: Path, scenario_name: str)`
+- `process_building_data(self, buildings_gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame`
+- `save_results(self, buildings_gdf: gpd.GeoDataFrame) -> bool`
+
+## Funktionen
+- `get_year_and_suffix(year: int) -> Tuple[int, str]`: Bestimmt Baujahr und Suffix
+- `adjust_field_widths(df: pd.DataFrame) -> pd.DataFrame`: Passt Feldbreiten an
+- `enrich_building_data(buildings_gdf: gpd.GeoDataFrame, wfs_data: Dict) -> gpd.GeoDataFrame`: Reichert Gebäudedaten an 

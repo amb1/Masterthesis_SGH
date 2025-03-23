@@ -1,0 +1,101 @@
+"""
+Unit-Tests für die Logging-Konfiguration.
+"""
+
+import logging
+import pytest
+from pathlib import Path
+from core.logging_config import setup_logging, LoggedOperation
+
+@pytest.fixture
+def log_file(tmp_path):
+    """Erstellt eine temporäre Log-Datei."""
+    return tmp_path / "test.log"
+
+def test_setup_logging(log_file):
+    """Test die Logger-Konfiguration."""
+    logger = setup_logging(log_file)
+    assert logger.name == 'pipeline'
+    assert logger.level == logging.DEBUG
+    assert len(logger.handlers) == 2  # Console und File Handler
+
+def test_logged_operation(log_file):
+    """Test den LoggedOperation Context Manager."""
+    logger = setup_logging(log_file)
+    operation_name = "Test-Operation"
+    
+    with LoggedOperation(logger, operation_name):
+        pass  # Operation erfolgreich
+    
+    with open(log_file, "r") as f:
+        log_content = f.read()
+        assert "Starte Operation: Test-Operation" in log_content
+        assert "Operation erfolgreich abgeschlossen: Test-Operation" in log_content
+
+def test_logged_operation_with_error(log_file):
+    """Test den LoggedOperation Context Manager mit Fehler."""
+    logger = setup_logging(log_file)
+    operation_name = "Fehlerhafte Operation"
+    
+    with pytest.raises(Exception):
+        with LoggedOperation(logger, operation_name):
+            raise Exception("Test-Fehler")
+    
+    with open(log_file, "r") as f:
+        log_content = f.read()
+        assert "Starte Operation: Fehlerhafte Operation" in log_content
+        assert "Fehler in Operation Fehlerhafte Operation: Test-Fehler" in log_content
+
+def test_log_levels(log_file):
+    """Test verschiedene Log-Level."""
+    logger = setup_logging(log_file)
+    
+    test_message = "Test-Nachricht"
+    logger.debug(test_message)
+    logger.info(test_message)
+    logger.warning(test_message)
+    logger.error(test_message)
+    
+    with open(log_file, "r") as f:
+        log_content = f.read()
+        assert "DEBUG" in log_content
+        assert "INFO" in log_content
+        assert "WARNING" in log_content
+        assert "ERROR" in log_content
+
+def test_log_formatting(log_file):
+    """Test das Log-Format."""
+    logger = setup_logging(log_file)
+    test_message = "Test-Nachricht"
+    logger.info(test_message)
+    
+    with open(log_file, "r") as f:
+        log_line = f.readline().strip()
+        # Format: YYYY-MM-DD HH:MM:SS LEVEL NAME:FILE:LINE MESSAGE
+        parts = log_line.split()
+        assert len(parts) >= 4  # Mindestens Datum, Zeit, Level und Nachricht
+        assert test_message in log_line
+
+@pytest.mark.parametrize("operation_name,expected_success", [
+    ("Erfolgreiche Operation", True),
+    ("Fehlerhafte Operation", False)
+])
+def test_operation_status(log_file, operation_name, expected_success):
+    """Test den LoggedOperation Context Manager mit verschiedenen Status."""
+    logger = setup_logging(log_file)
+    
+    if expected_success:
+        with LoggedOperation(logger, operation_name):
+            pass  # Operation erfolgreich
+    else:
+        with pytest.raises(Exception):
+            with LoggedOperation(logger, operation_name):
+                raise Exception("Simulierter Fehler")
+    
+    with open(log_file, "r") as f:
+        log_content = f.read()
+        assert f"Starte Operation: {operation_name}" in log_content
+        if expected_success:
+            assert f"Operation erfolgreich abgeschlossen: {operation_name}" in log_content
+        else:
+            assert f"Fehler in Operation {operation_name}" in log_content 

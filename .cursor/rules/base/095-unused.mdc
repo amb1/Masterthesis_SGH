@@ -1,0 +1,79 @@
+# Analyse ungenutzter Module und Funktionen
+
+## Beschreibung
+Dokumentation der Code-Analyse zur Identifizierung ungenutzter Module, Funktionen und Konfigurationen im Projekt.
+
+## Globs
+- local/utils/**/*.py
+- local/cfg/**/*.yml
+- local/run_cea.py
+
+## Ungenutzte Funktionen
+
+### In run_cea.py
+- `cleanup_project`: Wird definiert aber nie aufgerufen
+- `adjust_field_widths`: Wird nur in Tests verwendet
+- `get_year_and_suffix`: Könnte in transformations.py verschoben werden
+
+### In utils/
+- `utils/data_processing/create_site_polygon.py`:
+  - `validate_site_polygon`: Wird nur in Tests verwendet
+  - `optimize_site_polygon`: Wird nicht verwendet
+
+### Konfigurationsanalyse
+
+#### Ungenutzte Konfigurationsdateien
+- `cfg/wfs/vienna_building_types.yml`: Wird nicht direkt geladen
+- `cfg/cea/building_types.yml`: Redundant mit WFS-Konfiguration
+
+#### Teilweise genutzte Konfigurationen
+- In `cfg/wfs/config.yml`:
+  - `api.timeout`: Definiert aber nicht verwendet
+  - `cache.enabled`: Implementierung fehlt
+  
+- In `cfg/cea/config.yml`:
+  - `validation.rules`: Nicht implementiert
+  - `output.formats`: Nur GeoJSON wird verwendet
+
+## Empfehlungen
+
+### Code-Refactoring
+1. `run_cea.py` aufteilen in:
+   - `project_manager.py`: Projektstruktur und Backup
+   - `data_processor.py`: Hauptverarbeitungslogik
+   - `config_manager.py`: Konfigurationsverwaltung
+
+2. Funktionen verschieben:
+   - `get_year_and_suffix` → `utils/transformations.py`
+   - `adjust_field_widths` → `utils/data_processing/field_processor.py`
+
+3. Module zusammenführen:
+   - `process_citygml.py` und `supabase_citygml_processor.py` gemeinsame Basis erstellen
+   - Spezifische Implementierungen in separate Klassen auslagern
+
+### Konfigurationsbereinigung
+1. Konfigurationsdateien zusammenführen:
+   - `vienna_building_types.yml` in `wfs/config.yml` integrieren
+   - Einheitliche Struktur für Gebäudetypen erstellen
+
+2. Nicht implementierte Features entfernen:
+   - Cache-Konfiguration
+   - Nicht verwendete Validierungsregeln
+   - Ungenutzte Output-Formate
+
+### Tests
+1. Fehlende Tests für:
+   - `cleanup_project`
+   - Konfigurationsvalidierung
+   - Fehlerbehandlung in Datenprozessoren
+
+2. Test-Coverage erhöhen für:
+   - Transformationsfunktionen
+   - WFS-Datenverarbeitung
+   - Projektstrukturvalidierung
+
+## Nächste Schritte
+1. Code-Review der vorgeschlagenen Änderungen
+2. Priorisierung der Refactoring-Aufgaben
+3. Schrittweise Implementierung der Empfehlungen
+4. Dokumentation aktualisieren 

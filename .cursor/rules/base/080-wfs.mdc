@@ -1,0 +1,123 @@
+description: Regeln für die Verarbeitung von WFS-Diensten
+globs: ["utils/wfs_client.py", "utils/tests/test_wfs_client.py"]
+alwaysApply: true
+
+# Web Feature Service (WFS) Integration
+
+## Konfiguration
+
+### Dienst-Einstellungen
+```yaml
+wfs:
+  url: "https://example.com/wfs"
+  version: "2.0.0"
+  srs: "EPSG:2056"  # Schweizer Koordinatensystem
+  timeout: 30
+```
+
+### Feature-Types
+- Gebäude (Building)
+- Grundstücke (Parcel)
+- Adressen (Address)
+- Höhenmodell (DTM)
+
+## Abfrage-Operationen
+
+### GetCapabilities
+```python
+def get_capabilities() -> Dict:
+    """WFS-Capabilities abfragen"""
+    params = {
+        "SERVICE": "WFS",
+        "REQUEST": "GetCapabilities",
+        "VERSION": "2.0.0"
+    }
+    return execute_request(params)
+```
+
+### GetFeature
+- Feature-Type-Filterung
+- Räumliche Filter (BBOX)
+- Attribut-Filter
+- Paging/Pagination
+
+## Datenverarbeitung
+
+### Geometrie-Handling
+- CRS-Transformation
+- Geometrie-Validierung
+- Topologie-Prüfung
+
+### Attribut-Mapping
+```python
+class WFSFeature:
+    """Basis-Klasse für WFS-Features"""
+    id: str
+    geometry: Union[Point, LineString, Polygon]
+    attributes: Dict[str, Any]
+```
+
+## Test-Strategie
+
+### Mock-Services
+```python
+@pytest.fixture
+def mock_wfs():
+    """Mock WFS-Service für Tests"""
+    with responses.RequestsMock() as rsps:
+        rsps.add(
+            responses.GET,
+            "https://example.com/wfs",
+            json=load_test_response("capabilities.json")
+        )
+        yield rsps
+```
+
+### Integration Tests
+- Service-Verfügbarkeit
+- Feature-Abfragen
+- Fehlerbehandlung
+- Performance-Monitoring
+
+## Fehlerbehandlung
+
+### Netzwerk-Fehler
+```python
+class WFSConnectionError(Exception):
+    """Fehler bei WFS-Verbindung"""
+    pass
+```
+
+### Validierungsfehler
+- Ungültige Parameter
+- Schema-Verletzungen
+- CRS-Transformationsfehler
+
+## Performance
+
+### Optimierungen
+- Connection Pooling
+- Request Caching
+- Batch Processing
+
+### Monitoring
+- Response-Zeiten
+- Fehlerquoten
+- Datenvolumen
+
+## Export-Formate
+
+### GeoJSON
+```python
+def to_geojson(features: List[WFSFeature]) -> Dict:
+    """Konvertiert Features in GeoJSON"""
+    return {
+        "type": "FeatureCollection",
+        "features": [f.to_geojson() for f in features]
+    }
+```
+
+### Shapefile
+- Attribut-Mapping
+- Geometrie-Konvertierung
+- Kodierung 

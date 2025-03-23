@@ -1,0 +1,24 @@
+cea:
+  building_periods:
+    - range: "1848-1918"
+      year: 1900
+      suffix: "1"
+    - range: "1919-1945"
+      year: 1930
+      suffix: "2"
+    - range: "1946-1960"
+      year: 1950
+      suffix: "3"
+    - range: "1961-1980"
+      year: 1970
+      suffix: "4"
+    - range: "1981-2000"
+      year: 1990
+      suffix: "5"
+    - range: "2001-2020"
+      year: 2010
+      suffix: "6"
+  defaults:
+    height: 10
+    floors: 3
+    year_built: 1990 

@@ -1,0 +1,132 @@
+description: Regeln für das Mapping von Gebäudedaten auf CEA-Attribute
+globs: ["utils/cea_mapper.py", "utils/tests/test_cea_mapper.py", "cfg/cea/*.yml"]
+alwaysApply: true
+
+# City Energy Analyst (CEA) Mapping
+
+## Konfiguration
+
+### Workflow-Definition
+```yaml
+cea_workflow:
+  - script: data-initializer
+    parameters:
+      databases: ['archetypes', 'assemblies', 'components']
+  
+  - script: weather-helper
+    parameters:
+      weather: "Zuerich-Kloten_2030_AB1_TMY.epw"
+  
+  - script: terrain-helper
+    parameters:
+      grid-size: 30
+      buffer: 50.0
+```
+
+### Archetype-Mapping
+```yaml
+building_types:
+  residential:
+    archetype: "MULTI_RES_POST_2020"
+    use: "RESIDENTIAL"
+    year: 2020
+  office:
+    archetype: "OFFICE_POST_2020"
+    use: "OFFICE"
+    year: 2020
+```
+
+## Datenmodell
+
+### Gebäude-Attribute
+```python
+class CEABuilding:
+    """CEA-Gebäudemodell"""
+    Name: str
+    Use_Type: str
+    Year: int
+    Height: float
+    Floors: int
+    Geometry: Polygon
+```
+
+### Energetische Parameter
+- Heizwärmebedarf
+- Kühlbedarf
+- Warmwasserbedarf
+- Strombedarf
+
+## Mapping-Regeln
+
+### Geometrie-Transformation
+- Footprint-Extraktion
+- Höhenberechnung
+- Geschossflächenberechnung
+
+### Attribut-Mapping
+```python
+def map_building_type(osm_type: str) -> str:
+    """Mappt OSM-Gebäudetyp auf CEA-Typ"""
+    mapping = {
+        "residential": "RESIDENTIAL",
+        "commercial": "OFFICE",
+        "industrial": "INDUSTRIAL"
+    }
+    return mapping.get(osm_type, "MIXED")
+```
+
+## Test-Strategie
+
+### Unit Tests
+```python
+def test_building_type_mapping():
+    """Test das Mapping von Gebäudetypen"""
+    assert map_building_type("residential") == "RESIDENTIAL"
+    assert map_building_type("unknown") == "MIXED"
+```
+
+### Integration Tests
+- Workflow-Ausführung
+- Datenbank-Integration
+- Geometrie-Transformation
+- Attribut-Mapping
+
+## Fehlerbehandlung
+
+### Mapping-Fehler
+```python
+class CEAMappingError(Exception):
+    """Fehler beim Mapping auf CEA-Attribute"""
+    pass
+```
+
+### Validierung
+- Pflichtfelder
+- Wertebereich
+- Geometrie-Validität
+
+## Performance
+
+### Optimierungen
+- Batch-Processing
+- Caching von Archetype-Daten
+- Parallelisierung
+
+### Monitoring
+- Mapping-Statistiken
+- Fehlerquoten
+- Verarbeitungszeiten
+
+## Export-Formate
+
+### CEA-Input
+```python
+def to_cea_input(buildings: List[CEABuilding]) -> pd.DataFrame:
+    """Konvertiert Gebäude in CEA-Input-Format"""
+    return pd.DataFrame([b.to_dict() for b in buildings])
+```
+
+### Visualisierung
+- 3D-Modell
+- Energiekennwerte
+- Simulationsergebnisse 

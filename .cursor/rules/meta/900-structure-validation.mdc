@@ -1,0 +1,65 @@
+name: Strukturvalidierung nach Refactoring
+description: >
+  Diese Regel stellt sicher, dass alle Quellcode-Dateien dem neuen Projektstruktur-Standard entsprechen
+  und korrekt kategorisiert sowie Cursor zugeordnet sind. Sie prüft außerdem auf veraltete Importpfade
+  oder verwaiste Dateien außerhalb der neuen Architektur.
+
+tags:
+  - refactoring
+  - struktur
+  - cursor
+  - cleanup
+  - import-check
+
+applies_to:
+  - "**/*.py"
+
+checks:
+  - type: path_structure
+    description: >
+      Dateien müssen innerhalb der folgenden Top-Level-Module liegen:
+      cli/, config/, core/, pipeline/, tests/, web/
+    allow:
+      - "cli/**"
+      - "config/**"
+      - "core/**"
+      - "pipeline/**"
+      - "tests/**"
+      - "web/**"
+    deny:
+      - "local/**"
+      - "utils/**"
+      - "legacy/**"
+      - "tmp/**"
+    level: error
+
+  - type: import_check
+    description: >
+      Sicherstellen, dass keine Importe aus veralteten Modulen wie 'utils' oder 'local' mehr vorhanden sind.
+    pattern:
+      - "import utils."
+      - "from utils."
+      - "import local."
+      - "from local."
+    level: error
+
+  - type: unused_file_check
+    description: >
+      Warnung bei .py-Dateien, die nicht durch Imports oder CLI-Aufrufe referenziert werden.
+    level: warning
+
+  - type: orphan_mdc
+    description: >
+      Jede Datei in core/ oder pipeline/ muss eine zugeordnete .mdc-Regel haben.
+    rule_path: ".cursor/rules/"
+    level: warning
+
+actions:
+  - if: error
+    then: flag_for_review
+  - if: warning
+    then: log_and_continue
+
+notes: |
+  Diese Regel hilft beim Übergang von einer älteren Projektstruktur (z. B. `local/`, `utils/`)
+  hin zu einer modernen Architektur. Besonders relevant nach größeren Refactorings.

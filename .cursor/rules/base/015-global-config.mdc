@@ -1,0 +1,23 @@
+# Globale Konfigurationsregeln
+
+## Struktur
+Die globale Konfiguration muss folgende Hauptbereiche enthalten:
+- project: Projektinformationen und Pfade
+- logging: Logging-Einstellungen
+- pipeline: Pipeline-Schritte und deren Status
+- processing: Verarbeitungseinstellungen
+
+## Validierung
+- Alle Pfade müssen relativ zum Projektroot sein
+- Logging-Level muss einer der Standard-Python-Level sein
+- Pipeline-Schritte müssen enabled/disabled Status haben
+
+## Beispiel
+```yaml
+project:
+  name: "SGH-Master"
+  version: "1.0.0"
+  paths:
+    data: "data"
+    output: "outputs"
+``` 

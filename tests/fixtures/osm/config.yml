@@ -1,0 +1,17 @@
+osm:
+  buildings:
+    buffer_distance: 100
+    defaults:
+      height: 10
+      floors: 3
+      year: 1990
+      category: "residential"
+      REFERENCE: ""
+  streets:
+    types:
+      primary: true
+      secondary: true
+      tertiary: true
+      residential: true
+    network_type: "all"
+    buffer_distance: 100 

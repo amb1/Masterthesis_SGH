@@ -1,0 +1,98 @@
+"""
+# Projektmanager-Modul
+
+## Beschreibung
+Verwaltet die Projektstruktur und -validierung für CEA-Projekte.
+
+## Globs
+- `local/utils/project_manager.py`
+- `local/utils/tests/test_project_manager.py`
+
+## Modulstruktur
+
+### Funktionen
+- `get_project_info(args=None) -> Tuple[str, str, Path, Path]`
+  - Holt Projekt- und Szenarioinformationen
+  - Unterstützt CLI-Argumente und interaktiven Modus
+  - Validiert Eingaben und prüft existierende Szenarien
+
+- `create_backup(scenario_path: Path) -> Optional[Path]`
+  - Erstellt ein Backup des Szenarioverzeichnisses
+  - Kopiert alle Dateien in ein Backup-Verzeichnis
+  - Protokolliert Erfolg oder Fehler
+
+- `cleanup_project(project_path: Path) -> bool`
+  - Bereinigt das Projektverzeichnis
+  - Entfernt temporäre Dateien (*.tmp)
+  - Löscht leere Verzeichnisse
+
+- `validate_project_structure(project_path: Path, scenario_path: Path) -> bool`
+  - Überprüft die CEA-Projektstruktur
+  - Validiert erforderliche Verzeichnisse und Dateien
+  - Protokolliert fehlende Komponenten
+
+- `setup_project_structure(project_path: Path, scenario_path: Path) -> Dict[str, Path]`
+  - Erstellt die CEA-Projektstruktur
+  - Erstellt Backup wenn nötig
+  - Initialisiert Verzeichnisse und leere Dateien
+
+## Projektstruktur
+
+### Erforderliche Verzeichnisse
+```
+project/
+├── scenario/
+│   ├── inputs/
+│   │   ├── building-geometry/
+│   │   ├── building-properties/
+│   │   └── networks/
+│   └── outputs/
+│       └── data/
+```
+
+### Erforderliche Dateien
+```
+inputs/
+├── building-geometry/
+│   ├── zone.shp
+│   ├── site.shp
+│   └── surroundings.shp
+├── building-properties/
+│   └── typology.dbf
+└── networks/
+    └── streets.shp
+```
+
+## Fehlerbehandlung
+- Validierung von Benutzereingaben
+- Backup-Erstellung vor Änderungen
+- Ausführliche Fehlerprotokolle
+- Graceful Degradation bei teilweisen Fehlern
+
+## Testabdeckung
+- `test_get_project_info_with_args`: CLI-Modus
+- `test_get_project_info_interactive`: Interaktiver Modus
+- `test_create_backup`: Backup-Funktionalität
+- `test_cleanup_project`: Bereinigungsfunktionen
+- `test_validate_project_structure_valid`: Gültige Struktur
+- `test_validate_project_structure_invalid`: Ungültige Struktur
+- `test_setup_project_structure`: Strukturerstellung
+
+## Best Practices
+- Verwendung von `pathlib.Path` für Pfadoperationen
+- Ausführliche Logging-Informationen
+- Saubere Fehlerbehandlung
+- Validierung von Benutzereingaben
+- Backup vor destruktiven Operationen
+
+## Abhängigkeiten
+- Python Standard Library
+- Logging-Konfiguration
+- Projektstruktur-Konventionen
+
+## Erweiterbarkeit
+- Neue Verzeichnistypen hinzufügbar
+- Anpassbare Validierungsregeln
+- Erweiterbare Backup-Strategien
+- Konfigurierbare Bereinigungsregeln
+""" 
