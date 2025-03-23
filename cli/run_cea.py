@@ -5,6 +5,9 @@ CLI-Schnittstelle für die CEA-Datenverarbeitung.
 import click
 from pathlib import Path
 from pipeline.orchestrator import PipelineOrchestrator
+import logging
+
+logger = logging.getLogger(__name__)
 
 @click.command()
 @click.option('--config', '-c', default='config/global.yml', help='Pfad zur Konfigurationsdatei')
@@ -14,7 +17,7 @@ def run_cea(config: str, data_dir: str, output_dir: str):
     """Führt die CEA-Datenverarbeitung durch."""
     try:
         # Konfiguriere Pipeline
-        orchestrator = PipelineOrchestrator(config)
+        orchestrator = PipelineOrchestrator(config_path=config)
         
         # Setze Verzeichnisse
         data_path = Path(data_dir)
@@ -25,12 +28,16 @@ def run_cea(config: str, data_dir: str, output_dir: str):
         output_path.mkdir(parents=True, exist_ok=True)
         
         # Führe Pipeline aus
-        orchestrator.run_pipeline()
+        success = orchestrator.run_pipeline()
         
-        click.echo("CEA-Verarbeitung erfolgreich abgeschlossen!")
+        if success:
+            click.echo("✅ CEA-Verarbeitung erfolgreich abgeschlossen!")
+        else:
+            click.echo("❌ CEA-Verarbeitung mit Fehlern beendet", err=True)
+            raise click.Abort()
         
     except Exception as e:
-        click.echo(f"Fehler bei der CEA-Verarbeitung: {str(e)}", err=True)
+        logger.error(f"❌ Fehler bei der CEA-Verarbeitung: {str(e)}")
         raise click.Abort()
 
 if __name__ == '__main__':

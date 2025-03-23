@@ -94,4 +94,35 @@ def setup_project_paths(project_name: str, scenario_name: str) -> ProjectPaths:
     Returns:
         ProjectPaths: Instanz der ProjectPaths-Klasse
     """
-    return ProjectPaths(project_name, scenario_name) 
+    return ProjectPaths(project_name, scenario_name)
+
+def get_output_path(category: str = None) -> Path:
+    """Gibt den Pfad zum Ausgabeverzeichnis zurück.
+    
+    Args:
+        category (str, optional): Unterkategorie im Ausgabeverzeichnis
+        
+    Returns:
+        Path: Pfad zum Ausgabeverzeichnis
+    """
+    root_dir = Path(__file__).resolve().parent.parent
+    output_dir = root_dir / "outputs"
+    
+    if category:
+        output_dir = output_dir / category
+        
+    output_dir.mkdir(parents=True, exist_ok=True)
+    return output_dir
+
+def get_config_path(filename: str = "global.yml") -> Path:
+    """Gibt den Pfad zur Konfigurationsdatei zurück.
+    
+    Args:
+        filename (str, optional): Name der Konfigurationsdatei
+        
+    Returns:
+        Path: Pfad zur Konfigurationsdatei
+    """
+    root_dir = Path(__file__).resolve().parent.parent
+    config_dir = root_dir / "config"
+    return config_dir / filename 

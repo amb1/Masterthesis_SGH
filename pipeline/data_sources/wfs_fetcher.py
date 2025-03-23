@@ -544,6 +544,37 @@ def fetch_wfs_data(site_polygon: gpd.GeoDataFrame, layer_name: str, config: Dict
         return None
 
 
+def fetch_wfs_buildings(site_polygon: Optional[gpd.GeoDataFrame] = None) -> Optional[gpd.GeoDataFrame]:
+    """Holt Gebäudedaten vom WFS-Server.
+    
+    Args:
+        site_polygon (Optional[gpd.GeoDataFrame]): Optional ein GeoDataFrame mit dem Standort-Polygon
+        
+    Returns:
+        Optional[gpd.GeoDataFrame]: GeoDataFrame mit den Gebäudedaten oder None bei Fehler
+    """
+    try:
+        # Lade Konfiguration
+        config = load_config()
+        
+        # Hole Layer-Name aus der Konfiguration
+        layer_name = config.get('wfs', {}).get('building_layer', 'ogdwien:GEBAEUDEGDT')
+        
+        # Verwende die allgemeine fetch_wfs_data Funktion
+        buildings = fetch_wfs_data(site_polygon, layer_name, config)
+        
+        if buildings is None:
+            logger.error("❌ Keine Gebäudedaten vom WFS erhalten")
+            return None
+            
+        logger.info(f"✅ {len(buildings)} Gebäude vom WFS geladen")
+        return buildings
+        
+    except Exception as e:
+        logger.error(f"❌ Fehler beim Abrufen der WFS-Gebäudedaten: {str(e)}")
+        return None
+
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     logging.info("🔎 WFS Daten Test-Modus")

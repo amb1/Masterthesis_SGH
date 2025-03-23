@@ -20,6 +20,7 @@ pipeline/processing/base_processor.py
 pipeline/processing/cea_mapper.py
 pipeline/processing/cea_processor.py
 pipeline/processing/data_processor.py
+pipeline/processing/interfaces.py
 pipeline/processing/transformations.py
 sgh_master.egg-info/PKG-INFO
 sgh_master.egg-info/SOURCES.txt
@@ -27,11 +28,12 @@ sgh_master.egg-info/dependency_links.txt
 sgh_master.egg-info/top_level.txt
 tests/__init__.py
 tests/conftest.py
-tests/test_citygml_processor.py
 tests/test_config_loader.py
 tests/test_integration.py
+tests/test_osm_config.py
 tests/test_project_manager.py
 tests/test_project_utils.py
+tests/test_site_polygon.py
 tests/test_transformations.py
 tests/fixtures/__init__.py
 tests/fixtures/cea_fixtures.py

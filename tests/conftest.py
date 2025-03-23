@@ -7,6 +7,8 @@ import sys
 from pathlib import Path
 import geopandas as gpd
 from shapely.geometry import Polygon
+from core.config_manager import load_config
+from core.project_paths import get_config_path, get_output_path
 
 # Füge das Projekt-Root-Verzeichnis zum Python-Pfad hinzu
 project_root = Path(__file__).parent.parent
@@ -22,10 +24,59 @@ def setup_test_env():
     if "TESTING" in os.environ:
         del os.environ["TESTING"]
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def test_data_dir():
-    """Gibt das Test-Datenverzeichnis zurück."""
-    return Path(__file__).parent / "test_data"
+    """Basis-Verzeichnis für Testdaten."""
+    return Path(__file__).parent / "data"
+
+@pytest.fixture(scope="session")
+def test_fixtures_dir():
+    """Basis-Verzeichnis für Test-Fixtures."""
+    return Path(__file__).parent / "fixtures"
+
+@pytest.fixture(scope="session")
+def test_outputs_dir():
+    """Basis-Verzeichnis für Test-Ausgaben."""
+    return Path(__file__).parent / "outputs"
+
+@pytest.fixture(scope="session", autouse=True)
+def setup_test_environment(test_data_dir, test_fixtures_dir, test_outputs_dir):
+    """Richtet die Testumgebung ein."""
+    # Erstelle Verzeichnisse
+    for directory in [test_data_dir, test_fixtures_dir, test_outputs_dir]:
+        directory.mkdir(exist_ok=True)
+        
+    # Erstelle Unterverzeichnisse für verschiedene Datenquellen
+    (test_fixtures_dir / "citygml").mkdir(exist_ok=True)
+    (test_fixtures_dir / "osm").mkdir(exist_ok=True)
+    (test_fixtures_dir / "wfs").mkdir(exist_ok=True)
+    
+    # Erstelle Ausgabeverzeichnisse
+    (test_outputs_dir / "citygml").mkdir(exist_ok=True)
+    (test_outputs_dir / "osm").mkdir(exist_ok=True)
+    (test_outputs_dir / "3dtiles").mkdir(exist_ok=True)
+    (test_outputs_dir / "geojson").mkdir(exist_ok=True)
+
+@pytest.fixture
+def global_config():
+    """Lädt die globale Testkonfiguration."""
+    config_path = get_config_path() / "global.yml"
+    return load_config(config_path)
+
+@pytest.fixture
+def citygml_config(global_config):
+    """CityGML-spezifische Konfiguration."""
+    return global_config.get('citygml', {})
+
+@pytest.fixture
+def osm_config(global_config):
+    """OSM-spezifische Konfiguration."""
+    return global_config.get('osm', {})
+
+@pytest.fixture
+def wfs_config(global_config):
+    """WFS-spezifische Konfiguration."""
+    return global_config.get('wfs', {})
 
 @pytest.fixture
 def sample_site_gdf():
