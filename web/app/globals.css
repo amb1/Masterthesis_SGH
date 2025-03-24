@@ -67,3 +67,17 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Ausblenden der Standard Cesium Steuerelemente */
+.cesium-viewer-toolbar,
+.cesium-viewer-geocoderContainer,
+.cesium-home-button,
+.cesium-sceneModePicker-wrapper,
+.cesium-navigationHelpButton-wrapper,
+.cesium-viewer-fullscreenContainer,
+.cesium-viewer-timelineContainer,
+.cesium-viewer-animationContainer,
+.cesium-viewer-vrButton,
+.cesium-viewer-infoBoxContainer {
+  display: none !important;
+}

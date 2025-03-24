@@ -8,7 +8,8 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "dev:debug": "DEBUG=* vite"
+    "dev:debug": "DEBUG=* vite",
+    "dev:debug:win": "set DEBUG=* && vite"
   },
   "dependencies": {
     "@radix-ui/react-slot": "^1.1.2",

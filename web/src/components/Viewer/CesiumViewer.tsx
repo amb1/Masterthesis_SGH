@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import * as Cesium from 'cesium';
 import "cesium/Build/Cesium/Widgets/widgets.css";
 import { Layers, Eye, EyeOff, Globe2, Building2, Box } from 'lucide-react';
-import { createClient } from '@supabase/supabase-js';
+import { supabase } from '@/lib/supabase';
 import { fetchViennaWFS } from '../../services/viennaService';
 import { toast } from 'react-hot-toast';
 import type { Tables } from '@/lib/database.types';
@@ -32,11 +32,6 @@ interface CesiumViewerProps {
     maxLat: number;
   }) => Promise<void>;
 }
-
-const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_ANON_KEY
-);
 
 export function CesiumViewer({ projectId, token, viewerOptions, onSaveBoundingBox }: CesiumViewerProps) {
   const viewerContainer = useRef<HTMLDivElement>(null);

@@ -1,123 +1,105 @@
 description: Regeln für die Verarbeitung von WFS-Diensten
-globs: ["utils/wfs_client.py", "utils/tests/test_wfs_client.py"]
+globs: ["pipeline/data_sources/wfs_fetcher.py", "tests/data_sources/test_wfs_fetcher.py"]
 alwaysApply: true
 
-# Web Feature Service (WFS) Integration
+# Vienna Web Feature Service (WFS) Integration
 
 ## Konfiguration
 
 ### Dienst-Einstellungen
 ```yaml
-wfs:
-  url: "https://example.com/wfs"
-  version: "2.0.0"
-  srs: "EPSG:2056"  # Schweizer Koordinatensystem
+vienna_wfs:
+  url: "https://data.wien.gv.at/daten/geo"
+  version: "1.1.0"
+  srsName: "EPSG:31256"  # Wiener Koordinatensystem
   timeout: 30
+  retries: 3
 ```
 
-### Feature-Types
-- Gebäude (Building)
-- Grundstücke (Parcel)
-- Adressen (Address)
-- Höhenmodell (DTM)
-
-## Abfrage-Operationen
-
-### GetCapabilities
-```python
-def get_capabilities() -> Dict:
-    """WFS-Capabilities abfragen"""
-    params = {
-        "SERVICE": "WFS",
-        "REQUEST": "GetCapabilities",
-        "VERSION": "2.0.0"
-    }
-    return execute_request(params)
+### Streams
+```yaml
+streams:
+  - name: "Gebäudeinfo"
+    layer: "ogdwien:GEBAEUDEINFOOGD"
+    priority: 1
+    fields:
+      - "OBJECTID"
+      - "geometry"
+      - "BAUJAHR"
+    mapping:
+      building_id: "OBJECTID"
+      geometry: "geometry"
+      construction_year: "BAUJAHR"
 ```
 
-### GetFeature
-- Feature-Type-Filterung
+## Implementierung
+
+### ViennaWFS-Klasse
+- Initialisierung mit Konfiguration
+- Stream-basierte Verarbeitung
 - Räumliche Filter (BBOX)
-- Attribut-Filter
-- Paging/Pagination
-
-## Datenverarbeitung
-
-### Geometrie-Handling
 - CRS-Transformation
-- Geometrie-Validierung
-- Topologie-Prüfung
+- Detailliertes Logging
 
-### Attribut-Mapping
+### Hauptfunktionen
 ```python
-class WFSFeature:
-    """Basis-Klasse für WFS-Features"""
-    id: str
-    geometry: Union[Point, LineString, Polygon]
-    attributes: Dict[str, Any]
+def process_site(site_polygon: gpd.GeoDataFrame) -> Dict[str, gpd.GeoDataFrame]:
+    """Verarbeitet alle WFS-Streams für ein Site-Polygon"""
+    # CRS-Transformation
+    # BBOX-Extraktion
+    # Stream-Verarbeitung nach Priorität
+    # Clipping auf Site-Polygon
+    # Mapping und Transformation
 ```
+
+### Fehlerbehandlung
+- Verbindungsfehler
+- Ungültige Layer
+- CRS-Transformationsfehler
+- XML-Entity-Handling
 
 ## Test-Strategie
 
-### Mock-Services
+### Fixtures
 ```python
 @pytest.fixture
-def mock_wfs():
-    """Mock WFS-Service für Tests"""
-    with responses.RequestsMock() as rsps:
-        rsps.add(
-            responses.GET,
-            "https://example.com/wfs",
-            json=load_test_response("capabilities.json")
-        )
-        yield rsps
+def sample_config():
+    """Test-Konfiguration für Vienna WFS"""
+    return {
+        'url': 'https://data.wien.gv.at/daten/geo',
+        'version': '1.1.0',
+        'srsName': 'EPSG:31256',
+        'streams': [...]
+    }
 ```
 
-### Integration Tests
-- Service-Verfügbarkeit
-- Feature-Abfragen
+### Testfälle
+- Initialisierung
+- BBOX-Formatierung
+- Layer-Abruf
+- Site-Verarbeitung
 - Fehlerbehandlung
-- Performance-Monitoring
-
-## Fehlerbehandlung
-
-### Netzwerk-Fehler
-```python
-class WFSConnectionError(Exception):
-    """Fehler bei WFS-Verbindung"""
-    pass
-```
-
-### Validierungsfehler
-- Ungültige Parameter
-- Schema-Verletzungen
-- CRS-Transformationsfehler
 
 ## Performance
 
 ### Optimierungen
-- Connection Pooling
-- Request Caching
-- Batch Processing
+- Priorisierte Stream-Verarbeitung
+- Effizientes Clipping
+- Intelligentes Mapping
 
-### Monitoring
-- Response-Zeiten
-- Fehlerquoten
-- Datenvolumen
+### Logging
+- Detaillierte Statusmeldungen
+- Fehlerprotokollierung
+- Performance-Metriken
 
-## Export-Formate
+## Export
 
 ### GeoJSON
-```python
-def to_geojson(features: List[WFSFeature]) -> Dict:
-    """Konvertiert Features in GeoJSON"""
-    return {
-        "type": "FeatureCollection",
-        "features": [f.to_geojson() for f in features]
-    }
-```
+- Stream-basierter Export
+- CRS-Handling
+- Attribut-Mapping
 
 ### Shapefile
-- Attribut-Mapping
-- Geometrie-Konvertierung
+- Zwischenspeicherung
+- Attribut-Konvertierung
 - Kodierung 

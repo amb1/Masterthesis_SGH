@@ -159,3 +159,81 @@ Neue Funktionalitäten müssen:
 2. Tests besitzen
 3. Dokumentiert sein
 4. Bestehende Schnittstellen respektieren 
+
+# CityGML Verarbeitung
+
+## Funktionalität
+- Extrahiert Gebäudedaten aus CityGML-Dateien
+- Unterstützt LoD1 und LoD2 Geometrien
+- Konvertiert 3D-Geometrien in 2D-Footprints
+- Validiert und repariert Geometrien wenn konfiguriert
+- Extrahiert konfigurierte Attribute über XPath
+- Entfernt automatisch leere Spalten
+- Erzeugt detaillierte Verarbeitungsstatistiken
+
+## Konfiguration
+Die Konfiguration erfolgt in `config/citygml/config.yml`:
+
+```yaml
+geometry:
+  srs_name: "EPSG:25832"  # Koordinatensystem
+  validation:
+    check_validity: true   # Geometrie-Validierung
+    fix_invalid: true     # Reparatur ungültiger Geometrien
+    check_area: true      # Flächenprüfung
+    min_area: 1.0         # Mindestfläche in m²
+    remove_small: true    # Entfernung zu kleiner Flächen
+
+attributes:
+  required:               # Pflichtfelder
+    - building_id
+    - height
+  optional:              # Optionale Felder
+    - storeys
+    - roof_type
+    
+  xpaths:                # XPath-Definitionen
+    building_id:
+      xpath: ["@gml:id"]
+      type: str
+    height:
+      xpath: 
+        - "bldg:measuredHeight"
+        - "gen:doubleAttribute[gen:name='Gebäudehöhe']/gen:value"
+      type: float
+    storeys:
+      xpath: "bldg:storeysAboveGround"
+      type: int
+    roof_type:
+      xpath: "bldg:roofType"
+      type: str
+
+output:
+  geojson:
+    options:
+      simplify_tolerance: 0.1  # Vereinfachungstoleranz in m
+```
+
+## Validierung
+- Prüft auf gültige CityGML-Datei
+- Validiert Geometrien (optional)
+- Prüft Pflichtfelder
+- Stellt korrektes CRS sicher
+- Entfernt automatisch Spalten die nur NULL-Werte enthalten
+
+## Ausgabe
+- GeoDataFrame mit 2D-Gebäude-Footprints
+- Konfigurierte Attribute als Spalten
+- Detaillierte Logging-Ausgaben
+- Statistiken zur Verarbeitung:
+  - Anzahl verarbeiteter/fehlgeschlagener Gebäude
+  - Geometrie-Statistiken (Flächen, Polygon-Typen)
+  - LoD-Verteilung
+  - Attribut-Erfolgsquoten
+
+## Fehlerbehandlung
+- Robuste XML-Entity-Auflösung
+- Graceful Fallback bei Geometrie-Fehlern
+- Detailliertes Logging aller Fehler
+- Überspringen einzelner fehlerhafter Gebäude
+- Typ-Konvertierungsfehler werden protokolliert 

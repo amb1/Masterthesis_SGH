@@ -1,0 +1,137 @@
+# XPath-Konfiguration für CityGML
+
+## Funktionalität
+
+Die Regel definiert die Struktur und Verwendung von XPath-Ausdrücken in der CityGML-Konfiguration.
+
+### Grundprinzipien
+
+1. **Flexible XPath-Listen**: Pro Attribut können mehrere XPath-Ausdrücke definiert werden:
+   ```yaml
+   height:
+     xpath:
+       - "bldg:measuredHeight"
+       - "bldg:height"
+     type: float
+     fallback: 10.0
+   ```
+
+2. **Attribut-Typisierung**: Jedes Attribut hat einen definierten Datentyp:
+   - `str`: Zeichenketten
+   - `int`: Ganzzahlen
+   - `float`: Fließkommazahlen
+   - `bool`: Wahrheitswerte
+
+3. **Fallback-Werte**: Optionale Standardwerte bei fehlenden Daten:
+   ```yaml
+   storeys:
+     xpath: 
+       - "bldg:storeysAboveGround"
+     type: int
+     fallback: 3
+   ```
+
+### Konfigurationsstruktur
+
+```yaml
+attributes:
+  required:  # Pflichtfelder
+    - building_id
+    - height
+    - storeys
+  
+  optional:  # Optionale Felder
+    - roof_type
+    - year_of_construction
+    
+  xpaths:    # XPath-Definitionen
+    building_id:
+      xpath: ["@gml:id"]
+      type: str
+      
+    height:
+      xpath: 
+        - "bldg:measuredHeight"
+        - "bldg:height"
+      type: float
+      fallback: 10.0
+```
+
+## Validierung
+
+### XPath-Prüfungen
+
+1. **Syntax**:
+   - Gültige XPath-Ausdrücke
+   - Korrekte Namespace-Präfixe
+   - Attribut-Syntax (@attribute)
+
+2. **Typen**:
+   - Unterstützte Datentypen
+   - Passende Fallback-Werte
+   - Typ-Konvertierbarkeit
+
+### Attribut-Prüfungen
+
+1. **Pflichtfelder**:
+   - Alle required-Felder haben XPath-Definition
+   - Mindestens ein XPath pro Pflichtfeld
+
+2. **Optionale Felder**:
+   - Definierte optional-Felder haben XPath
+   - Fallback-Werte wo sinnvoll
+
+## Fehlerbehebung
+
+### Typische Probleme
+
+1. **Fehlende Werte**:
+   ```yaml
+   # ❌ NICHT:
+   height:
+     xpath: "bldg:height"
+   
+   # ✅ RICHTIG:
+   height:
+     xpath: 
+       - "bldg:measuredHeight"
+       - "bldg:height"
+     fallback: 10.0
+   ```
+
+2. **Namespace-Fehler**:
+   ```yaml
+   # ❌ NICHT:
+   building_type:
+     xpath: "buildingType"
+   
+   # ✅ RICHTIG:
+   building_type:
+     xpath: "bldg:buildingType"
+   ```
+
+### Lösungsstrategien
+
+1. **XPath-Erweiterung**:
+   - Alternative Pfade hinzufügen
+   - Generische Attribute prüfen
+   - Namespace-Varianten abdecken
+
+2. **Typ-Handling**:
+   - Passende Konvertierung
+   - Sinnvolle Fallbacks
+   - Fehlertolerante Verarbeitung
+
+## Output
+
+### Logging
+
+- Debug-Informationen für XPath-Suche
+- Warnung bei fehlenden Werten
+- Info über verwendete Fallbacks
+
+### Dokumentation
+
+- XPath-Referenz im Docstring
+- Beispiele für häufige Attribute
+- Namespace-Übersicht 

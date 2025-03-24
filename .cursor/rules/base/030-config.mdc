@@ -15,37 +15,96 @@ local/cfg/
 └── logging/           # Logging-Konfiguration
 ```
 
-## Konfigurationsformat
+## YAML-Standards
 
-### YAML-Standards
+### Syntax und Formatierung
+- UTF-8 Kodierung verwenden
+- 2 Leerzeichen für Einrückung
+- Keine Tabs verwenden
+- Kommentare mit `#` beginnen
+- Listen mit `-` markieren
+- Schlüssel in `snake_case` schreiben
+- Strings nur bei Bedarf in Anführungszeichen (Sonderzeichen, Mehrzeiligkeit)
 
-- UTF-8 Kodierung
-- 2 Leerzeichen Einrückung
-- Keine Tabs
-- Kommentare mit `#`
-- Listen mit `-`
-- Schlüssel in `snake_case`
+### Datentypen
+- Strings: Mit/ohne Anführungszeichen je nach Inhalt
+- Zahlen: Ohne Anführungszeichen
+- Boolean: true/false (lowercase)
+- Listen: Mit Bindestrichen
+- Dictionaries: Mit Einrückung
+- Python-Code als String definieren
 
-### Grundstruktur
+### Namespaces und URLs
+- XML/GML Namespaces vollständig definieren
+- Namespace-Präfixe konsistent verwenden
+- URLs ohne Anführungszeichen wenn möglich
+
+## Grundstruktur
 
 ```yaml
 # Modul-Identifikation
-module: "citygml"
-version: "1.0"
+module: citygml
+version: 1.0
 
 # Hauptkonfiguration
 config:
   input:
-    # Eingabe-Konfiguration
+    directory: data/raw/citygml
+    file_pattern: "*.gml"
+    encoding: utf-8
+  
   processing:
-    # Verarbeitungs-Konfiguration
+    namespaces:
+      bldg: http://www.opengis.net/citygml/building/1.0
+      gml: http://www.opengis.net/gml
+    
+    fields:
+      required:
+        - measured_height
+        - building_type
+      
+      citygml:
+        measured_height:
+          xpath: ".//bldg:measuredHeight"
+          type: float
+          fallback: null
+  
   output:
-    # Ausgabe-Konfiguration
+    formats:
+      - type: geojson
+        directory: data/processed/geojson
+        options:
+          encoding: utf-8
 
 # Optionale Erweiterungen
 extensions:
-  # Modul-spezifische Erweiterungen
+  geometry:
+    srs_name: EPSG:31256
+    min_area: 10.0
+    validate: true
 ```
+
+## Validierung
+
+- Syntaxprüfung durchführen
+- Pflichtfelder validieren
+- Datentypen überprüfen
+- XPath-Ausdrücke testen
+- Pfade auf Existenz prüfen
+
+## Fehlerbehandlung
+
+- Sinnvolle Standardwerte definieren
+- Fehlende Werte protokollieren
+- Typkonvertierung absichern
+- Validierungsfehler melden
+
+## Versionierung
+
+- Konfigurationsversionen dokumentieren
+- Änderungen nachvollziehbar machen
+- Abwärtskompatibilität beachten
+- Migration unterstützen
 
 ## Konfigurationsverwaltung
 

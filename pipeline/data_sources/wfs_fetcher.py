@@ -61,6 +61,7 @@ class ViennaWFS:
         try:
             # Initialisiere Logger
             self.logger = logging.getLogger(__name__)
+            self.logger = logging.getLogger(__name__)
             self.logger.setLevel(logging.INFO)
             if not self.logger.handlers:
                 handler = logging.StreamHandler()

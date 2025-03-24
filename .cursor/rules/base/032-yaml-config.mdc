@@ -1,0 +1,57 @@
+# YAML-Konfigurationsvalidierung
+
+## Allgemeine Regeln
+
+- YAML-Dateien müssen syntaktisch korrekt sein
+- Einrückung konsistent mit 2 Leerzeichen
+- Keine Tab-Zeichen verwenden
+- Strings nur in Anführungszeichen wenn nötig (Sonderzeichen, Mehrzeiligkeit)
+
+## Strukturierung
+
+- Hierarchische Struktur logisch gruppieren
+- Verwandte Einstellungen zusammenfassen
+- Kommentare für komplexe Einstellungen hinzufügen
+
+## Datentypen
+
+- Korrekte Datentypen verwenden:
+  - Strings: Mit/ohne Anführungszeichen je nach Inhalt
+  - Zahlen: Ohne Anführungszeichen
+  - Boolean: true/false (lowercase)
+  - Listen: Mit Bindestrichen
+  - Dictionaries: Mit Einrückung
+
+## Transformationen
+
+- Python-Code (z.B. Lambdas) als String definieren
+- Komplexe Transformationen in separate Python-Funktionen auslagern
+- Transformationsfunktionen dokumentieren
+
+## Namespaces
+
+- XML/GML Namespaces vollständig definieren
+- Namespace-Präfixe konsistent verwenden
+- URLs ohne Anführungszeichen wenn möglich
+
+## Feldkonfiguration
+
+- Felder als Dictionary mit Unterattributen:
+  ```yaml
+  field_name:
+    xpath: ".//xpath/expression"
+    type: "str|int|float"
+    fallback: default_value
+  ```
+
+## Validierung
+
+- required_fields müssen in citygml_fields existieren
+- XPath-Ausdrücke auf Gültigkeit prüfen
+- Fallback-Werte müssen zum Feldtyp passen
+
+## Fehlerbehandlung
+
+- Sinnvolle Fallback-Werte definieren
+- Validierungsregeln für Geometrien festlegen
+- Mindestanforderungen dokumentieren 

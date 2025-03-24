@@ -1,6 +1,30 @@
 -- Enable PostGIS extension if not already enabled
 CREATE EXTENSION IF NOT EXISTS postgis;
 
+-- Projects table
+CREATE TABLE IF NOT EXISTS projects (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name TEXT NOT NULL,
+    description TEXT,
+    owner_id UUID REFERENCES auth.users(id),
+    cesium_token TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Project boundaries table
+CREATE TABLE IF NOT EXISTS project_boundaries (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    project_id UUID REFERENCES projects(id) ON DELETE CASCADE,
+    polygon JSONB NOT NULL,
+    min_lat DOUBLE PRECISION NOT NULL,
+    min_lon DOUBLE PRECISION NOT NULL,
+    max_lat DOUBLE PRECISION NOT NULL,
+    max_lon DOUBLE PRECISION NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- CityGML Buildings table (Haupttabelle)
 CREATE TABLE IF NOT EXISTS buildings (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

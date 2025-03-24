@@ -205,7 +205,7 @@ def main():
             raise ValueError("❌ Keine gültige globale Konfiguration gefunden")
 
         # Lade OSM-spezifische Konfiguration
-        osm_config_path = root_dir / 'config' / 'osm' / 'buildings.yml'
+        osm_config_path = root_dir / 'config' / 'osm' / 'config.yml'
         logger.info(f"📂 Lade OSM-Konfiguration: {osm_config_path}")
         osm_config = load_config(osm_config_path)
 
@@ -213,7 +213,7 @@ def main():
             raise ValueError("❌ Keine gültige OSM-Konfiguration gefunden")
 
         # Hole Pfade aus der globalen Konfiguration
-        paths = global_config.get('paths', {})
+        paths = global_config.get('project', {}).get('paths', {})
         if not paths:
             raise ValueError("❌ Keine Pfade in der globalen Konfiguration gefunden")
 

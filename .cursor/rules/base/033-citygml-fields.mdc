@@ -1,0 +1,110 @@
+# CityGML Feldextraktion
+
+## Funktionalität
+- Flexible XPath-basierte Feldextraktion
+- Unterstützung für mehrere XPath-Ausdrücke pro Feld
+- Automatische Typ-Konvertierung
+- Unterscheidung zwischen Pflicht- und optionalen Feldern
+- Automatische Entfernung leerer Spalten
+
+## XPath-Konfiguration
+```yaml
+attributes:
+  required:
+    - building_id    # Pflichtfelder müssen vorhanden sein
+    - height
+  optional:
+    - storeys       # Optionale Felder dürfen fehlen
+    - roof_type
+    
+  xpaths:
+    building_id:    # Feld-Definition
+      xpath:        # Ein oder mehrere XPath-Ausdrücke
+        - "@gml:id"
+      type: str     # Zieltyp für Konvertierung
+      
+    height:
+      xpath:        # Mehrere XPath-Ausdrücke werden der Reihe nach probiert
+        - "bldg:measuredHeight"
+        - "gen:doubleAttribute[gen:name='Gebäudehöhe']/gen:value"
+      type: float
+```
+
+## Unterstützte Typen
+- `str`: Zeichenkette (Standard)
+- `int`: Ganzzahl
+- `float`: Fließkommazahl
+- `bool`: Wahrheitswert (true/1/yes/ja -> True)
+
+## Validierung
+- Prüfung auf Pflichtfelder
+- Typ-Validierung und Konvertierung
+- Automatische Entfernung von Spalten die nur NULL enthalten
+- Detailliertes Logging bei Fehlern
+
+## Fehlerbehandlung
+- Robuste XPath-Auswertung
+- Graceful Fallback bei nicht gefundenen Werten
+- Typ-Konvertierungsfehler werden protokolliert
+- NULL-Werte bei fehlgeschlagener Extraktion
+
+## Feldstruktur
+
+- Jedes Feld als Dictionary definieren:
+  ```yaml
+  field_name:
+    xpath: ".//xpath/expression"  # Relativer XPath
+    type: "str|int|float"        # Datentyp
+    fallback: default_value      # Optional
+  ```
+
+## XPath-Ausdrücke
+
+- Relative Pfade mit `./` oder `.//` beginnen
+- Namespace-Präfixe korrekt verwenden (bldg:, gml:, etc.)
+- Attributzugriff mit `@` kennzeichnen
+- Komplexe Ausdrücke dokumentieren
+
+## Typkonvertierung
+
+- Unterstützte Typen:
+  - str: Textfelder
+  - int: Ganzzahlen
+  - float: Dezimalzahlen
+- Fehlerbehandlung bei Konvertierung
+- Sinnvolle Fallback-Werte
+
+## Pflichtfelder
+
+- In required_fields definieren
+- Existenz in citygml_fields prüfen
+- Fehlende Felder loggen
+- Fallback-Strategie festlegen
+
+## Attributextraktion
+
+- Namespace-Handling beachten
+- Leere Werte erkennen
+- Whitespace bereinigen
+- Fehler protokollieren
+
+## Fehlerbehandlung
+
+- Fehlende Felder dokumentieren
+- Konvertierungsfehler abfangen
+- Fallback-Werte nutzen
+- Warnungen loggen
+
+## Validierung
+
+- XPath-Ausdrücke testen
+- Datentypen validieren
+- Pflichtfelder prüfen
+- Ergebnisse protokollieren
+
+## Logging
+
+- Fehlende Pflichtfelder
+- Konvertierungsfehler
+- Verwendete Fallbacks
+- Erfolgreiche Extraktionen 

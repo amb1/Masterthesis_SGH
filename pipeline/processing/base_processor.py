@@ -15,7 +15,7 @@ root_dir = Path(__file__).resolve().parent.parent.parent
 if str(root_dir) not in sys.path:
     sys.path.append(str(root_dir))
 
-from pipeline.geometry.site_polygon import create_site_polygon, save_site_polygon
+from pipeline.geometry.site_polygon_utils import create_site_polygon, save_site_polygon
 from pipeline.data_sources.citygml_fetcher import fetch_citygml_buildings
 from pipeline.data_sources.wfs_fetcher import ViennaWFS
 

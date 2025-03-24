@@ -3,8 +3,9 @@ base_path: data/raw/citygml
 default_file: 099082.gml
 
 # Debug und Verarbeitungsoptionen
-debug: true  # Aktiviert detailliertes Logging
-split_meta_fields: false  # Metadaten in separate Spalten aufsplitten
+debug:
+  enabled: true
+  split_meta_fields: false
 
 namespaces:
   bldg: http://www.opengis.net/citygml/building/1.0
@@ -137,4 +138,81 @@ cea_fields:
     type: str
   City:
     source: city
-    type: str 
+    type: str
+
+attributes:
+  required:
+    - building_id
+    - height
+    - storeys
+    - building_type
+    - year_of_construction
+  
+  optional:
+    - roof_type
+    - ground_height
+    - usage
+    - address
+  
+  xpaths:
+    building_id:
+      xpath: ["@gml:id"]
+      type: str
+      
+    height:
+      xpath: 
+        - "bldg:measuredHeight"
+        - "bldg:height"
+        - "gen:doubleAttribute[gen:name='Gebäudehöhe']/gen:value"
+      type: float
+      fallback: 10.0
+      
+    storeys:
+      xpath:
+        - "bldg:storeysAboveGround"
+        - "bldg:numberOfFloorsAboveGround"
+        - "gen:intAttribute[gen:name='AnzahlGeschosse']/gen:value"
+      type: int
+      fallback: 3
+      
+    building_type:
+      xpath:
+        - "bldg:function"
+        - "bldg:usage"
+        - "bldg:buildingType"
+      type: str
+      fallback: "RESIDENTIAL"
+      
+    year_of_construction:
+      xpath:
+        - "bldg:yearOfConstruction"
+        - "gen:stringAttribute[gen:name='Baujahr']/gen:value"
+        - "gen:intAttribute[gen:name='Baujahr']/gen:value"
+      type: int
+      search_text: ["Baujahr", "Errichtungsjahr", "Erbaut"]
+      
+    roof_type:
+      xpath:
+        - "bldg:roofType"
+        - "bldg:roofForm"
+      type: str
+      
+    ground_height:
+      xpath:
+        - "bldg:groundHeight"
+        - "gen:doubleAttribute[gen:name='Grundhöhe']/gen:value"
+      type: float
+      fallback: 0.0
+      
+    usage:
+      xpath:
+        - "bldg:usage"
+        - "gen:stringAttribute[gen:name='Nutzung']/gen:value"
+      type: str
+      search_text: ["Nutzung", "Verwendung"]
+      
+    address:
+      xpath:
+        - ".//bldg:address//xal:thoroughfare"
+        - ".//bldg:address//xal:streetName"
+      type: str 

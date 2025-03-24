@@ -161,124 +161,107 @@ class CityGMLBuildingProcessor:
             self.logger.error(f"❌ Fehler beim Extrahieren des Footprints: {str(e)}")
             return None
 
-    def _extract_building_data(self, building):
-        """Extrahiert alle relevanten Attribute eines Gebäudes"""
+    def _extract_field_value(self, building: etree.Element, field_config: Dict[str, Any]) -> Any:
+        """Extrahiert einen Feldwert basierend auf der XPath-Konfiguration.
+        
+        Args:
+            building: Das Gebäude-Element
+            field_config: Feldkonfiguration mit xpath und type
+            
+        Returns:
+            Extrahierter und konvertierter Wert oder None wenn nicht gefunden
+        """
+        value = None
+        xpaths = field_config.get('xpath', [])
+        if isinstance(xpaths, str):
+            xpaths = [xpaths]
+        
+        # Versuche jeden XPath
+        for xpath in xpaths:
+            try:
+                # Attribut-Zugriff
+                if xpath.startswith('@'):
+                    attr = xpath.replace('@', '')
+                    value = building.get(attr)
+                    if value:
+                        break
+                # Element-Zugriff
+                else:
+                    # Füge .// hinzu wenn nicht vorhanden
+                    if not xpath.startswith('.//'):
+                        xpath = f'.//{xpath}'
+                    
+                    element = building.find(xpath, namespaces=self.ns)
+                    if element is not None and element.text:
+                        value = element.text.strip()
+                        break
+                    
+                    # Prüfe auf generische Attribute
+                    if 'gen:stringAttribute' in xpath or 'gen:doubleAttribute' in xpath:
+                        # Extrahiere den Wert aus dem value-Element
+                        value_el = element.find('gen:value', namespaces=self.ns) if element else None
+                        if value_el is not None and value_el.text:
+                            value = value_el.text.strip()
+                            break
+                        
+            except Exception as e:
+                self.logger.debug(f"⚠️ Fehler bei XPath {xpath}: {str(e)}")
+                continue
+            
+        # Wenn kein Wert gefunden wurde, gebe None zurück
+        if value is None or value.strip() == '':
+            return None
+            
+        # Typ-Konvertierung
         try:
-            attributes = {}
-            meta_fields = {}  # Speichert die Herkunft der Attribute
+            field_type = field_config.get('type', 'str')
+            if field_type == 'int':
+                value = int(float(value))  # Float-Konvertierung für Dezimalzahlen
+            elif field_type == 'float':
+                value = float(value)
+            elif field_type == 'bool':
+                value = value.lower() in ('true', '1', 'yes', 'ja')
+            else:
+                value = str(value)
+        except (ValueError, TypeError) as e:
+            self.logger.warning(f"⚠️ Typkonvertierung fehlgeschlagen: {str(e)}")
+            return None
             
-            building_id = building.get('{' + self.ns['gml'] + '}id', str(uuid.uuid4()))
-            attributes['Name'] = building_id
-            meta_fields['Name'] = 'extracted'
+        return value
+
+    def _extract_building_attributes(self, building: etree.Element) -> Dict[str, Any]:
+        """Extrahiert alle konfigurierten Attribute aus einem Gebäude.
+        
+        Args:
+            building: Das Gebäude-Element
             
-            missing_fields = []
-            debug_mode = self.config.get('debug', False)  # Debug-Modus aus Config
+        Returns:
+            Dictionary mit extrahierten Attributen
+        """
+        attributes = {}
+        
+        # Hole Konfiguration
+        fields_config = self.config.get('attributes', {}).get('xpaths', {})
+        required_fields = self.config.get('attributes', {}).get('required', [])
+        optional_fields = self.config.get('attributes', {}).get('optional', [])
+        
+        # Verarbeite alle Felder
+        for field in required_fields + optional_fields:
+            field_config = fields_config.get(field, {})
+            if not field_config:
+                self.logger.warning(f"⚠️ Keine Konfiguration für Feld {field}")
+                continue
             
-            # Extrahiere konfigurierte Felder
-            for field in self.config['required_fields']:
-                field_conf = self.config['citygml_fields'].get(field, {})
-                xpath = field_conf.get('xpath')
-                field_type = field_conf.get('type')
-                fallback = field_conf.get('fallback')
-
-                if not xpath:
-                    if debug_mode:
-                        self.logger.debug(f"⚠️ Kein XPath für Feld {field} konfiguriert")
-                    continue
-                    
-                value = None
-                try:
-                    # Spezielle Behandlung für komplexe Attribute
-                    if field == 'year_of_construction':
-                        for attr in building.findall('.//gen:stringAttribute', self.ns):
-                            name_elem = attr.find('gen:name', self.ns)
-                            val_elem = attr.find('gen:value', self.ns)
-                            if name_elem is not None and name_elem.text and 'Baujahr' in name_elem.text:
-                                value = val_elem.text.strip() if val_elem is not None and val_elem.text else None
-                                meta_fields[field] = 'extracted'
-                                break
-                    
-                    elif field == 'building_type':
-                        for attr in building.findall('.//gen:stringAttribute', self.ns):
-                            name_elem = attr.find('gen:name', self.ns)
-                            val_elem = attr.find('gen:value', self.ns)
-                            if name_elem is not None and name_elem.text and 'Nutzung' in name_elem.text:
-                                value = val_elem.text.strip() if val_elem is not None and val_elem.text else None
-                                meta_fields[field] = 'extracted'
-                                break
-                                
-                    elif field == 'measured_height':
-                        for attr in building.findall('.//gen:doubleAttribute', self.ns):
-                            name_elem = attr.find('gen:name', self.ns)
-                            val_elem = attr.find('gen:value', self.ns)
-                            if name_elem is not None and name_elem.text and 'Gebäudehöhe' in name_elem.text:
-                                value = val_elem.text.strip() if val_elem is not None and val_elem.text else None
-                                meta_fields[field] = 'extracted'
-                                break
-                    
-                    else:
-                        # Standardverarbeitung für einfache XPath-Ausdrücke
-                        if xpath.startswith('@'):
-                            # Attribut-Extraktion
-                            attr_name = xpath[1:]
-                            if ':' in attr_name:
-                                ns, attr = attr_name.split(':')
-                                attr_name = '{' + self.ns[ns] + '}' + attr
-                            value = building.get(attr_name)
-                            if value is not None:
-                                meta_fields[field] = 'extracted'
-                        else:
-                            # Element-Extraktion mit direkter Namespace-Verwendung
-                            element = building.find(f'.//{xpath}', self.ns)
-                            if element is not None:
-                                value = element.text.strip() if element.text else None
-                                if value is not None:
-                                    meta_fields[field] = 'extracted'
-
-                    # Wenn None, auf fallback setzen
-                    if value is None and fallback is not None:
-                        value = fallback
-                        meta_fields[field] = 'fallback'
-                        if debug_mode:
-                            self.logger.debug(f"⬇️ Fallback-Wert {fallback} für Feld {field} verwendet")
-
-                    # Typkonvertierung
-                    if value is not None and field_type:
-                        try:
-                            if field_type == "float":
-                                value = float(value)
-                            elif field_type == "int":
-                                value = int(value)
-                            elif field_type == "str":
-                                value = str(value)
-                        except ValueError:
-                            if debug_mode:
-                                self.logger.debug(f"⚠️ Typkonvertierung fehlgeschlagen für Feld {field}: {value}")
-                            if fallback is not None:
-                                value = fallback
-                                meta_fields[field] = 'fallback_after_conversion_error'
-                            
-                except Exception as e:
-                    if debug_mode:
-                        self.logger.debug(f"⚠️ Fehler bei Extraktion von Feld {field}: {str(e)}")
-                    missing_fields.append(field)
-                    meta_fields[field] = 'missing'
-                    continue
-
-                attributes[field] = value
-                if field not in meta_fields:
-                    meta_fields[field] = 'missing' if value is None else 'extracted'
-
-            if missing_fields and debug_mode:
-                self.logger.debug(f"ℹ️ Fehlende Pflichtfelder für Gebäude {building_id}: {', '.join(missing_fields)}")
-
-            # Füge Metadaten hinzu
-            attributes['_meta'] = meta_fields
-            return attributes
-
-        except Exception as e:
-            self.logger.error(f"❌ Fehler bei Attributextraktion für Gebäude: {str(e)}")
-            raise
+            value = self._extract_field_value(building, field_config)
+            
+            # Pflichtfeld-Validierung
+            if field in required_fields and value is None:
+                self.logger.warning(f"⚠️ Pflichtfeld {field} nicht gefunden")
+                continue
+            
+            attributes[field] = value
+        
+        return attributes
 
     def process_citygml(self, citygml_path):
         """Verarbeitet CityGML und erstellt Basis-GeoDataFrame"""
@@ -339,7 +322,7 @@ class CityGMLBuildingProcessor:
                             stats['lod']['LoD1'] += 1
                         
                         # Extrahiere Attribute nur für gültige Geometrien
-                        building_attrs = self._extract_building_data(building)
+                        building_attrs = self._extract_building_attributes(building)
                         if building_attrs:
                             stats['attributes']['success'] += 1
                             building_data.append(building_attrs)
@@ -370,21 +353,33 @@ class CityGMLBuildingProcessor:
                 crs=self.config['geometry']['srs_name']
             )
             
-            # Sicherer Zugriff auf Geometrie-Vereinfachungsoptionen
-            output_options = self.config.get('output', {}).get('geojson', {}).get('options', {})
-            tolerance = output_options.get('simplify_tolerance')
+            # Entferne Spalten die nur NULL-Werte enthalten
+            null_columns = buildings_gdf.columns[buildings_gdf.isna().all()].tolist()
+            if null_columns:
+                self.logger.info(f"ℹ️ Entferne leere Spalten: {', '.join(null_columns)}")
+                buildings_gdf = buildings_gdf.drop(columns=null_columns)
             
-            if tolerance:
-                self.logger.info(f"ℹ️ Vereinfache Geometrien mit Toleranz {tolerance}")
-                buildings_gdf.geometry = buildings_gdf.geometry.simplify(tolerance)
+            # Entferne Spalten mit leeren Strings oder NaN-Werten
+            empty_string_columns = buildings_gdf.columns[
+                (buildings_gdf.astype(str).isin(['', 'nan', 'None', 'NaN'])).all()
+            ].tolist()
+            if empty_string_columns:
+                self.logger.info(f"ℹ️ Entferne Spalten mit leeren Werten: {', '.join(empty_string_columns)}")
+                buildings_gdf = buildings_gdf.drop(columns=empty_string_columns)
             
-            # Optional: Metadaten in separate Spalten aufsplitten
-            if self.config.get('split_meta_fields', False):
-                meta_df = buildings_gdf['_meta'].apply(pd.Series)
-                buildings_gdf = pd.concat([
-                    buildings_gdf.drop(columns=['_meta']), 
-                    meta_df.add_prefix('src_')
-                ], axis=1)
+            # Entferne Zeilen, die nur NaN-Werte enthalten (außer Geometrie)
+            non_geom_cols = buildings_gdf.columns.drop('geometry')
+            if not non_geom_cols.empty:
+                empty_rows = buildings_gdf[non_geom_cols].isna().all(axis=1)
+                if empty_rows.any():
+                    self.logger.info(f"ℹ️ Entferne {empty_rows.sum()} Zeilen ohne Attribute")
+                    buildings_gdf = buildings_gdf[~empty_rows]
+            
+            # Entferne Zeilen mit leeren Strings in allen Attributspalten
+            empty_string_rows = buildings_gdf[non_geom_cols].astype(str).isin(['', 'nan', 'None', 'NaN']).all(axis=1)
+            if empty_string_rows.any():
+                self.logger.info(f"ℹ️ Entferne {empty_string_rows.sum()} Zeilen mit leeren Attributen")
+                buildings_gdf = buildings_gdf[~empty_string_rows]
             
             return buildings_gdf
             
@@ -457,6 +452,7 @@ def fetch_citygml_buildings(citygml_file: str, output_dir: str, config: Dict[str
         if gdf is not None and not gdf.empty:
             # Speichere Zwischenergebnis
             output_path = Path(output_dir) / "buildings_raw.gpkg"
+            output_path.parent.mkdir(parents=True, exist_ok=True)
             gdf.to_file(output_path, driver="GPKG")
             logger.info(f"✅ Gebäudedaten gespeichert in: {output_path}")
             return gdf

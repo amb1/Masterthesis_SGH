@@ -1,0 +1,60 @@
+# Geometrieverarbeitung
+
+## Konfiguration
+
+- Geometrie-Einstellungen in config.yml:
+  ```yaml
+  geometry:
+    srs_name: "EPSG:XXXXX"
+    min_area: 10.0
+    validate: true
+  ```
+
+## Koordinatenextraktion
+
+- 3D-Koordinaten aus posList extrahieren
+- Koordinatenpaare korrekt gruppieren
+- Ungültige Koordinaten erkennen
+- Fehlerbehandlung implementieren
+
+## Polygon-Erstellung
+
+- Geschlossene Ringe sicherstellen
+- Koordinatenreihenfolge prüfen
+- MultiPolygon-Support
+- Validierung durchführen
+
+## Validierung
+
+- Polygon-Gültigkeit prüfen
+- Selbstüberschneidungen erkennen
+- Mindestfläche kontrollieren
+- Reparaturoptionen anbieten
+
+## Fehlerbehandlung
+
+- Koordinatenfehler abfangen
+- Polygon-Fehler behandeln
+- Validierungsfehler loggen
+- Fallback-Strategien definieren
+
+## MultiPolygon-Support
+
+- Mehrere Polygone zusammenführen
+- Validierung der Teilpolygone
+- Konsistente Orientierung
+- Überlappungen prüfen
+
+## Statistiken
+
+- Erfolgreiche/fehlgeschlagene Extraktionen
+- Flächenstatistiken (min/max/avg)
+- Polygon-Typen (Single/Multi)
+- LoD-Level erfassen
+
+## Logging
+
+- Detaillierte Fehlermeldungen
+- Geometrie-Statistiken
+- Validierungsergebnisse
+- Warnungen und Hinweise 

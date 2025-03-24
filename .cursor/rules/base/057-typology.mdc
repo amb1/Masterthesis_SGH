@@ -1,0 +1,37 @@
+# Gebäudetypologie-Generierung
+
+Der TypologyGenerator ist verantwortlich für die Erstellung der Gebäudetypologie-Datei.
+
+## Funktionalität
+
+- Erstellt eine Gebäudetypologie aus den Gebäudedaten
+- Klassifiziert Gebäude nach Baualter und Nutzung
+- Exportiert das Ergebnis als Shapefile
+
+## Attribute
+
+Die Typology-Datei enthält folgende Attribute:
+- `building_id`: Eindeutige Gebäude-ID
+- `year_built`: Baujahr
+- `height`: Gebäudehöhe
+- `floors`: Anzahl der Stockwerke
+- `use_type`: Gebäudenutzung
+- `construction_type`: Konstruktionstyp basierend auf Baualter
+
+## Konstruktionstypen
+
+- HISTORICAL: vor 1919
+- TRADITIONAL: 1919-1945
+- MODERN: 1945-1980
+- CONTEMPORARY: nach 1980
+
+## Validierung
+
+- Alle erforderlichen Attribute müssen vorhanden sein
+- Die Geometrie muss gültig sein
+- Das CRS muss mit dem Projekt-CRS übereinstimmen
+
+## Ausgabe
+
+- `typology.shp`: Shapefile mit der Gebäudetypologie
+- Vollständige Attributtabelle mit allen spezifizierten Feldern 

@@ -1,0 +1,134 @@
+# Zirkuläre Imports vermeiden
+
+## Funktionalität
+
+Die Regel definiert Best Practices für Python-Importe, um zirkuläre Abhängigkeiten zu vermeiden.
+
+### Grundprinzipien
+
+1. **Direkte Importe**: Importiere Objekte immer direkt aus dem Modul, in dem sie definiert sind.
+   ```python
+   # ❌ NICHT:
+   from pipeline import create_site_polygon
+   
+   # ✅ RICHTIG:
+   from pipeline.geometry.site_polygon_utils import create_site_polygon
+   ```
+
+2. **Lazy Imports**: Wenn zirkuläre Abhängigkeiten unvermeidbar sind, verschiebe Imports in die Funktionen:
+   ```python
+   # ❌ NICHT auf Modulebene:
+   from ..processing.site_polygon_processor import SitePolygonProcessor
+   
+   # ✅ RICHTIG - in der Funktion:
+   def main():
+       from ..processing.site_polygon_processor import SitePolygonProcessor
+   ```
+
+3. **Utility-Module**: Lagere gemeinsam genutzte Funktionen in separate Utility-Module aus:
+   ```python
+   # site_polygon_utils.py
+   def create_site_polygon(): ...
+   def save_site_polygon(): ...
+   
+   # Andere Module importieren von hier
+   from .site_polygon_utils import create_site_polygon
+   ```
+
+### Architektur-Richtlinien
+
+1. **Schichtenarchitektur**:
+   - Core (Basisklassen, Interfaces)
+   - Utils (wiederverwendbare Funktionen)
+   - Processing (Verarbeitung)
+   - IO (Ein-/Ausgabe)
+
+2. **Abhängigkeitsrichtung**:
+   - Nach unten: Core → Utils → Processing → IO
+   - Nicht nach oben: IO ↛ Core
+
+## Validierung
+
+### Import-Prüfungen
+
+1. **Modulebene**:
+   - Keine zirkulären Abhängigkeiten zwischen Modulen
+   - Keine relativen Imports (..) auf Modulebene
+   - Keine Stern-Imports (from x import *)
+
+2. **Funktionsebene**:
+   - Lazy Imports nur wenn nötig
+   - Dokumentierte Gründe für Lazy Imports
+
+### Architektur-Prüfungen
+
+1. **Abhängigkeitsrichtung**:
+   - Core-Module importieren keine Processing-Module
+   - Utils importieren keine Business-Logik
+
+2. **Modulgrenzen**:
+   - Klare Trennung zwischen Modulen
+   - Keine überkreuzenden Abhängigkeiten
+
+## Fehlerbehebung
+
+### Typische Probleme
+
+1. **Zirkuläre Imports**:
+   ```python
+   # a.py
+   from b import B  # ❌ Zirkulär
+   
+   # b.py
+   from a import A  # ❌ Zirkulär
+   ```
+
+   Lösung:
+   ```python
+   # base.py
+   class Base: ...
+   
+   # a.py
+   from base import Base
+   
+   # b.py
+   from base import Base
+   ```
+
+2. **Verschachtelte Imports**:
+   ```python
+   # ❌ NICHT:
+   from ..processing import processor
+   from processor import something
+   
+   # ✅ RICHTIG:
+   from pipeline.processing.processor import something
+   ```
+
+### Lösungsstrategien
+
+1. **Utility-Extraktion**:
+   - Gemeinsame Funktionen in Utils-Module verschieben
+   - Beide Module importieren von Utils
+
+2. **Interface-Separation**:
+   - Basisklassen/Interfaces in Core-Module
+   - Implementierungen in separate Module
+
+3. **Dependency Injection**:
+   - Abhängigkeiten als Parameter übergeben
+   - Factories für Objekterstellung
+
+## Output
+
+### Logging
+
+- Warnung bei zirkulären Imports
+- Info über aufgelöste Abhängigkeiten
+- Debug-Informationen für Import-Pfade
+
+### Dokumentation
+
+- Kommentare für Lazy Imports
+- Abhängigkeitsgraph im Docstring
+- Architektur-Übersicht in README 

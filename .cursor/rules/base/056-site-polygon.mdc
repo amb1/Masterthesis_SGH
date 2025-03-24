@@ -1,0 +1,33 @@
+# Site Polygon Verarbeitung
+
+Der SitePolygonProcessor ist verantwortlich für die Erstellung und Verwaltung von Grundstückspolygonen.
+
+## Funktionalität
+
+- Erstellt ein Site-Polygon aus Gebäudegrundrissen
+- Wendet Buffer und Vereinfachung an
+- Exportiert das Ergebnis als Shapefile
+
+## Konfiguration
+
+Die Konfiguration erfolgt in `config/global.yml`:
+
+```yaml
+processing:
+  site_polygon:
+    buffer_distance: 3  # Meter
+    simplify_tolerance: 0.5  # Meter
+```
+
+## Validierung
+
+- Das Site-Polygon muss alle Gebäude umschließen
+- Die Geometrie muss gültig sein
+- Das CRS muss mit dem Projekt-CRS übereinstimmen
+
+## Ausgabe
+
+- `site.shp`: Shapefile mit dem Site-Polygon
+- Attributtabelle enthält mindestens:
+  - Geometrie
+  - CRS-Information 

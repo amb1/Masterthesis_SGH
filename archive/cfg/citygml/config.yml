@@ -7,7 +7,7 @@ input:
 
 processing:
   crs:
-    input: "EPSG:25832"  # Standard-CRS für Berlin
+    input: "EPSG:31256"  # Standard-CRS für Berlin
     output: "EPSG:4326"  # WGS84
   lod_level: 2
   validation:
@@ -16,12 +16,33 @@ processing:
   attributes:
     required:
       - building_id
-      - height
       - storeys
-    optional:
-      - roof_type
-      - ground_height
+      - measured_height
       - year_of_construction
+      - building_type
+      - roof_type
+
+citygml_fields:
+  building_id:
+    xpath: '@gml:id'
+    type: str
+  storeys:
+    xpath: './/bldg:storeysAboveGround'
+    type: int
+  measured_height:
+    xpath: './/gen:doubleAttribute[gen:name="Gebäudehöhe"]/gen:value'
+    type: float
+  year_of_construction:
+    xpath: './/gen:stringAttribute[gen:name="Baujahr"]/gen:value'
+    type: str
+  building_type:
+    xpath: './/gen:stringAttribute[gen:name="Nutzung"]/gen:value'
+    type: str
+  roof_type:
+    xpath: './/gen:stringAttribute[gen:name="Dachform"]/gen:value'
+    type: str
+
+
 
 output:
   formats:
@@ -56,4 +77,4 @@ cache:
   enabled: true
   directory: "cache/citygml"
   max_size_mb: 1000
-  ttl_hours: 24 
+  ttl_hours: 24

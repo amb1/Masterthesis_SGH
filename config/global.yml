@@ -1,39 +1,40 @@
 # Migrated from local/cfg/project_config.yml
 # Globale Projektkonfiguration
 project:
-  name: "SGH-Master"
-  version: "1.0.0"
-  location: "Wien"
-  description: "Sustainability Geo Hub Master Project"
-  crs: "EPSG:31256"
+  name: SGH-Master
+  version: 1.0.0
+  location: Wien
+  description: Sustainability Geo Hub Master Project
+  crs: EPSG:31256
   
   paths:
-    data: "data"
+    data: data
     outputs:
-      citygml: "data/processed/output/citygml"
-      wfs: "data/processed/output/wfs"
-      cea: "data/processed/output/cea"
-      osm: "data/processed/output/osm"
-    temp: "temp"
-    logs: "logs"
+      citygml: data/processed/output/citygml
+      wfs: data/processed/output/wfs
+      cea: data/processed/output/cea
+      osm: data/processed/output/osm
+      buildings: data/processed/output/buildings
+    temp: temp
+    logs: logs
 
 logging:
-  level: "INFO"
+  level: INFO
   format: "%(asctime)s [%(levelname)8s] %(message)s (%(filename)s:%(lineno)d)"
-  file: "logs/pipeline.log"
+  file: logs/pipeline.log
 
 pipeline:
   steps:
-    - name: "fetch_data"
+    - name: fetch_data
       enabled: true
-      config: "config/wfs/stream_config.yml"
-    - name: "process_data"
+      config: config/wfs/stream_config.yml
+    - name: process_data
       enabled: true
-      config: "config/cea/mapping.yml"
-    - name: "enrich_data"
+      config: config/cea/mapping.yml
+    - name: enrich_data
       enabled: true
-      config: "config/osm/config.yml"
-    - name: "export_data"
+      config: config/osm/config.yml
+    - name: export_data
       enabled: true
 
 processing:
@@ -45,18 +46,18 @@ processing:
     buffer_distance: 100  # Meter - für Umgebungsgebäude
 
   file_formats:
-    shp_driver: "ESRI Shapefile"
-    gml_encoding: "utf-8"
+    shp_driver: ESRI Shapefile
+    gml_encoding: utf-8
 
 # Verweise auf spezifische Konfigurationsdateien
 config_files:
-  citygml: "config/citygml/config.yml"
-  wfs: "config/wfs/stream_config.yml"
-  cea: "config/cea/mapping.yml"
-  osm: "config/osm/config.yml"
+  citygml: config/citygml/config.yml
+  wfs: config/wfs/stream_config.yml
+  cea: config/cea/mapping.yml
+  osm: config/osm/config.yml
 
 data_source:
   citygml:
-    base_path: "data/raw/citygml"
-    default_file: "099082.gml"
-    config_file: "config/citygml/config.yml" 
+    base_path: data/raw/citygml
+    default_file: 099082.gml
+    config_file: config/citygml/config.yml 
