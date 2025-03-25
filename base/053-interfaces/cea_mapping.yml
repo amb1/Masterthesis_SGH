@@ -1,0 +1,172 @@
+---
+description: Mapping-Konfiguration für erweiterte CEA-Felder
+globs: ["pipeline/processing/cea_processor.py", "pipeline/output/writer.py"]
+---
+
+# CEA-Mapping Konfiguration
+
+## Datenquellen-Priorität
+data_source_priority:
+  - citygml  # Höchste Priorität
+  - wfs
+  - osm      # Niedrigste Priorität
+
+## Zone.shp Mappings
+zone_mappings:
+  Name:
+    sources:
+      citygml:
+        - "ThoroughfareName"
+        - "ThoroughfareNumber"
+      wfs:
+        street: "Gebäudeinfo_STRNAML"
+        house_no: "Gebäudeinfo_VONN"
+    transform: "combine_address"
+    format: "{street}_{house_no}"
+    default: "Unknown"
+  
+  floors_ag:
+    sources:
+      citygml: "bldg:storeysAboveGround"
+      wfs: "GEBAEUDEINFOOGD_GESCH_ANZ"
+    transform: "to_int"
+    default: 4
+    required: true
+  
+  floors_bg:
+    sources:
+      wfs: "Gebäudeinfo_NS"
+    transform: "to_int"
+    default: 1
+    required: true
+  
+  height_ag:
+    sources:
+      citygml: "bldg:measuredHeight"
+      wfs: "HoeheDach"
+    transform: "to_float"
+    default: 12.0
+  
+  height_bg:
+    calculation: "floors_bg * 3"
+    transform: "to_float"
+    default: 3.0
+  
+  REFERENCE:
+    sources:
+      citygml: "@gml:id"
+      wfs: "OBJECTID"
+    transform: "none"
+    required: true
+  
+  # Erweiterte Adressfeld-Mappings
+  house_no:
+    sources:
+      citygml: "ThoroughfareNumber"
+      wfs: "Gebäudeinfo_VONN"
+    default: ""
+  
+  street:
+    sources:
+      citygml: "ThoroughfareName"
+      wfs: "Gebäudeinfo_STRNAML"
+    default: ""
+  
+  postcode:
+    sources:
+      citygml: "PostalCodeNumber"
+      wfs: "Gebäudeinfo_BEZ"
+    default: "1010"
+  
+  house_name:
+    sources:
+      wfs: "Gebäudeinfo_HA_NAME"
+    default: ""
+
+## Typology.shp Mappings
+typology_mappings:
+  Name:
+    sources:
+      citygml: "@gml:id"
+      wfs: "OBJECTID"
+    transform: "none"
+  
+  YEAR:
+    sources:
+      wfs: "Gebäudeinfo_BAUJAHR"
+    transform: "to_int"
+    default: 1960
+  
+  STANDARD:
+    sources:
+      wfs: "Gebäudeinfo_L_BAUTYP"
+      wfs2: "Gebäudetypologie_BAUTYP_TXT"
+    default: "STANDARD"
+  
+  # Erweiterte Nutzungskategorie-Mappings
+  1ST_USE:
+    sources:
+      citygml: "bldg:function"
+      wfs: "Gebäudeinfo_L_NUTZUNG"
+    transform: "none"
+    mapping:
+      "4.-Bauten der öffentl.u.privaten Repräsentation u.Verwaltung": "OFFICE"
+      "5.-Bauten der Erziehung und Bildung": "SCHOOL"
+      "6.-Bauten der öffentlichen und privaten Wirtschaft": "OFFICE"
+      "10.-Kaufhäuser": "RETAIL"
+      "11.-Einkaufszentren": "RETAIL"
+      "12.-Gewerbebetriebe": "INDUSTRIAL"
+      "13.-Industriebauten": "INDUSTRIAL"
+      "14.-Bauten des öffentlichen und privaten Verkehrs": "OFFICE"
+      "15.-Bauten der öffentlichen und privaten Wohlfahrt": "PUBLIC"
+      "W1.1.-bäuerl.dom.Baustrukt.-Streck- u. Hakenhof": "RESIDENTIAL"
+      "W1.2.-bäuerl.dom.Baustrukt.-Zwerchh.u.Gassenfrontenhaus": "RESIDENTIAL"
+      "W2.1.-Bürgerhaus-kleine Haustypen ohne Hof": "RESIDENTIAL"
+      "W2.2.-Bürgerhaus-Haus auf tiefer,schmaler Parzelle,ohne Hof": "RESIDENTIAL"
+      "W3.1.-Mieth.s.d.Gründerzeit-Straßentrakter": "RESIDENTIAL"
+      "W3.2.-Mieth.s.d.Gründerzeit-Seitenflügelhaus": "RESIDENTIAL"
+      "W3.3.-Mieth.s.d.Gründerzeit-Doppeltrakter mit Verbindungstr.": "RESIDENTIAL"
+      "W3.4.-Mieth.s.d.Gründerzeit-Doppeltrakter,zweihüft. Hoftrakt": "RESIDENTIAL"
+      "W3.7.-Mieth.s.d.Gründerzeit-Eckhaus": "RESIDENTIAL"
+      "W3.8.-Mieth.s.d.Gründerzeit-Hoftrakt": "RESIDENTIAL"
+      "W4.1.-soz.u.gemeinn.Wohnb.-Baulückenbebauungen": "RESIDENTIAL"
+      "W4.2.-soz.u.gemeinn.Wohnb.-Hofbebauungen/Superblocks": "RESIDENTIAL"
+      "W4.3.-soz.u.gemeinn.Wohnb.-Siedlungen in Zeilenbauweise": "RESIDENTIAL"
+      "W4.4.-soz.u.gemeinn.Wohnb.-Siedlungen,1-,2-u.Mehrfamilienh.": "RESIDENTIAL"
+      "W5.1.-freist.1-,2-u.Mehrfamilienh.-Villen in Randbebauung": "RESIDENTIAL"
+      "W5.2.-freist.1-,2-u.Mehrfamilienh.-freistehende Villen": "RESIDENTIAL"
+      "W6.1.-Sonderwohnbauten-Hotel und Pension": "HOTEL"
+      "W6.2.-Sonderwohnbauten-Heim,Pflegeanstalt,Spitalsbauten": "HOSPITAL"
+      "1000": "RESIDENTIAL"  # CityGML Standardwert für Wohngebäude
+    default: "MIXED"
+  
+  1ST_USER:
+    sources:
+      wfs: "Gebäudeinfo_NUTZER"
+    default: ""
+  
+  2ND_USE:
+    sources:
+      wfs: "Gebäudeinfo_L_NUTZUNG2"
+    transform: "none"
+    mapping:
+      _inherit: "1ST_USE.mapping"
+    default: ""
+  
+  2ND_USER:
+    sources:
+      wfs: "Gebäudeinfo_NUTZER2"
+    default: ""
+  
+  3RD_USE:
+    sources:
+      wfs: "Gebäudeinfo_L_NUTZUNG3"
+    transform: "none"
+    mapping:
+      _inherit: "1ST_USE.mapping"
+    default: ""
+  
+  3RD_USER:
+    sources:
+      wfs: "Gebäudeinfo_NUTZER3"
+    default: "" 

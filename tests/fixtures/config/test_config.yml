@@ -1,0 +1,49 @@
+# Test-Konfiguration für Pipeline-Tests
+
+pipeline:
+  steps:
+    - name: "fetch_data"
+      enabled: true
+    - name: "process_data"
+      enabled: true
+    - name: "export_data"
+      enabled: true
+
+data_source:
+  citygml:
+    config_file: "tests/fixtures/config/citygml_config.yml"
+    file_name: "buildings.gml"
+    base_path: "tests/fixtures/data/citygml"
+    default_file: "buildings.gml"
+    namespaces:
+      citygml: "http://www.opengis.net/citygml/2.0"
+      bldg: "http://www.opengis.net/citygml/building/2.0"
+      gml: "http://www.opengis.net/gml"
+    
+  wfs:
+    url: "https://data.wien.gv.at/daten/wfs"
+    version: "2.0.0"
+    type_name: "ogdwien:ADRESSENOGD"
+    srs_name: "EPSG:31256"
+    buffer_distance: 100
+    min_area: 10
+    min_height: 3
+    
+  osm:
+    base_url: "https://overpass-api.de/api/interpreter"
+    buffer_distance: 100
+    min_area: 10
+    min_height: 3
+    
+  cea:
+    scenario_path: "tests/fixtures/data/cea"
+    weather_file: "weather.epw"
+
+project:
+  paths:
+    output: "tests/output"
+    temp: "tests/temp"
+  
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s" 

@@ -20,7 +20,7 @@ from pipeline.data_sources.osm_building_fetcher import (
     fetch_osm_buildings
 )
 from pipeline.data_sources.osm_street_fetcher import fetch_osm_streets
-from pipeline.data_sources.wfs_fetcher import ViennaWFS
+from pipeline.data_sources.wfs_fetcher import ViennaWFSFetcher
 from pipeline.processing.cea_processor import CEABuildingProcessor
 from pipeline.geometry.site_polygon import create_site_polygon, save_site_polygon
 from core.project_paths import ProjectPaths
@@ -93,7 +93,7 @@ def process_building_data(project_paths: ProjectPaths, config: Dict) -> Tuple[gp
             streets_gdf.to_file(streets_path, driver='GPKG')
         
         # WFS-Daten laden
-        wfs = ViennaWFS(config)
+        wfs = ViennaWFSFetcher(config)
         wfs_data = wfs.fetch_data()
         
         # Ergebnisse für CEA speichern

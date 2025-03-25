@@ -1,0 +1,63 @@
+# CityGML-Konfiguration für Tests
+
+namespaces:
+  citygml: "http://www.opengis.net/citygml/2.0"
+  bldg: "http://www.opengis.net/citygml/building/2.0"
+  gml: "http://www.opengis.net/gml"
+
+geometry:
+  srs: "EPSG:3857"
+  buffer_distance: 200
+  min_area: 10
+  min_height: 2
+
+attributes:
+  required:
+    - height
+    - floors
+    - year_built
+    - building_type
+  optional:
+    - name
+    - address
+    - usage
+
+mappings:
+  building_types:
+    residential:
+      cea_type: "RESIDENTIAL"
+      construction: "STANDARD"
+      window_wall_ratio: 0.3
+      occupancy: "RESIDENTIAL"
+    commercial:
+      cea_type: "COMMERCIAL"
+      construction: "STANDARD"
+      window_wall_ratio: 0.4
+      occupancy: "COMMERCIAL"
+    industrial:
+      cea_type: "INDUSTRIAL"
+      construction: "INDUSTRIAL"
+      window_wall_ratio: 0.2
+      occupancy: "INDUSTRIAL"
+
+  construction_periods:
+    "1800-1918":
+      start: 1800
+      end: 1918
+      construction: "HISTORICAL"
+    "1919-1945":
+      start: 1919
+      end: 1945
+      construction: "STANDARD"
+    "1946-1980":
+      start: 1946
+      end: 1980
+      construction: "MODERN"
+    "1981-2000":
+      start: 1981
+      end: 2000
+      construction: "MODERN"
+    "2001-present":
+      start: 2001
+      end: 2100
+      construction: "CONTEMPORARY" 

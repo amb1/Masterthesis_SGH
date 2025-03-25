@@ -4,6 +4,7 @@ Gemeinsame Test-Fixtures und Konfiguration.
 import pytest
 import os
 import sys
+import yaml
 from pathlib import Path
 import geopandas as gpd
 from shapely.geometry import Polygon
@@ -26,8 +27,8 @@ def setup_test_env():
 
 @pytest.fixture(scope="session")
 def test_data_dir():
-    """Basis-Verzeichnis für Testdaten."""
-    return Path(__file__).parent / "data"
+    """Fixture für den Testdaten-Ordner"""
+    return Path(__file__).parent / "test_data"
 
 @pytest.fixture(scope="session")
 def test_fixtures_dir():
@@ -140,6 +141,94 @@ def sample_global_config():
         'processing': {
             'site_polygon': {
                 'buffer_distance': 3
+            }
+        }
+    }
+
+@pytest.fixture(scope="session")
+def cea_mapping_config():
+    """Lädt die CEA-Mapping Konfiguration."""
+    config_path = Path(__file__).parent.parent / "base/053-interfaces/cea_mapping.yml"
+    with open(config_path, "r", encoding="utf-8") as f:
+        # Lade alle YAML-Dokumente und kombiniere sie
+        docs = list(yaml.safe_load_all(f))
+        # Kombiniere die Dokumente, wobei das zweite Dokument Vorrang hat
+        combined_config = {}
+        for doc in docs:
+            if doc:  # Überspringe leere Dokumente
+                combined_config.update(doc)
+        return combined_config
+
+@pytest.fixture
+def sample_citygml_building():
+    """Beispiel CityGML-Gebäudedaten für Tests."""
+    return """<Building xmlns="http://www.opengis.net/citygml/building/2.0"
+         xmlns:gml="http://www.opengis.net/gml"
+         xmlns:xAL="urn:oasis:names:tc:ciq:xsdschema:xAL:2.0"
+         xmlns:bldg="http://www.opengis.net/citygml/building/2.0"
+         gml:id="BUILDING_1234">
+    <bldg:measuredHeight>15.5</bldg:measuredHeight>
+    <bldg:storeysAboveGround>4</bldg:storeysAboveGround>
+    <bldg:function>1000</bldg:function>
+    <bldg:address>
+        <Address>
+            <xAL:AddressDetails>
+                <xAL:Country>
+                    <xAL:CountryName>Österreich</xAL:CountryName>
+                    <xAL:Locality Type="City">
+                        <xAL:LocalityName>Wien</xAL:LocalityName>
+                        <xAL:Thoroughfare Type="Street">
+                            <xAL:ThoroughfareName>Teststraße</xAL:ThoroughfareName>
+                            <xAL:ThoroughfareNumber>42</xAL:ThoroughfareNumber>
+                        </xAL:Thoroughfare>
+                        <xAL:PostalCode>
+                            <xAL:PostalCodeNumber>1010</xAL:PostalCodeNumber>
+                        </xAL:PostalCode>
+                    </xAL:Locality>
+                </xAL:Country>
+            </xAL:AddressDetails>
+        </Address>
+    </bldg:address>
+</Building>"""
+
+@pytest.fixture
+def sample_wfs_building():
+    """Beispiel WFS-Gebäudedaten für Tests."""
+    return {
+        "OBJECTID": "4711",
+        "Gebäudeinfo_STRNAML": "Teststraße",
+        "Gebäudeinfo_VONN": "42",
+        "Gebäudeinfo_BEZ": "1010",
+        "Gebäudeinfo_L_NUTZUNG": "W2.1.-Bürgerhaus-kleine Haustypen ohne Hof",
+        "Gebäudeinfo_L_NUTZUNG2": "6.-Bauten der öffentlichen und privaten Wirtschaft",
+        "Gebäudeinfo_L_NUTZUNG3": "10.-Kaufhäuser",
+        "Gebäudeinfo_NUTZER": "Privat",
+        "Gebäudeinfo_NUTZER2": "Firma",
+        "Gebäudeinfo_NUTZER3": "Handel",
+        "HoeheDach": "15.5",
+        "GEBAEUDEINFOOGD_GESCH_ANZ": "4",
+        "Gebäudeinfo_NS": "1",
+        "Gebäudeinfo_BAUJAHR": "1890",
+        "Gebäudeinfo_L_BAUTYP": "STANDARD",
+        "Gebäudeinfo_HA_NAME": "Testhaus"
+    }
+
+@pytest.fixture
+def sample_validation_config():
+    """Fixture für Validierungskonfiguration"""
+    return {
+        "validation": {
+            "height_ag": {
+                "min": 2.0,
+                "max": 200.0
+            },
+            "floors_ag": {
+                "min": 1,
+                "max": 100
+            },
+            "year_built": {
+                "min": 1800,
+                "max": 2024
             }
         }
     } 

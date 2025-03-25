@@ -14,6 +14,9 @@ from core.logging_config import setup_logging, LoggedOperation
 from pipeline.data_sources.citygml_fetcher import fetch_citygml_buildings
 from pipeline.data_sources.wfs_fetcher import fetch_wfs_buildings
 from pipeline.data_sources.osm_fetcher import fetch_osm_data
+from pipeline.processing.citygml_processor import CityGMLProcessor
+from pipeline.processing.wfs_processor import WFSProcessor
+from pipeline.processing.osm_processor import OSMProcessor
 from pipeline.processing.cea_processor import CEABuildingProcessor
 from pipeline.output.writer import write_output
 
@@ -196,13 +199,54 @@ class PipelineOrchestrator:
                 except Exception as e:
                     raise PipelineError("Fehler beim Laden der CEA-Konfiguration", "process_data", e)
 
-            self.logger.info("🔄 Verarbeite Daten für CEA...")
-            processor = CEABuildingProcessor(self.config)
-            processed_data = processor.process_buildings(citygml_data, wfs_data, osm_data)
+            self.logger.info("🔄 Starte Datenverarbeitung...")
+            
+            # Initialisiere Prozessoren
+            citygml_processor = CityGMLProcessor(self.config)
+            wfs_processor = WFSProcessor(self.config)
+            osm_processor = OSMProcessor(self.config)
+            cea_processor = CEABuildingProcessor(self.config)
+            
+            # Verarbeite CityGML-Daten
+            self.logger.info("🔄 Verarbeite CityGML-Daten...")
+            processed_citygml = citygml_processor.process(citygml_data)
+            if not processed_citygml:
+                self.logger.warning("⚠️ Keine CityGML-Daten verarbeitet")
+            
+            # Verarbeite WFS-Daten
+            self.logger.info("🔄 Verarbeite WFS-Daten...")
+            processed_wfs = wfs_processor.process(wfs_data)
+            if not processed_wfs:
+                self.logger.warning("⚠️ Keine WFS-Daten verarbeitet")
+            
+            # Verarbeite OSM-Daten
+            self.logger.info("🔄 Verarbeite OSM-Daten...")
+            processed_osm = osm_processor.process(osm_data)
+            if not processed_osm:
+                self.logger.warning("⚠️ Keine OSM-Daten verarbeitet")
+            
+            # Kombiniere alle Daten für CEA-Verarbeitung
+            combined_data = {
+                'citygml': processed_citygml.get('buildings', {}),
+                'wfs': processed_wfs.get('buildings', {}),
+                'osm': {
+                    'buildings': processed_osm.get('buildings', {}),
+                    'streets': processed_osm.get('streets', {})
+                }
+            }
+            
+            # Verarbeite kombinierte Daten mit CEA-Prozessor
+            self.logger.info("🔄 Führe CEA-Verarbeitung durch...")
+            processed_data = cea_processor.process_buildings(
+                combined_data['citygml'],
+                combined_data['wfs'],
+                combined_data['osm']
+            )
             
             if not processed_data:
                 raise PipelineError("Keine Daten verarbeitet", "process_data")
                 
+            self.logger.info("✅ Datenverarbeitung erfolgreich abgeschlossen")
             return processed_data
             
         except PipelineError:

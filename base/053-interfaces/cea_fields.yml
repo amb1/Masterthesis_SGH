@@ -1,0 +1,174 @@
+---
+description: Erweiterte CEA-Felderdefinitionen
+globs: ["pipeline/processing/cea_processor.py", "pipeline/output/writer.py"]
+---
+
+# CEA-Felderdefinitionen
+
+## Zone.shp Felder
+zone_fields:
+  - name: Name
+    type: str
+    required: true
+    description: "Eindeutiger Identifikator des Gebäudes"
+  
+  - name: floors_ag
+    type: int
+    required: true
+    description: "Anzahl der oberirdischen Geschosse"
+    
+  - name: floors_bg
+    type: int
+    required: true
+    description: "Anzahl der unterirdischen Geschosse"
+    default: 1
+    
+  - name: height_ag
+    type: float
+    required: true
+    description: "Höhe des Gebäudes über Grund in Metern"
+    
+  - name: height_bg
+    type: float
+    required: true
+    description: "Höhe des Gebäudes unter Grund in Metern"
+    default: 3.0
+    
+  - name: REFERENCE
+    type: str
+    required: true
+    description: "Referenzidentifikator"
+    
+  # Erweiterte Adressfelder
+  - name: house_no
+    type: str
+    required: false
+    description: "Hausnummer"
+    
+  - name: street
+    type: str
+    required: false
+    description: "Straßenname"
+    
+  - name: postcode
+    type: str
+    required: false
+    description: "Postleitzahl"
+    default: "1010"
+    
+  - name: house_name
+    type: str
+    required: false
+    description: "Name des Gebäudes"
+    
+  - name: city
+    type: str
+    required: true
+    description: "Stadt"
+    default: "Wien"
+    
+  - name: country
+    type: str
+    required: true
+    description: "Land"
+    default: "Austria"
+
+## Typology.shp Felder
+typology_fields:
+  - name: Name
+    type: str
+    required: true
+    description: "Eindeutiger Identifikator des Gebäudes"
+    
+  - name: YEAR
+    type: int
+    required: true
+    description: "Baujahr des Gebäudes"
+    
+  - name: STANDARD
+    type: str
+    required: true
+    description: "Gebäudestandard"
+    
+  # Erweiterte Nutzungskategorien
+  - name: 1ST_USE
+    type: str
+    required: true
+    description: "Primäre Nutzung"
+    allowed_values:
+      - RESIDENTIAL
+      - OFFICE
+      - RETAIL
+      - INDUSTRIAL
+      - SCHOOL
+      - HOSPITAL
+      - HOTEL
+      - PUBLIC
+      - MIXED
+    
+  - name: 1ST_USER
+    type: str
+    required: false
+    description: "Primärer Nutzer"
+    
+  - name: 2ND_USE
+    type: str
+    required: false
+    description: "Sekundäre Nutzung"
+    allowed_values:
+      - RESIDENTIAL
+      - OFFICE
+      - RETAIL
+      - INDUSTRIAL
+      - SCHOOL
+      - HOSPITAL
+      - HOTEL
+      - PUBLIC
+      - MIXED
+    
+  - name: 2ND_USER
+    type: str
+    required: false
+    description: "Sekundärer Nutzer"
+    
+  - name: 3RD_USE
+    type: str
+    required: false
+    description: "Tertiäre Nutzung"
+    allowed_values:
+      - RESIDENTIAL
+      - OFFICE
+      - RETAIL
+      - INDUSTRIAL
+      - SCHOOL
+      - HOSPITAL
+      - HOTEL
+      - PUBLIC
+      - MIXED
+    
+  - name: 3RD_USER
+    type: str
+    required: false
+    description: "Tertiärer Nutzer"
+    
+  - name: REFERENCE
+    type: str
+    required: true
+    description: "Referenzidentifikator"
+
+## Validierungsregeln
+validation_rules:
+  buildings:
+    height:
+      type: float
+      min: 2.0
+      max: 200.0
+      unit: meters
+    floors:
+      type: integer
+      min: 1
+      max: 100
+    year_built:
+      type: integer
+      min: 1800
+      max: 2024 

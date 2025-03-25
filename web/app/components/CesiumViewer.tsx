@@ -27,29 +27,30 @@ import {
   Cesium3DTileFeature,
   Color,
   Matrix3,
-  Quaternion
+  Quaternion,
+  Ray,
+  IntersectionTests,
+  Plane,
+  Cartesian2
 } from "cesium";
-import { X, ArrowLeft, RotateCcw, RotateCw, ArrowUp, ArrowDown, ArrowLeft as ArrowLeftIcon, ArrowRight, ZoomIn, ZoomOut } from 'lucide-react';
+import { X, ArrowLeft, Settings } from 'lucide-react';
 import LayerSidebar from './LayerSidebar';
+import { createClient } from '@supabase/supabase-js';
+
+// Supabase Client initialisieren
+const supabase = createClient(
+  import.meta.env.VITE_SUPABASE_URL || '',
+  import.meta.env.VITE_SUPABASE_ANON_KEY || ''
+);
 
 interface CesiumViewerComponentProps {
   token: string;
-  enabledLayers: {
-    arcGIS: boolean;
-    satellite: boolean;
-    tileset: boolean;
-  };
-  layerOpacity: {
-    arcGIS: number;
-    satellite: number;
-    tileset: number;
-  };
-  showTimeline?: boolean;
-  tilesetUrl?: string;
-  onHomeClick?: () => void;
-  onZoomToTileset?: (zoomFn: () => void) => void;
   projectId: string;
   onBack?: () => void;
+  showLayerSidebar: boolean;
+  onToggleLayerSidebar: () => void;
+  showSettings: boolean;
+  onToggleSettings: () => void;
 }
 
 export interface CesiumViewerRef {
@@ -60,39 +61,48 @@ interface FeatureInfo {
   id?: string;
   properties: Record<string, any>;
   tileset?: Cesium3DTileset;
+  metadata?: {
+    building_id?: string;
+    name?: string;
+    address?: string;
+    year_built?: number;
+    building_type?: string;
+    height?: number;
+    floor_area?: number;
+    energy_class?: string;
+    last_renovation?: string;
+    owner?: string;
+    custom_properties?: Record<string, any>;
+  };
+}
+
+interface HiddenFeature {
+  featureId: string;
+  tilesetId: number;
+}
+
+interface ExtendedCesium3DTileset extends Cesium3DTileset {
+  selectedProperties?: string[];
 }
 
 const CesiumViewerComponent = forwardRef<CesiumViewerRef, CesiumViewerComponentProps>(({ 
   token,
-  enabledLayers,
-  layerOpacity,
-  showTimeline,
-  tilesetUrl,
-  onHomeClick,
-  onZoomToTileset,
   projectId,
-  onBack
+  onBack,
+  showLayerSidebar,
+  onToggleLayerSidebar,
+  showSettings,
+  onToggleSettings
 }, ref) => {
   const [viewer, setViewer] = useState<CesiumViewerInstance | null>(null);
   const [terrainProvider, setTerrainProvider] = useState<TerrainProvider | null>(null);
   const [loadingAssets, setLoadingAssets] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedFeature, setSelectedFeature] = useState<FeatureInfo | null>(null);
-  const [currentTileset, setCurrentTileset] = useState<Cesium3DTileset | null>(null);
-  const [transformControls, setTransformControls] = useState({
-    heading: 0,
-    pitch: 0,
-    roll: 0,
-    scale: 1,
-    position: { x: 0, y: 0, z: 0 }
-  });
-  const [transformMode, setTransformMode] = useState<'position' | 'transform'>('position');
-  const [searchAddress, setSearchAddress] = useState('');
-  const [currentPosition, setCurrentPosition] = useState({
-    longitude: 0,
-    latitude: 0,
-    height: 0
-  });
+  const [loadedTilesets, setLoadedTilesets] = useState<Map<number, ExtendedCesium3DTileset>>(new Map());
+  const [selectedTilesetId, setSelectedTilesetId] = useState<number | null>(null);
+  const [showTimeline, setShowTimeline] = useState(false);
+  const [hiddenFeatures, setHiddenFeatures] = useState<HiddenFeature[]>([]);
 
   useImperativeHandle(ref, () => ({
     loadAsset: async (assetId: number) => {
@@ -104,7 +114,13 @@ const CesiumViewerComponent = forwardRef<CesiumViewerRef, CesiumViewerComponentP
   // Terrain Provider initialisieren
   useEffect(() => {
     const initTerrainProvider = async () => {
+      if (!token) {
+        console.error('Kein Cesium Ion Token verfügbar');
+        return;
+      }
+
       try {
+        Ion.defaultAccessToken = token;
         const terrain = await createWorldTerrainAsync({
           requestVertexNormals: true,
           requestWaterMask: true
@@ -112,51 +128,93 @@ const CesiumViewerComponent = forwardRef<CesiumViewerRef, CesiumViewerComponentP
         setTerrainProvider(terrain);
       } catch (err) {
         console.error('Fehler beim Initialisieren des Terrain Providers:', err);
+        setError('Terrain Provider konnte nicht initialisiert werden');
       }
     };
     initTerrainProvider();
-  }, []);
+  }, [token]);
+
+  // Cesium Ion Assets laden
+  useEffect(() => {
+    const loadIonAssets = async () => {
+      if (!viewer || !token) {
+        console.error('Viewer oder Token nicht verfügbar');
+        return;
+      }
+
+      try {
+        if (Ion.defaultAccessToken !== token) {
+          Ion.defaultAccessToken = token;
+        }
+        
+        // Keine automatische Ladung von Assets mehr
+        // Die Assets werden jetzt über die LayerSidebar gesteuert
+      } catch (err) {
+        console.error('Fehler beim Laden der Ion Assets:', err);
+        setError('Fehler beim Laden der Assets');
+      }
+    };
+
+    loadIonAssets();
+  }, [viewer, token]);
 
   const highlightFeature = useCallback((feature: Cesium3DTileFeature | null, tileset: Cesium3DTileset) => {
     if (!tileset) return;
 
-    // Standardstil für alle Features
-    const defaultStyle = new Cesium3DTileStyle({
-      color: 'color("white")',
-      show: true
-    });
-
-    if (!feature) {
-      tileset.style = defaultStyle;
-      return;
-    }
-
     try {
-      // Versuche verschiedene Identifikatoren für das Feature
-      const featureId = feature.getProperty('id') || 
-                       feature.getProperty('gmlid') ||
-                       feature.getProperty('fid') ||
-                       feature._batchId;
+      // Erstelle einen Stil, der versteckte Features berücksichtigt
+      const styleConditions: [string, string][] = [];
       
-      // Stil mit stärkerer Hervorhebung für das ausgewählte Feature
-      const highlightStyle = new Cesium3DTileStyle({
+      // Füge Bedingungen für versteckte Features hinzu
+      hiddenFeatures.forEach(hidden => {
+        if (hidden.tilesetId === selectedTilesetId) {
+          styleConditions.push([
+            `\${id} === '${hidden.featureId}' || \${gmlid} === '${hidden.featureId}' || \${fid} === '${hidden.featureId}'`, 
+            'color("transparent", 0.0)'
+          ]);
+        }
+      });
+
+      // Füge Bedingung für das ausgewählte Feature hinzu
+      if (feature) {
+        const featureId = feature.getProperty('id') || 
+                         feature.getProperty('gmlid') ||
+                         feature.getProperty('fid');
+        
+        styleConditions.push([
+          `\${id} === '${featureId}' || \${gmlid} === '${featureId}' || \${fid} === '${featureId}'`, 
+          'color("yellow", 1.0)'
+        ]);
+      }
+
+      // Füge Standardfarbe für alle anderen Features hinzu
+      styleConditions.push(['true', 'color("white", 1.0)']);
+
+      const style = new Cesium3DTileStyle({
         color: {
+          conditions: styleConditions
+        },
+        show: {
           conditions: [
-            [`\${id} === '${featureId}' || \${gmlid} === '${featureId}' || \${fid} === '${featureId}' || \${batchId} === ${feature._batchId}`, 
-             'color("yellow", 1.0)'],
-            ['true', 'color("white", 1.0)']
+            ...hiddenFeatures
+              .filter(hidden => hidden.tilesetId === selectedTilesetId)
+              .map(hidden => [
+                `\${id} === '${hidden.featureId}' || \${gmlid} === '${hidden.featureId}' || \${fid} === '${hidden.featureId}'`,
+                false
+              ]),
+            ['true', true]
           ]
         }
       });
 
-      tileset.style = highlightStyle;
+      tileset.style = style;
     } catch (err) {
       console.error('Fehler beim Hervorheben des Features:', err);
     }
-  }, []);
+  }, [hiddenFeatures, selectedTilesetId]);
 
-  const handleFeatureClick = useCallback((movement: any) => {
-    if (!viewer || !currentTileset) return;
+  const handleFeatureClick = useCallback(async (movement: any) => {
+    if (!viewer || !selectedTilesetId) return;
 
     const scene = viewer.scene;
     const pickedObject = scene.pick(movement.position);
@@ -164,60 +222,183 @@ const CesiumViewerComponent = forwardRef<CesiumViewerRef, CesiumViewerComponentP
     if (pickedObject instanceof Cesium3DTileFeature) {
       const properties: Record<string, any> = {};
       
-      // Versuche alle verfügbaren Properties zu sammeln
-      const availableProps = pickedObject.getPropertyNames?.() || [];
-      availableProps.forEach(prop => {
-        const value = pickedObject.getProperty(prop);
-        if (value !== undefined) {
-          properties[prop] = value;
+      try {
+        // Debug: Zeige das komplette Feature-Objekt
+        console.log('Picked Object:', pickedObject);
+
+        // Versuche alle verfügbaren Property IDs zu bekommen
+        const propertyIds = pickedObject.getPropertyIds([]);
+        console.log('Property IDs:', propertyIds);
+
+        // Versuche die Batch-Tabelle direkt zu lesen
+        const batchTable = (pickedObject as any)._content?.batchTable;
+        if (batchTable) {
+          console.log('Batch Table:', batchTable);
+          
+          // Versuche die Property-Tabelle zu lesen
+          if (batchTable._propertyTable) {
+            console.log('Property Table:', {
+              properties: batchTable._propertyTable._properties,
+              propertiesBySemantic: batchTable._propertyTable._propertiesBySemantic,
+              propertyDescriptions: batchTable._propertyTable._propertyDescriptions
+            });
+          }
         }
-      });
 
-      // Basis-Informationen hinzufügen
-      properties['Batch ID'] = pickedObject._batchId;
-      if (currentTileset.asset?.id) {
-        properties['Tileset ID'] = currentTileset.asset.id;
-      }
-      
-      // Geometrische Eigenschaften extrahieren
-      if (pickedObject._content?.boundingSphere) {
-        const boundingSphere = pickedObject._content.boundingSphere;
-        properties['Position'] = {
-          x: boundingSphere.center.x.toFixed(2),
-          y: boundingSphere.center.y.toFixed(2),
-          z: boundingSphere.center.z.toFixed(2)
-        };
-        properties['Größe'] = boundingSphere.radius.toFixed(2);
-      }
+        // Versuche den batchId zu bekommen und die entsprechenden Features
+        const batchId = (pickedObject as any)._batchId;
+        console.log('Batch ID:', batchId);
+        
+        if (batchTable && batchId !== undefined) {
+          const feature = batchTable._features[batchId];
+          console.log('Feature from Batch Table:', feature);
+        }
 
-      setSelectedFeature({
-        id: properties.id || properties.gmlid || properties.fid || pickedObject._batchId?.toString(),
-        properties,
-        tileset: currentTileset
-      });
+        // Versuche alle Properties über verschiedene Methoden zu sammeln
+        propertyIds.forEach(propertyId => {
+          try {
+            const value = pickedObject.getProperty(propertyId);
+            if (value !== undefined && value !== null) {
+              // Formatiere die Properties entsprechend ihrer Art
+              switch(propertyId) {
+                case 'Height':
+                case 'TerrainHeight':
+                case 'HoeheDach':
+                case 'HoeheGrund':
+                case 'NiedrigsteTraufeDesGebaeudes':
+                case 'bldg:measuredheight':
+                  // Höhenangaben auf 2 Dezimalstellen runden
+                  properties[propertyId] = Number(value).toFixed(2);
+                  break;
+                case 'Latitude':
+                case 'Longitude':
+                  // Koordinaten auf 6 Dezimalstellen runden
+                  properties[propertyId] = Number(value).toFixed(6);
+                  break;
+                case 'core:creationdate':
+                  // Datum formatieren
+                  properties['Erstellungsdatum'] = new Date(value).toLocaleDateString('de-DE');
+                  break;
+                case 'gml:id':
+                  properties['ID'] = value;
+                  break;
+                case 'gml:name':
+                  properties['Name'] = value;
+                  break;
+                case 'Blattnummer':
+                  properties['Blattnummer'] = value;
+                  break;
+                case 'bldg:rooftype':
+                  // Dachtyp übersetzen
+                  const roofTypes: Record<string, string> = {
+                    'FLAT': 'Flachdach',
+                    'SHED': 'Pultdach',
+                    'GABLED': 'Satteldach',
+                    'HIPPED': 'Walmdach',
+                    'PYRAMIDAL': 'Pyramidendach',
+                    'MANSARD': 'Mansarddach',
+                    'DOME': 'Kuppeldach',
+                    'ONION': 'Zwiebeldach',
+                    'ROUND': 'Runddach',
+                    'SKILLION': 'Schleppdach',
+                    'GAMBREL': 'Krüppelwalmdach',
+                    'SALTBOX': 'Saltbox-Dach',
+                    'BUTTERFLY': 'Schmetterlingsdach',
+                    'BARREL': 'Tonnendach',
+                    'HALF-HIPPED': 'Krüppelwalmdach',
+                    'PAVILION': 'Zeltdach',
+                    'CONE': 'Kegeldach',
+                    'SAWTOOTH': 'Sheddach'
+                  };
+                  properties['Dachtyp'] = roofTypes[value] || value;
+                  break;
+                default:
+                  properties[propertyId] = value;
+              }
+            }
+          } catch (err) {
+            console.warn(`Fehler beim Lesen der Eigenschaft ${propertyId}:`, err);
+          }
+        });
 
-      highlightFeature(pickedObject, currentTileset);
+        // Versuche auch direkt auf die Batch-Tabellen-Eigenschaften zuzugreifen
+        if (batchTable && batchTable._propertyTable && batchTable._propertyTable._properties) {
+          Object.keys(batchTable._propertyTable._properties).forEach(prop => {
+            try {
+              const value = pickedObject.getProperty(prop);
+              if (value !== undefined && value !== null) {
+                properties[prop] = value;
+              }
+            } catch (err) {
+              console.warn(`Fehler beim Lesen der Batch-Tabellen-Eigenschaft ${prop}:`, err);
+            }
+          });
+        }
 
-      // Kamera auf das Feature zentrieren
-      if (pickedObject._content?.boundingSphere) {
-        viewer.camera.viewBoundingSphere(
-          pickedObject._content.boundingSphere,
-          new HeadingPitchRange(0, -0.5, pickedObject._content.boundingSphere.radius * 2)
-        );
+        // Debug-Ausgaben
+        console.log('Alle verfügbaren Eigenschaften:', properties);
+        
+        // Versuche die Feature-ID aus verschiedenen Quellen
+        const featureId = 
+          pickedObject.getProperty('id') || 
+          pickedObject.getProperty('gmlid') ||
+          pickedObject.getProperty('fid') ||
+          pickedObject.getProperty('ID') ||
+          pickedObject.getProperty('OBJECTID') ||
+          batchId?.toString();
+
+        console.log('Feature ID:', featureId);
+
+        setSelectedFeature({
+          id: featureId,
+          properties,
+          tileset: loadedTilesets.get(selectedTilesetId)
+        });
+
+        highlightFeature(pickedObject, loadedTilesets.get(selectedTilesetId)!);
+      } catch (err) {
+        console.warn('Fehler beim Lesen der Eigenschaften:', err);
       }
     } else {
       setSelectedFeature(null);
-      if (currentTileset) {
-        highlightFeature(null, currentTileset);
+      if (selectedTilesetId) {
+        highlightFeature(null, loadedTilesets.get(selectedTilesetId)!);
       }
     }
-  }, [viewer, currentTileset, highlightFeature]);
+  }, [viewer, selectedTilesetId, highlightFeature, loadedTilesets]);
+
+  const toggleFeatureVisibility = useCallback((featureId: string) => {
+    if (!selectedTilesetId) return;
+
+    setHiddenFeatures(prev => {
+      const isHidden = prev.some(hidden => 
+        hidden.featureId === featureId && hidden.tilesetId === selectedTilesetId
+      );
+
+      if (isHidden) {
+        // Feature wieder sichtbar machen
+        return prev.filter(hidden => 
+          !(hidden.featureId === featureId && hidden.tilesetId === selectedTilesetId)
+        );
+      } else {
+        // Feature verstecken
+        return [...prev, { featureId, tilesetId: selectedTilesetId }];
+      }
+    });
+
+    // Aktualisiere die Darstellung sofort
+    if (selectedTilesetId) {
+      const tileset = loadedTilesets.get(selectedTilesetId);
+      if (tileset) {
+        highlightFeature(selectedFeature?.id === featureId ? null : selectedFeature as any, tileset);
+      }
+    }
+  }, [selectedTilesetId, selectedFeature, loadedTilesets, highlightFeature]);
 
   useEffect(() => {
-    if (!viewer || !currentTileset) return;
+    if (!viewer || !selectedTilesetId) return;
 
     const handler = new ScreenSpaceEventHandler(viewer.scene.canvas);
-    
     handler.setInputAction(handleFeatureClick, ScreenSpaceEventType.LEFT_CLICK);
 
     return () => {
@@ -225,7 +406,7 @@ const CesiumViewerComponent = forwardRef<CesiumViewerRef, CesiumViewerComponentP
         handler.destroy();
       }
     };
-  }, [viewer, currentTileset, handleFeatureClick]);
+  }, [viewer, selectedTilesetId, handleFeatureClick]);
 
   useEffect(() => {
     if (!terrainProvider) return;
@@ -235,8 +416,8 @@ const CesiumViewerComponent = forwardRef<CesiumViewerRef, CesiumViewerComponentP
     const cesiumViewer = new CesiumViewerInstance('cesiumContainer', {
       terrainProvider,
       baseLayerPicker: true,
-      timeline: showTimeline,
-      animation: showTimeline,
+      timeline: showLayerSidebar,
+      animation: showLayerSidebar,
       geocoder: false,
       infoBox: false,
       selectionIndicator: false
@@ -251,7 +432,7 @@ const CesiumViewerComponent = forwardRef<CesiumViewerRef, CesiumViewerComponentP
         cesiumViewer.destroy();
       }
     };
-  }, [token, terrainProvider, showTimeline]);
+  }, [token, terrainProvider, showLayerSidebar]);
 
   const loadAsset = async (assetId: number) => {
     if (!viewer) return;
@@ -260,14 +441,33 @@ const CesiumViewerComponent = forwardRef<CesiumViewerRef, CesiumViewerComponentP
       setLoadingAssets(true);
       setError(null);
 
-      // Vorheriges Tileset entfernen
-      if (currentTileset) {
-        viewer.scene.primitives.remove(currentTileset);
-      }
-
       const tileset = await Cesium3DTileset.fromIonAssetId(assetId);
+      
+      // Verbesserte Darstellung für 3D-Gebäude
+      tileset.maximumScreenSpaceError = 8; // Höhere Detailgenauigkeit
+      
+      // Optimierte Darstellungseinstellungen
+      tileset.preloadWhenHidden = true;
+      tileset.loadSiblings = true;
+      tileset.cullRequestsWhileMoving = true;
+      tileset.cullRequestsWhileMovingMultiplier = 0.5;
+
+      // Standardmäßig alle Properties aktivieren
+      (tileset as ExtendedCesium3DTileset).selectedProperties = [
+        'Height', 'Latitude', 'Longitude', 'TerrainHeight',
+        'core:creationdate', 'gml:id', 'gml:name',
+        'Blattnummer', 'HoeheDach', 'HoeheGrund',
+        'NiedrigsteTraufeDesGebaeudes', 'bldg:measuredheight',
+        'bldg:rooftype'
+      ];
+      
       viewer.scene.primitives.add(tileset);
-      setCurrentTileset(tileset);
+      
+      setLoadedTilesets(prev => {
+        const next = new Map(prev);
+        next.set(assetId, tileset);
+        return next;
+      });
 
       await viewer.zoomTo(tileset, new HeadingPitchRange(0, -0.5, 0));
 
@@ -276,11 +476,29 @@ const CesiumViewerComponent = forwardRef<CesiumViewerRef, CesiumViewerComponentP
         tileset.style = new Cesium3DTileStyle(extras.ion.defaultStyle);
       }
 
+      setSelectedTilesetId(assetId);
+
     } catch (err) {
       console.error('Fehler beim Laden des Assets:', err);
       setError(`Fehler beim Laden von Asset ${assetId}: ${err.message}`);
     } finally {
       setLoadingAssets(false);
+    }
+  };
+
+  const unloadAsset = (assetId: number) => {
+    const tileset = loadedTilesets.get(assetId);
+    if (tileset && viewer) {
+      viewer.scene.primitives.remove(tileset);
+      setLoadedTilesets(prev => {
+        const next = new Map(prev);
+        next.delete(assetId);
+        return next;
+      });
+
+      if (selectedTilesetId === assetId) {
+        setSelectedTilesetId(null);
+      }
     }
   };
 
@@ -291,119 +509,6 @@ const CesiumViewerComponent = forwardRef<CesiumViewerRef, CesiumViewerComponentP
       window.history.back();
     }
   };
-
-  const updateTilesetTransform = useCallback(() => {
-    if (!currentTileset) return;
-
-    // Erstelle die Rotationsmatrix aus Heading, Pitch und Roll
-    const headingRotation = Matrix3.fromRotationZ(CesiumMath.toRadians(transformControls.heading));
-    const pitchRotation = Matrix3.fromRotationX(CesiumMath.toRadians(transformControls.pitch));
-    const rollRotation = Matrix3.fromRotationY(CesiumMath.toRadians(transformControls.roll));
-
-    // Kombiniere die Rotationen
-    const rotation = Matrix3.multiply(
-      Matrix3.multiply(headingRotation, pitchRotation, new Matrix3()),
-      rollRotation,
-      new Matrix3()
-    );
-
-    // Erstelle die Transformationsmatrix
-    const transform = Matrix4.fromRotationTranslation(
-      rotation,
-      new Cartesian3(
-        transformControls.position.x,
-        transformControls.position.y,
-        transformControls.position.z
-      )
-    );
-
-    // Skalierung anwenden
-    const scale = Matrix4.fromScale(
-      new Cartesian3(
-        transformControls.scale,
-        transformControls.scale,
-        transformControls.scale
-      )
-    );
-
-    // Kombiniere Transformation und Skalierung
-    const finalTransform = Matrix4.multiply(transform, scale, new Matrix4());
-
-    // Wende die Transformation auf das Tileset an
-    currentTileset.modelMatrix = finalTransform;
-  }, [currentTileset, transformControls]);
-
-  const handleTransformChange = useCallback((type: string, value: number) => {
-    setTransformControls(prev => ({
-      ...prev,
-      [type]: value
-    }));
-  }, []);
-
-  const handleTransformReset = useCallback(() => {
-    setTransformControls({
-      heading: 0,
-      pitch: 0,
-      roll: 0,
-      scale: 1,
-      position: { x: 0, y: 0, z: 0 }
-    });
-  }, []);
-
-  useEffect(() => {
-    updateTilesetTransform();
-  }, [transformControls, updateTilesetTransform]);
-
-  const handleSearchAddress = async () => {
-    if (!viewer || !searchAddress) return;
-    
-    try {
-      // Hier würde die Geocoding-Logik kommen
-      // Für jetzt setzen wir nur die Position
-      const cartographic = Cartographic.fromDegrees(
-        currentPosition.longitude,
-        currentPosition.latitude,
-        currentPosition.height
-      );
-      
-      if (currentTileset) {
-        const transform = Transforms.eastNorthUpToFixedFrame(
-          Cartesian3.fromRadians(
-            cartographic.longitude,
-            cartographic.latitude,
-            cartographic.height
-          )
-        );
-        currentTileset.modelMatrix = transform;
-      }
-    } catch (err) {
-      console.error('Fehler bei der Adresssuche:', err);
-    }
-  };
-
-  const handleClickPosition = useCallback((movement: any) => {
-    if (!viewer || !currentTileset) return;
-
-    const scene = viewer.scene;
-    const cartesian = scene.camera.pickEllipsoid(
-      movement.position,
-      scene.globe.ellipsoid
-    );
-
-    if (cartesian) {
-      const cartographic = Cartographic.fromCartesian(cartesian);
-      const longitude = CesiumMath.toDegrees(cartographic.longitude);
-      const latitude = CesiumMath.toDegrees(cartographic.latitude);
-      const height = cartographic.height;
-
-      setCurrentPosition({ longitude, latitude, height });
-
-      const transform = Transforms.eastNorthUpToFixedFrame(
-        Cartesian3.fromDegrees(longitude, latitude, height)
-      );
-      currentTileset.modelMatrix = transform;
-    }
-  }, [viewer, currentTileset]);
 
   return (
     <div className="relative w-full h-full">
@@ -420,18 +525,56 @@ const CesiumViewerComponent = forwardRef<CesiumViewerRef, CesiumViewerComponentP
       </button>
 
       {/* Layer Sidebar */}
-      <LayerSidebar
-        onClose={() => {/* handle close */}}
-        onLoadAsset={loadAsset}
-        enabledLayers={enabledLayers}
-        layerOpacity={layerOpacity}
-        onLayerToggle={onLayerToggle}
-        onOpacityChange={onOpacityChange}
-        onZoomToTileset={onZoomToTileset}
-        transformControls={transformControls}
-        onTransformChange={handleTransformChange}
-        onTransformReset={handleTransformReset}
-      />
+      {showLayerSidebar && (
+        <LayerSidebar
+          onClose={onToggleLayerSidebar}
+          token={token}
+          onLoadAsset={loadAsset}
+          loadedAssets={Array.from(loadedTilesets.keys())}
+          onUnloadAsset={unloadAsset}
+          selectedFeature={selectedFeature}
+          onFeaturePropertiesChange={(properties) => {
+            if (selectedFeature) {
+              setSelectedFeature({
+                ...selectedFeature,
+                properties: Object.fromEntries(
+                  Object.entries(selectedFeature.properties)
+                    .filter(([key]) => properties.includes(key))
+                )
+              });
+            }
+          }}
+        />
+      )}
+
+      {/* Settings Sidebar */}
+      {showSettings && (
+        <div className="absolute top-0 right-0 h-full w-80 bg-white shadow-lg z-50 flex flex-col">
+          <div className="flex justify-between items-center p-4 border-b">
+            <h2 className="text-lg font-semibold">Einstellungen</h2>
+            <button 
+              onClick={onToggleSettings}
+              className="text-gray-500 hover:text-gray-700"
+            >
+              <X size={20} />
+            </button>
+          </div>
+          <div className="p-4 space-y-4">
+            <div className="flex items-center justify-between">
+              <span>Timeline anzeigen</span>
+              <button
+                onClick={() => setShowTimeline(!showTimeline)}
+                className={`px-3 py-1 rounded ${
+                  showTimeline ? 'bg-blue-500 text-white' : 'bg-gray-200'
+                }`}
+              >
+                {showTimeline ? 'An' : 'Aus'}
+              </button>
+            </div>
+            {/* Weitere Einstellungen hier */}
+          </div>
+        </div>
+      )}
 
       {/* Loading und Error Anzeige */}
       {loadingAssets && (
@@ -446,23 +589,36 @@ const CesiumViewerComponent = forwardRef<CesiumViewerRef, CesiumViewerComponentP
       )}
 
       {/* Feature Info Box */}
-      {selectedFeature && (
+      {selectedFeature && selectedTilesetId && (
         <div className="absolute top-20 left-4 bg-white p-4 rounded shadow-lg max-w-md z-50">
           <div className="flex justify-between items-start mb-4">
             <h3 className="text-lg font-semibold">
-              Objekt Details
+              Objekt Details {selectedFeature.id && `(ID: ${selectedFeature.id})`}
             </h3>
-            <button
-              onClick={() => {
-                setSelectedFeature(null);
-                if (currentTileset) {
-                  highlightFeature(null, currentTileset);
-                }
-              }}
-              className="text-gray-500 hover:text-gray-700"
-            >
-              <X size={20} />
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={() => toggleFeatureVisibility(selectedFeature.id!)}
+                className="px-3 py-1 text-sm rounded bg-red-500 text-white hover:bg-red-600"
+                title="Objekt ein-/ausblenden"
+              >
+                {hiddenFeatures.some(hidden => 
+                  hidden.featureId === selectedFeature.id && 
+                  hidden.tilesetId === selectedTilesetId
+                ) ? 'Einblenden' : 'Ausblenden'}
+              </button>
+              <button
+                onClick={() => {
+                  setSelectedFeature(null);
+                  const tileset = loadedTilesets.get(selectedTilesetId);
+                  if (tileset) {
+                    highlightFeature(null, tileset);
+                  }
+                }}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <X size={20} />
+              </button>
+            </div>
           </div>
           <div className="space-y-2">
             {Object.entries(selectedFeature.properties)
@@ -470,14 +626,20 @@ const CesiumViewerComponent = forwardRef<CesiumViewerRef, CesiumViewerComponentP
                 value !== undefined && 
                 value !== null && 
                 value !== '' &&
-                typeof value !== 'object'
+                typeof value !== 'object' &&
+                !key.startsWith('_') // Ignoriere interne Properties
               )
+              .sort(([keyA], [keyB]) => keyA.localeCompare(keyB)) // Sortiere alphabetisch
               .map(([key, value]) => (
                 <div key={key} className="flex">
                   <span className="font-medium w-1/3 text-gray-600">
-                    {key.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}:
+                    {key.split(/(?=[A-Z])|_/).map(word => 
+                      word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+                    ).join(' ')}:
                   </span>
-                  <span className="w-2/3">{value}</span>
+                  <span className="w-2/3">
+                    {typeof value === 'number' ? value.toLocaleString('de-DE') : value.toString()}
+                  </span>
                 </div>
               ))}
           </div>

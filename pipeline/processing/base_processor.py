@@ -17,7 +17,8 @@ if str(root_dir) not in sys.path:
 
 from pipeline.geometry.site_polygon_utils import create_site_polygon, save_site_polygon
 from pipeline.data_sources.citygml_fetcher import fetch_citygml_buildings
-from pipeline.data_sources.wfs_fetcher import ViennaWFS
+from pipeline.data_sources.wfs_fetcher import ViennaWFSFetcher
+from pipeline.data_sources.osm_fetcher import fetch_osm_data
 
 logger = logging.getLogger(__name__)
 
@@ -187,6 +188,7 @@ class BuildingProcessorInterface(ABC):
         """Initialisiert den Building Processor."""
         self.buildings_gdf = None
         self.site_polygon = None
+        self.config = config
         
         # Lade Konfigurationen
         if config:
@@ -218,7 +220,7 @@ class BuildingProcessorInterface(ABC):
         
         # Initialisiere WFS mit der Konfiguration
         if self.project_config.get('wfs'):
-            self.wfs = ViennaWFS(config=self.project_config['wfs'])
+            self.wfs = ViennaWFSFetcher(config=self.project_config['wfs'])
             self.logger.info("✅ WFS initialisiert")
         else:
             self.logger.warning("⚠️ Keine WFS-Konfiguration gefunden")

@@ -3,6 +3,89 @@ description: Regeln für die Datentransformation und Konvertierung
 globs: pipeline/processing/transformations.py
 ---
 
+# Mapping und Transformationsregeln
+
+## Zentrales Mapping (MappingProcessor)
+
+Der MappingProcessor ist für die zentrale Transformation aller Quelldaten in ein einheitliches Zielschema verantwortlich.
+
+### Grundprinzipien
+
+1. **Single Source of Truth**
+   - Mapping-Definitionen werden zentral verwaltet
+   - Keine redundanten Mapping-Logiken in verschiedenen Prozessoren
+   - Klare Trennung zwischen Datenextraktion und Transformation
+
+2. **Standardisiertes Zielschema**
+   - Einheitliches Schema für alle verarbeiteten Gebäudedaten
+   - Klar definierte Attributnamen und Datentypen
+   - Dokumentierte Bedeutung jedes Attributs
+
+3. **Validierung**
+   - Prüfung der Quelldaten auf erforderliche Attribute
+   - Validierung der transformierten Daten gegen das Zielschema
+   - Logging von Mapping-Fehlern und Datenproblemen
+
+### Mapping-Konfiguration
+
+Die Mapping-Konfiguration erfolgt über YAML-Dateien:
+
+```yaml
+mappings:
+  building:
+    # CityGML Mappings
+    citygml:
+      height: 'measuredHeight'
+      floors: 'storeysAboveGround'
+      year_built: 'yearOfConstruction'
+      
+    # WFS Mappings  
+    wfs:
+      height: 'GEBAEUDE_HOEHE'
+      floors: 'GESCHOSSE'
+      year_built: 'BAUJAHR'
+      
+    # OSM Mappings
+    osm:
+      height: 'height'
+      floors: 'building:levels'
+      year_built: 'start_date'
+```
+
+### Transformationsregeln
+
+1. **Geometrie-Transformationen**
+   - Vereinheitlichung des Koordinatensystems
+   - Bereinigung ungültiger Geometrien
+   - Zusammenführung von Gebäudeteilen
+
+2. **Attribut-Transformationen**
+   - Einheitliche Namenskonventionen
+   - Standardisierte Datentypen
+   - Behandlung von NULL-Werten
+
+3. **Qualitätssicherung**
+   - Prüfung auf Vollständigkeit
+   - Validierung von Wertebereichen
+   - Konsistenzprüfungen
+
+### Implementierungsrichtlinien
+
+1. **Modularität**
+   - Separate Mapping-Module pro Datenquelle
+   - Wiederverwendbare Transformationsfunktionen
+   - Erweiterbare Mapping-Konfiguration
+
+2. **Fehlerbehandlung**
+   - Graceful Degradation bei fehlenden Attributen
+   - Detailliertes Logging von Mapping-Problemen
+   - Rückverfolgbarkeit von Transformationen
+
+3. **Performance**
+   - Effiziente Verarbeitung großer Datensätze
+   - Optimierte Mapping-Operationen
+   - Caching von häufig verwendeten Transformationen
+
 # Transformationsregeln
 
 ## Grundlegende Transformationen

@@ -1,0 +1,66 @@
+# Allgemeine CEA-Konfiguration
+
+# Umgebungsvariablen und Pfade
+env:
+  cea_env_path: "F:/Users/ambi/Documents/CityEnergyAnalyst/dependencies/cea-env.bat"
+  weather_base: "F:/Users/ambi/Documents/CityEnergyAnalyst/CityEnergyAnalyst/cea/databases/weather"
+  database_base: "F:/Users/ambi/Documents/CityEnergyAnalyst/CityEnergyAnalyst/cea/database"
+
+# Geometrie-Einstellungen
+geometry:
+  surrounding_buildings_distance: 200  # Meter
+  defaults:
+    height: 10
+    floors: 3
+    year: 1990
+
+# Validierungseinstellungen
+validation:
+  required_fields:
+    buildings:
+      - "geometry"
+      - "height"
+      - "floors"
+      - "year_built"
+      - "building_type"
+      - "construction_period"
+    streets:
+      - "geometry"
+      - "highway"
+      - "lanes"
+  
+  construction_period:
+    required: true
+    mapping: "construction_periods"
+
+# Verarbeitungseinstellungen
+processing:
+  # Einstellungen für die Gebäudeverarbeitung
+  buildings:
+    min_height: 2.0  # Minimale Gebäudehöhe in Metern
+    max_height: 200.0  # Maximale Gebäudehöhe in Metern
+    min_area: 10.0  # Minimale Grundfläche in Quadratmetern
+    simplify_tolerance: 0.1  # Toleranz für Geometrievereinfachung
+
+  # Einstellungen für die Straßenverarbeitung
+  streets:
+    buffer_distance: 5.0  # Pufferabstand in Metern
+    min_length: 5.0  # Minimale Straßenlänge in Metern
+
+# Ausgabeeinstellungen
+output:
+  # Formatierung der Ausgabedateien
+  format: "csv"  # Mögliche Werte: csv, geojson, shapefile
+  
+  # Zu exportierende Attribute
+  export_fields:
+    - "Name"
+    - "height"
+    - "floors"
+    - "year_built"
+    - "building_type"
+    - "construction_period"
+    - "geometry"
+
+  # Ausgabeverzeichnis relativ zum Projektverzeichnis
+  directory: "outputs/cea" 

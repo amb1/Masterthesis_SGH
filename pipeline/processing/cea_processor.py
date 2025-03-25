@@ -1,3 +1,10 @@
+"""
+CEA-Prozessor für die Verarbeitung von Gebäudedaten für City Energy Analyst.
+
+Dieser Prozessor implementiert die spezifische Verarbeitung von Gebäudedaten
+für die CEA-Analyse.
+"""
+
 from pathlib import Path
 from typing import Dict, Any, Optional, List, Union
 import geopandas as gpd
@@ -9,264 +16,416 @@ import re
 import yaml
 import sys
 from core.config_manager import load_config
+from pipeline.processing.base_processor import BuildingProcessorInterface, BaseProcessor
+from pipeline.data_sources.osm_fetcher import OSMFetcher, fetch_osm_data
+from pipeline.data_sources.wfs_fetcher import ViennaWFSFetcher
+from pipeline.processing.mapping_processor import MappingProcessor
+from lxml import etree
 
 # Füge das Root-Verzeichnis zum Python-Path hinzu
 root_dir = Path(__file__).resolve().parent.parent.parent
 if str(root_dir) not in sys.path:
     sys.path.append(str(root_dir))
 
-from pipeline.processing.base_processor import BuildingProcessorInterface
-from pipeline.data_sources.osm_building_fetcher import fetch_surrounding_buildings, process_osm_buildings
-from pipeline.data_sources.osm_street_fetcher import fetch_osm_streets
-from pipeline.data_sources.wfs_fetcher import ViennaWFS
-
 # Konfiguriere Logger
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-class CEABuildingProcessor(BuildingProcessorInterface):
-    """CEA-spezifischer Gebäudeprozessor."""
+class CEAMapper:
+    """Mapper für CEA-Felder aus verschiedenen Datenquellen."""
     
-    def __init__(self, cea_config, project_config=None):
-        """Initialisiert den CEA Building Processor.
+    def __init__(self, config: Dict[str, Any]):
+        """Initialisiert den CEA-Mapper.
         
         Args:
-            cea_config: CEA-spezifische Konfiguration
-            project_config: Optionale Projekt-Konfiguration
+            config: Mapping-Konfiguration mit Feldmappings und Validierungsregeln
         """
-        super().__init__(project_config)
+        self.config = config
+        self.validation_rules = config.get("validation", {})
+        self.field_mappings = config.get("mappings", {})
         
-        # Verwende die übergebene CEA-Konfiguration
-        if isinstance(cea_config, dict) and cea_config.get('cea'):
-            self.cea_config = cea_config['cea']
-        else:
-            # Versuche die Konfiguration aus einer Datei zu laden
-            self.cea_config = self._load_specific_config('cea')
-            
-        if not self.cea_config:
-            raise ValueError("❌ Keine gültige CEA-Konfiguration gefunden")
-            
-        # Initialisiere die Konfigurationen
-        self.mapping_config = self.cea_config.get('mapping', {})
-        self.metrics_config = self.cea_config.get('metrics', {})
-        self.output_config = self.cea_config.get('output', {})
-        
-        # Setze Standardwerte
-        if 'defaults' not in self.mapping_config:
-            self.mapping_config['defaults'] = {
-                'floors_ag': 4,
-                'floors_bg': 1,
-                'year': 1960,
-                'use_type': 'NONE'
-            }
-            
-        logger.info("✅ CEA-Konfiguration geladen")
-        
-    def process_buildings(
-        self,
-        citygml_data: Dict[str, Any],
-        wfs_data: Dict[str, Any],
-        osm_data: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """
-        Verarbeitet die Gebäudedaten für CEA.
+    def map_field(self, field_name: str, data: Union[dict, etree._Element], source: str) -> Any:
+        """Mapped ein Feld aus den Quelldaten.
         
         Args:
-            citygml_data: CityGML Gebäudedaten
-            wfs_data: WFS Gebäudedaten
-            osm_data: OSM Daten (Gebäude und Straßen)
+            field_name: Name des Zielfelds
+            data: Quelldaten (Dict für WFS, XML für CityGML)
+            source: Datenquelle ('wfs' oder 'citygml')
             
         Returns:
-            Verarbeitete Daten für CEA
+            Gemappter Wert für das Feld
+        """
+        if field_name not in self.field_mappings:
+            return None
+            
+        mapping = self.field_mappings[field_name]
+        source_mapping = mapping.get(source, {})
+        
+        if source == "citygml":
+            return self._map_citygml_field(field_name, data, source_mapping)
+        else:
+            return self._map_wfs_field(field_name, data, source_mapping)
+    
+    def _map_citygml_field(self, field_name: str, xml: etree._Element, mapping: Dict[str, Any]) -> Any:
+        """Mapped ein Feld aus CityGML-Daten.
+        
+        Args:
+            field_name: Name des Zielfelds
+            xml: CityGML XML-Element
+            mapping: Mapping-Konfiguration für das Feld
+            
+        Returns:
+            Gemappter Wert
+        """
+        xpath = mapping.get("xpath")
+        if not xpath:
+            return None
+            
+        # Spezialfall für Name-Generierung
+        if field_name == "Name":
+            street = xml.xpath(".//xAL:StreetNameElement/text()", namespaces={"xAL": "urn:oasis:names:tc:ciq:xsdschema:xAL:2.0"})[0]
+            number = xml.xpath(".//xAL:BuildingNumber/text()", namespaces={"xAL": "urn:oasis:names:tc:ciq:xsdschema:xAL:2.0"})[0]
+            return f"{street}_{number}"
+            
+        # Spezialfall für REFERENCE
+        if field_name == "REFERENCE":
+            return xml.get("{http://www.opengis.net/gml}id")
+            
+        try:
+            value = xml.xpath(xpath, namespaces={"bldg": "http://www.opengis.net/citygml/building/2.0"})[0]
+            return self._convert_value(value, mapping.get("type", "str"))
+        except (IndexError, ValueError):
+            return mapping.get("default")
+    
+    def _map_wfs_field(self, field_name: str, data: Dict[str, Any], mapping: Dict[str, Any]) -> Any:
+        """Mapped ein Feld aus WFS-Daten.
+        
+        Args:
+            field_name: Name des Zielfelds
+            data: WFS-Feature-Daten
+            mapping: Mapping-Konfiguration für das Feld
+            
+        Returns:
+            Gemappter Wert
+        """
+        source_field = mapping.get("field")
+        if not source_field:
+            return None
+            
+        # Spezialfall für Name-Generierung
+        if field_name == "Name":
+            street = data.get("Gebäudeinfo_STRNAML", "")
+            number = data.get("Gebäudeinfo_VONN", "")
+            return f"{street}_{number}"
+            
+        # Spezialfall für Nutzungstypen
+        if field_name in ["1ST_USE", "2ND_USE", "3RD_USE"]:
+            usage_field = f"Gebäudeinfo_L_NUTZUNG{'' if field_name == '1ST_USE' else field_name[0]}"
+            usage = data.get(usage_field, "")
+            return self._map_usage_type(usage)
+            
+        value = data.get(source_field)
+        if value is None:
+            return mapping.get("default")
+            
+        return self._convert_value(value, mapping.get("type", "str"))
+    
+    def _convert_value(self, value: Any, target_type: str) -> Any:
+        """Konvertiert einen Wert in den Zieltyp.
+        
+        Args:
+            value: Zu konvertierender Wert
+            target_type: Zieltyp ('str', 'int', 'float', 'bool')
+            
+        Returns:
+            Konvertierter Wert
+        """
+        if value is None:
+            return None
+            
+        try:
+            if target_type == "int":
+                return int(float(value))
+            elif target_type == "float":
+                return float(value)
+            elif target_type == "bool":
+                return str(value).lower() in ("true", "1", "yes", "ja")
+            else:
+                return str(value)
+        except (ValueError, TypeError):
+            return None
+    
+    def _map_usage_type(self, usage: str) -> str:
+        """Mapped einen Nutzungstyp auf CEA-Kategorien.
+        
+        Args:
+            usage: Ursprünglicher Nutzungstyp
+            
+        Returns:
+            CEA-Nutzungskategorie
+        """
+        usage = usage.lower()
+        
+        if any(x in usage for x in ["wohn", "mieth", "residential"]):
+            return "RESIDENTIAL"
+        elif any(x in usage for x in ["büro", "office"]):
+            return "OFFICE"
+        elif any(x in usage for x in ["handel", "retail", "geschäft"]):
+            return "RETAIL"
+        elif any(x in usage for x in ["industrie", "gewerbe"]):
+            return "INDUSTRIAL"
+        elif any(x in usage for x in ["bildung", "schule"]):
+            return "EDUCATIONAL"
+        elif any(x in usage for x in ["hotel", "beherbergung"]):
+            return "HOTEL"
+        else:
+            return "MIXED"
+    
+    def validate_field(self, field_name: str, value: Any) -> Any:
+        """Validiert einen Feldwert gegen die definierten Regeln.
+        
+        Args:
+            field_name: Name des Felds
+            value: Zu validierender Wert
+            
+        Returns:
+            Validierter Wert
+            
+        Raises:
+            ValueError: Wenn der Wert ungültig ist
+        """
+        if field_name not in self.validation_rules:
+            return value
+            
+        rules = self.validation_rules[field_name]
+        
+        # Prüfe Minimum
+        if "min" in rules and value < rules["min"]:
+            raise ValueError(f"Wert {value} für {field_name} ist kleiner als Minimum {rules['min']}")
+            
+        # Prüfe Maximum
+        if "max" in rules and value > rules["max"]:
+            raise ValueError(f"Wert {value} für {field_name} ist größer als Maximum {rules['max']}")
+            
+        # Prüfe erlaubte Werte
+        if "allowed_values" in rules and value not in rules["allowed_values"]:
+            raise ValueError(f"Wert {value} für {field_name} ist nicht in erlaubten Werten {rules['allowed_values']}")
+            
+        return value
+
+class CEABuildingProcessor(BuildingProcessorInterface, BaseProcessor):
+    """CEA-spezifischer Gebäudeprozessor."""
+    
+    def __init__(self, config: Dict[str, Any]):
+        """
+        Initialisiert den CEA-Prozessor.
+        
+        Args:
+            config: Konfigurationsobjekt
+        """
+        BuildingProcessorInterface.__init__(self, config)
+        BaseProcessor.__init__(self, config)
+        
+        # Lade CEA-Konfiguration
+        self.cea_config = self._load_cea_config()
+        
+        # Initialisiere Mapping-Prozessor
+        self.mapping_processor = MappingProcessor(config)
+        
+    def process(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Verarbeitet die Eingabedaten.
+        
+        Args:
+            data: Eingabedaten mit CityGML-, WFS- und OSM-Daten
+            
+        Returns:
+            Verarbeitete Daten
+        """
+        citygml_data = data.get('citygml', {})
+        wfs_data = data.get('wfs', {})
+        osm_data = data.get('osm', {})
+        
+        return self.process_buildings(citygml_data, wfs_data, osm_data)
+        
+    def _load_cea_config(self) -> Dict[str, Any]:
+        """
+        Lädt die CEA-Konfiguration.
+        
+        Returns:
+            CEA-Konfiguration
         """
         try:
-            self.logger.info("🔄 Starte CEA-Datenverarbeitung")
+            cea_config_path = Path(self.config.get('cea', {}).get('config_file', 'config/cea/config.yml'))
             
+            if not cea_config_path.exists():
+                self.logger.error(f"❌ CEA-Konfiguration nicht gefunden: {cea_config_path}")
+                return {}
+                
+            with open(cea_config_path, 'r', encoding='utf-8') as f:
+                return yaml.safe_load(f)
+                
+        except Exception as e:
+            self.logger.error(f"❌ Fehler beim Laden der CEA-Konfiguration: {str(e)}")
+            return {}
+            
+    def process_buildings(self, citygml_data: Dict[str, Any], wfs_data: Dict[str, Any], osm_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Verarbeitet Gebäudedaten für CEA.
+        
+        Args:
+            citygml_data: CityGML-Gebäudedaten
+            wfs_data: WFS-Gebäudedaten
+            osm_data: OSM-Daten
+            
+        Returns:
+            Verarbeitete Daten
+        """
+        try:
+            # Validiere Eingabedaten
+            if not self.validate_data(citygml_data):
+                return {}
+                
             # Verarbeite CityGML-Daten
-            processed_citygml = self._process_citygml_data(citygml_data)
-            if processed_citygml is None:
-                self.logger.error("❌ Fehler bei der CityGML-Verarbeitung")
+            citygml_processed = self.mapping_processor.process(citygml_data, 'citygml')
+            if not citygml_processed:
                 return {}
                 
             # Verarbeite WFS-Daten wenn vorhanden
-            processed_wfs = {}
+            wfs_processed = {}
             if wfs_data:
-                processed_wfs = self._process_wfs_data(wfs_data)
-                if processed_wfs is None:
-                    self.logger.warning("⚠️ WFS-Daten konnten nicht verarbeitet werden")
-                    processed_wfs = {}
-                    
-            # Verarbeite OSM-Daten
-            processed_osm = self._process_osm_data(osm_data)
-            if processed_osm is None:
-                self.logger.warning("⚠️ OSM-Daten konnten nicht verarbeitet werden")
-                processed_osm = {}
+                wfs_processed = self.mapping_processor.process(wfs_data, 'wfs')
                 
-            # Kombiniere die Daten
-            combined_data = self._combine_data(
-                processed_citygml,
-                processed_wfs,
-                processed_osm
-            )
+            # Verarbeite OSM-Daten
+            osm_buildings = osm_data.get('buildings', {})
+            osm_streets = osm_data.get('streets', {})
             
+            osm_buildings_processed = {}
+            if osm_buildings:
+                # Erstelle GeoDataFrame aus OSM-Gebäuden
+                osm_buildings_gdf = gpd.GeoDataFrame.from_features(osm_buildings)
+                # Hole zusätzliche Gebäude aus der Umgebung
+                surrounding_buildings = fetch_osm_data(osm_buildings_gdf, data_type='buildings', config=self.config)
+                # Kombiniere die Daten
+                all_osm_buildings = pd.concat([osm_buildings_gdf, surrounding_buildings], ignore_index=True)
+                osm_buildings_processed = self.mapping_processor.process({'features': all_osm_buildings}, 'osm')
+                
+            # Verarbeite OSM-Straßen
+            osm_streets_processed = {}
+            if osm_streets:
+                # Erstelle GeoDataFrame aus OSM-Straßen
+                osm_streets_gdf = gpd.GeoDataFrame.from_features(osm_streets)
+                # Hole zusätzliche Straßen aus der Umgebung
+                surrounding_streets = fetch_osm_data(osm_streets_gdf, data_type='streets', config=self.config)
+                # Kombiniere die Daten
+                all_osm_streets = pd.concat([osm_streets_gdf, surrounding_streets], ignore_index=True)
+                osm_streets_processed = self.mapping_processor.process({'features': all_osm_streets}, 'osm')
+            
+            # Kombiniere alle Daten
+            combined_data = self._combine_data(citygml_processed, wfs_processed, osm_buildings_processed, osm_streets_processed)
             if not combined_data:
-                self.logger.error("❌ Keine Daten nach Kombination")
                 return {}
                 
-            self.logger.info("✅ CEA-Datenverarbeitung abgeschlossen")
-            return combined_data
+            # Wende CEA-spezifische Transformationen an
+            cea_data = self._apply_cea_transformations(combined_data)
+            if not cea_data:
+                return {}
+                
+            return cea_data
             
         except Exception as e:
-            self.logger.error(f"❌ Fehler bei der CEA-Verarbeitung: {str(e)}")
+            self.handle_error(e, "cea_processing")
             return {}
             
-    def _process_citygml_data(self, citygml_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def _combine_data(self, citygml_data: Dict[str, Any], wfs_data: Dict[str, Any], osm_buildings_data: Dict[str, Any], osm_streets_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Verarbeitet CityGML-Daten.
-        
-        Args:
-            citygml_data: CityGML Rohdaten
-            
-        Returns:
-            Verarbeitete CityGML-Daten
-        """
-        try:
-            if not citygml_data:
-                self.logger.warning("⚠️ Keine CityGML-Daten vorhanden")
-                return None
-                
-            # Verarbeite die Daten gemäß CEA-Anforderungen
-            processed_data = {
-                'buildings': citygml_data,
-                'source': 'citygml'
-            }
-            
-            return processed_data
-            
-        except Exception as e:
-            self.logger.error(f"❌ Fehler bei CityGML-Verarbeitung: {str(e)}")
-            return None
-            
-    def _process_wfs_data(self, wfs_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """
-        Verarbeitet WFS-Daten.
-        
-        Args:
-            wfs_data: WFS Rohdaten
-            
-        Returns:
-            Verarbeitete WFS-Daten
-        """
-        try:
-            if not wfs_data:
-                self.logger.warning("⚠️ Keine WFS-Daten vorhanden")
-                return None
-                
-            # Verarbeite die Daten gemäß CEA-Anforderungen
-            processed_data = {
-                'buildings': wfs_data,
-                'source': 'wfs'
-            }
-            
-            return processed_data
-            
-        except Exception as e:
-            self.logger.error(f"❌ Fehler bei WFS-Verarbeitung: {str(e)}")
-            return None
-            
-    def _process_osm_data(self, osm_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """
-        Verarbeitet OSM-Daten.
-        
-        Args:
-            osm_data: OSM Rohdaten
-            
-        Returns:
-            Verarbeitete OSM-Daten
-        """
-        try:
-            if not osm_data:
-                self.logger.warning("⚠️ Keine OSM-Daten vorhanden")
-                return None
-                
-            buildings = osm_data.get('buildings')
-            streets = osm_data.get('streets')
-            
-            if buildings is None and streets is None:
-                self.logger.warning("⚠️ Keine OSM-Gebäude oder Straßen gefunden")
-                return None
-                
-            processed_data = {
-                'buildings': buildings if buildings is not None else pd.DataFrame(),
-                'streets': streets if streets is not None else pd.DataFrame(),
-                'source': 'osm'
-            }
-            
-            return processed_data
-            
-        except Exception as e:
-            self.logger.error(f"❌ Fehler bei OSM-Verarbeitung: {str(e)}")
-            return None
-            
-    def _combine_data(
-        self,
-        citygml_data: Dict[str, Any],
-        wfs_data: Dict[str, Any],
-        osm_data: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """
-        Kombiniert die verarbeiteten Daten.
+        Kombiniert Daten aus verschiedenen Quellen.
         
         Args:
             citygml_data: Verarbeitete CityGML-Daten
             wfs_data: Verarbeitete WFS-Daten
-            osm_data: Verarbeitete OSM-Daten
+            osm_buildings_data: Verarbeitete OSM-Gebäudedaten
+            osm_streets_data: Verarbeitete OSM-Straßendaten
             
         Returns:
             Kombinierte Daten
         """
         try:
-            combined = {
-                'buildings': [],
-                'streets': [],
-                'metadata': {
-                    'sources': []
-                }
-            }
+            # Extrahiere Features
+            citygml_features = citygml_data.get('features', pd.DataFrame())
+            wfs_features = wfs_data.get('features', pd.DataFrame())
+            osm_buildings_features = osm_buildings_data.get('features', pd.DataFrame())
+            osm_streets_features = osm_streets_data.get('features', pd.DataFrame())
             
-            # Füge CityGML-Gebäude hinzu
-            if citygml_data and 'buildings' in citygml_data:
-                combined['buildings'].extend(citygml_data['buildings'])
-                combined['metadata']['sources'].append('citygml')
-                
-            # Füge WFS-Gebäude hinzu
-            if wfs_data and 'buildings' in wfs_data:
-                combined['buildings'].extend(wfs_data['buildings'])
-                combined['metadata']['sources'].append('wfs')
-                
-            # Füge OSM-Daten hinzu
-            if osm_data:
-                if 'buildings' in osm_data and not osm_data['buildings'].empty:
-                    combined['buildings'].extend(osm_data['buildings'])
-                if 'streets' in osm_data and not osm_data['streets'].empty:
-                    combined['streets'].extend(osm_data['streets'])
-                combined['metadata']['sources'].append('osm')
-                
+            # Kombiniere alle Features
+            all_features = pd.concat([citygml_features, wfs_features, osm_buildings_features, osm_streets_features], ignore_index=True)
+            
             # Entferne Duplikate basierend auf Geometrie
-            if combined['buildings']:
-                buildings_gdf = gpd.GeoDataFrame(combined['buildings'])
-                buildings_gdf = buildings_gdf.drop_duplicates(subset=['geometry'])
-                combined['buildings'] = buildings_gdf.to_dict('records')
-                
-            if combined['streets']:
-                streets_gdf = gpd.GeoDataFrame(combined['streets'])
-                streets_gdf = streets_gdf.drop_duplicates(subset=['geometry'])
-                combined['streets'] = streets_gdf.to_dict('records')
-                
-            return combined
+            all_features = all_features.drop_duplicates(subset=['geometry'])
+            
+            return {
+                'features': all_features
+            }
             
         except Exception as e:
             self.logger.error(f"❌ Fehler beim Kombinieren der Daten: {str(e)}")
+            return {}
+            
+    def _apply_cea_transformations(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Wendet CEA-spezifische Transformationen an.
+        
+        Args:
+            data: Zu transformierende Daten
+            
+        Returns:
+            Transformierte Daten
+        """
+        try:
+            features = data.get('features', pd.DataFrame())
+            if features.empty:
+                return {}
+                
+            # Hole CEA-Mappings aus der zentralen Mapping-Konfiguration
+            cea_mappings = self.mapping_processor.mapping_config.get('cea_mappings', {})
+            
+            # Wende Bauperioden-Mapping an
+            construction_periods = cea_mappings.get('construction_periods', {})
+            features['construction_period'] = features['year_built'].apply(
+                lambda year: next(
+                    (period for period, [start, end] in construction_periods.items() 
+                     if start <= year <= end),
+                    'unknown'
+                )
+            )
+            
+            # Wende Gebäudetyp-Mapping an
+            building_types = cea_mappings.get('building_types', {})
+            features['cea_type'] = features['building_type'].map(
+                {k: v['cea_type'] for k, v in building_types.items()}
+            )
+            features['construction'] = features['building_type'].map(
+                {k: v['construction'] for k, v in building_types.items()}
+            )
+            features['window_wall_ratio'] = features['building_type'].map(
+                {k: v['window_wall_ratio'] for k, v in building_types.items()}
+            )
+            features['occupancy'] = features['building_type'].map(
+                {k: v['occupancy'] for k, v in building_types.items()}
+            )
+            
+            # Fülle fehlende Werte mit Standardwerten
+            geometry_defaults = self.cea_config.get('geometry', {}).get('defaults', {})
+            features['height'] = features['height'].fillna(geometry_defaults.get('height', 10))
+            features['floors'] = features['floors'].fillna(geometry_defaults.get('floors', 3))
+            features['year_built'] = features['year_built'].fillna(geometry_defaults.get('year', 1990))
+            
+            return {
+                'features': features
+            }
+            
+        except Exception as e:
+            self.logger.error(f"❌ Fehler bei den CEA-Transformationen: {str(e)}")
             return {}
 
     def _map_construction_period(self, period: str) -> str:
@@ -279,7 +438,7 @@ class CEABuildingProcessor(BuildingProcessorInterface):
             str: CEA-Zeitcode (z.B. "_A" oder "_B")
         """
         try:
-            periods = self.mapping_config.get('periods', {})
+            periods = self.mapping_processor.mapping_config.get('periods', {})
             if period in periods:
                 categories = periods[period].get('categories', [])
                 if categories:
@@ -299,7 +458,7 @@ class CEABuildingProcessor(BuildingProcessorInterface):
             int: Geschätztes Baujahr
         """
         try:
-            periods = self.mapping_config.get('periods', {})
+            periods = self.mapping_processor.mapping_config.get('periods', {})
             if period in periods:
                 return periods[period].get('default_year', 1960)
             return 1960  # Fallback
@@ -317,7 +476,7 @@ class CEABuildingProcessor(BuildingProcessorInterface):
             str: CEA-Gebäudetyp (SFH, MFH, AB, TH, HR)
         """
         try:
-            building_types = self.mapping_config.get('building_types', {}).get('standard_prefix', {})
+            building_types = self.mapping_processor.mapping_config.get('building_types', {}).get('standard_prefix', {})
             return building_types.get(building_type, "NONE")  # NONE als Fallback
         except Exception as e:
             logger.error(f"❌ Fehler beim Mapping des Gebäudetyps: {str(e)}")
@@ -382,7 +541,7 @@ class CEABuildingProcessor(BuildingProcessorInterface):
         """Validiert die Gebäudedaten basierend auf der Konfiguration."""
         try:
             # Prüfe ob alle erforderlichen Felder vorhanden sind
-            required_fields = self.metrics_config.get('required_fields', [])
+            required_fields = self.mapping_processor.metrics_config.get('required_fields', [])
             for field in required_fields:
                 if field not in building_data:
                     logger.warning(f"⚠️ Pflichtfeld fehlt: {field}")

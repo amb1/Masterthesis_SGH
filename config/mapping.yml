@@ -1,0 +1,455 @@
+# Mapping-Konfiguration für Gebäudedaten
+# Definiert die Zuordnung von Quellattributen zu standardisierten Zielattributen
+
+mappings:
+  building:
+    # CityGML Mappings
+    citygml:
+      # Geometrische Attribute
+      height: 'measuredHeight'
+      floors: 'storeysAboveGround'
+      ground_elevation: 'groundLevel'
+      roof_type: 'roofType'
+      
+      # Zeitliche Attribute
+      year_built: 'yearOfConstruction'
+      year_demolished: 'yearOfDemolition'
+      
+      # Funktionale Attribute
+      usage: 'usage'
+      function: 'function'
+      building_type: 'bldg:function'
+      
+      # Identifikation
+      building_id: 'gml_id'
+      
+    # WFS Mappings
+    wfs:
+      # Geometrische Attribute
+      height: 'GEBAEUDE_HOEHE'
+      floors: 'GESCHOSSE'
+      ground_elevation: 'GRUND_HOEHE'
+      roof_type: 'DACHFORM'
+      
+      # Zeitliche Attribute
+      year_built: 'BAUJAHR'
+      year_demolished: 'ABRISS_JAHR'
+      
+      # Funktionale Attribute
+      usage: 'NUTZUNG'
+      function: 'FUNKTION'
+      building_type: 'GEBAEUDEART'
+      
+      # Identifikation
+      building_id: 'OBJEKT_ID'
+      
+    # OSM Mappings
+    osm:
+      # Geometrische Attribute
+      height: 'height'
+      floors: 'building:levels'
+      ground_elevation: 'ele'
+      roof_type: 'roof:shape'
+      
+      # Zeitliche Attribute
+      year_built: 'start_date'
+      year_demolished: 'end_date'
+      
+      # Funktionale Attribute
+      usage: 'building'
+      function: 'amenity'
+      building_type: 'building'
+      
+      # Identifikation
+      building_id: 'id'
+
+# Pflichtfelder für das Zielschema
+required_fields:
+  - geometry
+  - building_id
+  - height
+  - floors
+  - usage
+  - building_type
+  - year_built
+
+# Datentypen für Zielattribute
+field_types:
+  height: float
+  floors: int
+  ground_elevation: float
+  year_built: int
+  year_demolished: int
+  building_id: str
+  usage: str
+  function: str
+  roof_type: str
+  building_type: str
+
+# Wertebereiche für numerische Attribute
+value_ranges:
+  height:
+    min: 0.0
+    max: 1000.0
+  floors:
+    min: 1
+    max: 200
+  ground_elevation:
+    min: -50.0
+    max: 5000.0
+  year_built:
+    min: 1000
+    max: 2100
+  year_demolished:
+    min: 1000
+    max: 2100
+
+# CEA-spezifische Mappings
+cea_mappings:
+  # Mapping von Bauperioden
+  construction_periods:
+    "1848–1918": [1848, 1918]
+    "1919–1945": [1919, 1945]
+    "nach 1945": [1946, 2025]
+
+  # Gebäudetyp-Mappings für CEA
+  building_types:
+    RESIDENTIAL:
+      cea_type: "RESIDENTIAL"
+      construction: "SOLID"
+      window_wall_ratio: 0.3
+      occupancy: "RESIDENTIAL"
+    OFFICE:
+      cea_type: "OFFICE"
+      construction: "SOLID"
+      window_wall_ratio: 0.4
+      occupancy: "OFFICE"
+    RETAIL:
+      cea_type: "RETAIL"
+      construction: "SOLID"
+      window_wall_ratio: 0.5
+      occupancy: "RETAIL"
+    INDUSTRIAL:
+      cea_type: "INDUSTRIAL"
+      construction: "SOLID"
+      window_wall_ratio: 0.2
+      occupancy: "INDUSTRIAL"
+
+# Zentrale Mapping-Konfiguration
+
+# Räumliche Einstellungen
+spatial:
+  buffer_distance: 100  # Meter
+  intersection_tolerance: 0.5  # Meter
+  site_buffer: 200  # Meter
+  surrounding_buildings: 200  # Meter
+
+# WFS-Konfiguration für Wien
+wfs:
+  vienna:
+    base:
+      url: "https://data.wien.gv.at/daten/geo"
+      version: "1.1.0"
+      request: "GetFeature"
+      srsName: "EPSG:31256"
+      outputFormat: "json"
+      maxFeatures: 1000
+      timeout: 30
+      retries: 3
+    
+    streams:
+      building_info:
+        name: "Gebäudeinfo"
+        layer: "ogdwien:GEBAEUDEINFOOGD"
+        priority: 1
+        fields:
+          - "OBJECTID"
+          - "geometry"
+          - "BAUJAHR"
+          - "L_NUTZUNG"
+          - "L_BAUTYP"
+          - "GESCH_ANZ"
+          - "BASIS_INV"
+          - "L_BAUJ"
+          - "ORIG_PARZ"
+          - "ORIG_FASS"
+          - "ORIG_KERN"
+          - "ORIG_FENSTER"
+          - "ORIG_DACH"
+        mapping:
+          building_id: "OBJECTID"
+          geometry: "geometry"
+          construction_year: "BAUJAHR"
+          usage: "L_NUTZUNG"
+          building_type: "L_BAUTYP"
+          floors: "GESCH_ANZ"
+          foundation_type: "BASIS_INV"
+          construction_period: "L_BAUJ"
+          original_parcel: "ORIG_PARZ"
+          original_facade: "ORIG_FASS"
+          original_core: "ORIG_KERN"
+          original_windows: "ORIG_FENSTER"
+          original_roof: "ORIG_DACH"
+
+      building_typology:
+        name: "Gebäudetypologie"
+        layer: "ogdwien:GEBAEUDETYPOGD"
+        priority: 2
+        fields:
+          - "OBJECTID"
+          - "BEZUG"
+          - "OBJ_STR"
+          - "OBJ_STR_TXT"
+          - "OBJ_STR2"
+          - "OBJ_STR2_TXT"
+          - "BAUTYP"
+          - "BAUTYP_TXT"
+          - "ACD"
+        mapping:
+          typology_id: "OBJECTID"
+          structure: "OBJ_STR"
+          structure_text: "OBJ_STR_TXT"
+          structure2: "OBJ_STR2"
+          structure2_text: "OBJ_STR2_TXT"
+
+      landuse:
+        name: "Realnutzung"
+        layer: "ogdwien:REALNUT2022OGD"
+        priority: 3
+        fields:
+          - "OBJECTID"
+          - "BEZ"
+          - "ZBEZ"
+          - "ZGEB"
+          - "BLK"
+          - "NUTZUNG_CODE"
+          - "NUTZUNG_LEVEL1"
+          - "NUTZUNG_LEVEL2"
+          - "NUTZUNG_LEVEL3"
+          - "FLAECHE"
+        mapping:
+          landuse_id: "OBJECTID"
+          usage_code: "NUTZUNG_CODE"
+          usage_level1: "NUTZUNG_LEVEL1"
+          usage_level2: "NUTZUNG_LEVEL2"
+          usage_level3: "NUTZUNG_LEVEL3"
+          area: "FLAECHE"
+
+      energy_plan:
+        name: "Energieraumplan"
+        layer: "ogdwien:ENERGIERAUMPLANOGD"
+        priority: 4
+        fields:
+          - "OBJECTID"
+          - "geometry"
+          - "ERPLABEL"
+          - "BEARB_DATUM"
+          - "BEZNR"
+          - "FL_ERP"
+        mapping:
+          energy_id: "OBJECTID"
+          geometry: "geometry"
+          energy_label: "ERPLABEL"
+          measurement_date: "BEARB_DATUM"
+          energy_class: "BEZNR"
+          energy_performance: "FL_ERP"
+
+      solar_potential:
+        name: "Solarpotential"
+        layer: "ogdwien:PVPOTENZIALEOGD"
+        priority: 5
+        fields:
+          - "OBJECTID"
+          - "geometry"
+          - "EIGNUNGSKLASSE"
+        mapping:
+          solar_id: "OBJECTID"
+          geometry: "geometry"
+          suitability: "EIGNUNGSKLASSE"
+
+      zoning:
+        name: "Flächenwidmung"
+        layer: "ogdwien:GENFLWIDMUNGOGD"
+        priority: 6
+        fields:
+          - "OBJECTID"
+          - "WIDMUNGSKLASSE"
+          - "WIDMUNGSKLASSE_TXT"
+          - "BEZIRK"
+          - "UMFANG"
+          - "FLAECHE"
+          - "WIDMUNG"
+          - "WIDMUNG_TXT"
+        mapping:
+          landuse_id: "OBJECTID"
+          designation_class: "WIDMUNGSKLASSE"
+          designation_class_text: "WIDMUNGSKLASSE_TXT"
+          designation: "WIDMUNG"
+          designation_text: "WIDMUNG_TXT"
+
+      building_model:
+        name: "Gebäudemodell"
+        layer: "ogdwien:FMZKBKMOGD"
+        priority: 7
+        fields:
+          - "FMZK_ID"
+          - "F_KLASSE"
+          - "LAYER"
+          - "BEZUG"
+          - "H_KLASSE"
+          - "KLASSE_SUB"
+          - "O_KOTE"
+          - "U_KOTE"
+          - "T_KOTE"
+          - "BW_GEB_ID"
+          - "BW_BRK_ID"
+          - "BW_SON_ID"
+          - "SE_SDO_ROWID"
+        mapping:
+          model_id: "OBJECTID"
+          upper_elevation: "O_KOTE"
+          lower_elevation: "U_KOTE"
+          terrain_elevation: "T_KOTE"
+
+    merge_fields:
+      buildings:
+        - building_id
+        - geometry
+        - cad_data
+        - construction_year
+        - usage
+        - building_type
+        - floors
+        - foundation_type
+        - construction_period
+      energy:
+        - energy_id
+        - geometry
+        - energy_label
+        - measurement_date
+        - energy_class
+        - energy_performance
+        - building_id
+      solar_potential:
+        - solar_id
+        - geometry
+        - suitability
+
+    building_periods:
+      - {start: null, end: 1859, suffix: "_A"}
+      - {start: 1860, end: 1918, suffix: "_B"}
+      - {start: 1919, end: 1948, suffix: "_C"}
+      - {start: 1949, end: 1957, suffix: "_D"}
+      - {start: 1958, end: 1968, suffix: "_E"}
+      - {start: 1969, end: 1978, suffix: "_F"}
+      - {start: 1979, end: 1983, suffix: "_G"}
+      - {start: 1984, end: 1994, suffix: "_H"}
+      - {start: 1995, end: 2001, suffix: "_I"}
+      - {start: 2002, end: 2009, suffix: "_J"}
+      - {start: 2010, end: 2015, suffix: "_K"}
+      - {start: 2016, end: null, suffix: "_L"}
+
+    period_ranges:
+      "1848 -1918": [1848, 1918]
+      "1919 - 1945": [1919, 1945]
+      "nach 1945": [1946, 2025]
+
+    building_types:
+      standard_prefix:
+        "4.-Bauten der öffentl.u.privaten Repräsentation u.Verwaltung": "AB"
+        "5.-Bauten der Erziehung und Bildung": "AB"
+        "6.-Bauten der öffentlichen und privaten Wirtschaft": "AB"
+        "10.-Kaufhäuser": "AB"
+        "11.-Einkaufszentren": "AB"
+        "12.-Gewerbebetriebe": "TH"
+        "13.-Industriebauten": "TH"
+        "14.-Bauten des öffentlichen und privaten Verkehrs": "AB"
+        "15.-Bauten der öffentlichen und privaten Wohlfahrt": "AB"
+        "W1.1.-bäuerl.dom.Baustrukt.-Streck- u. Hakenhof": "SFH"
+        "W1.2.-bäuerl.dom.Baustrukt.-Zwerchh.u.Gassenfrontenhaus": "SFH"
+        "W2.1.-Bürgerhaus-kleine Haustypen ohne Hof": "MFH"
+        "W2.2.-Bürgerhaus-Haus auf tiefer,schmaler Parzelle,ohne Hof": "MFH"
+        "W3.1.-Mieth.s.d.Gründerzeit-Straßentrakter": "TH"
+        "W3.2.-Mieth.s.d.Gründerzeit-Seitenflügelhaus": "MFH"
+        "W3.3.-Mieth.s.d.Gründerzeit-Doppeltrakter mit Verbindungstr.": "TH"
+        "W3.4.-Mieth.s.d.Gründerzeit-Doppeltrakter,zweihüft. Hoftrakt": "TH"
+        "W3.7.-Mieth.s.d.Gründerzeit-Eckhaus": "TH"
+        "W3.8.-Mieth.s.d.Gründerzeit-Hoftrakt": "TH"
+        "W4.1.-soz.u.gemeinn.Wohnb.-Baulückenbebauungen": "MFH"
+        "W4.2.-soz.u.gemeinn.Wohnb.-Hofbebauungen/Superblocks": "MFH"
+        "W4.3.-soz.u.gemeinn.Wohnb.-Siedlungen in Zeilenbauweise": "MFH"
+        "W4.4.-soz.u.gemeinn.Wohnb.-Siedlungen,1-,2-u.Mehrfamilienh.": "SFH"
+        "W5.1.-freist.1-,2-u.Mehrfamilienh.-Villen in Randbebauung": "SFH"
+        "W5.2.-freist.1-,2-u.Mehrfamilienh.-freistehende Villen": "SFH"
+        "W6.1.-Sonderwohnbauten-Hotel und Pension": "AB"
+        "W6.2.-Sonderwohnbauten-Heim,Pflegeanstalt,Spitalsbauten": "AB"
+
+      use_type:
+        "4.-Bauten der öffentl.u.privaten Repräsentation u.Verwaltung": "OFFICE"
+        "5.-Bauten der Erziehung und Bildung": "SCHOOL"
+        "6.-Bauten der öffentlichen und privaten Wirtschaft": "OFFICE"
+        "10.-Kaufhäuser": "RETAIL"
+        "11.-Einkaufszentren": "RETAIL"
+        "12.-Gewerbebetriebe": "INDUSTRIAL"
+        "13.-Industriebauten": "INDUSTRIAL"
+        "14.-Bauten des öffentlichen und privaten Verkehrs": "OFFICE"
+        "15.-Bauten der öffentlichen und privaten Wohlfahrt": "OFFICE"
+        "W1.1.-bäuerl.dom.Baustrukt.-Streck- u. Hakenhof": "SINGLE_RES"
+        "W1.2.-bäuerl.dom.Baustrukt.-Zwerchh.u.Gassenfrontenhaus": "SINGLE_RES"
+        "W2.1.-Bürgerhaus-kleine Haustypen ohne Hof": "MULTI_RES"
+        "W2.2.-Bürgerhaus-Haus auf tiefer,schmaler Parzelle,ohne Hof": "MULTI_RES"
+        "W3.1.-Mieth.s.d.Gründerzeit-Straßentrakter": "MULTI_RES"
+        "W3.2.-Mieth.s.d.Gründerzeit-Seitenflügelhaus": "MULTI_RES"
+        "W3.3.-Mieth.s.d.Gründerzeit-Doppeltrakter mit Verbindungstr.": "MULTI_RES"
+        "W3.4.-Mieth.s.d.Gründerzeit-Doppeltrakter,zweihüft. Hoftrakt": "MULTI_RES"
+        "W3.7.-Mieth.s.d.Gründerzeit-Eckhaus": "MULTI_RES"
+        "W3.8.-Mieth.s.d.Gründerzeit-Hoftrakt": "MULTI_RES"
+        "W4.1.-soz.u.gemeinn.Wohnb.-Baulückenbebauungen": "MULTI_RES"
+        "W4.2.-soz.u.gemeinn.Wohnb.-Hofbebauungen/Superblocks": "MULTI_RES"
+        "W4.3.-soz.u.gemeinn.Wohnb.-Siedlungen in Zeilenbauweise": "MULTI_RES"
+        "W4.4.-soz.u.gemeinn.Wohnb.-Siedlungen,1-,2-u.Mehrfamilienh.": "SINGLE_RES"
+        "W5.1.-freist.1-,2-u.Mehrfamilienh.-Villen in Randbebauung": "SINGLE_RES"
+        "W5.2.-freist.1-,2-u.Mehrfamilienh.-freistehende Villen": "SINGLE_RES"
+        "W6.1.-Sonderwohnbauten-Hotel und Pension": "HOTEL"
+        "W6.2.-Sonderwohnbauten-Heim,Pflegeanstalt,Spitalsbauten": "HOSPITAL"
+
+building_classification:
+  periods:
+    # WFS-Perioden mit Wahrscheinlichkeitsverteilung für detaillierte Perioden
+    wfs_periods:
+      "1848-1918":
+        range: [1848, 1918]
+        distribution:
+          - {period: "A", weight: 0.4}  # Höhere Wahrscheinlichkeit für ältere Gebäude
+          - {period: "B", weight: 0.6}
+      "1919-1945":
+        range: [1919, 1945]
+        distribution:
+          - {period: "C", weight: 1.0}
+      "nach 1945":
+        range: [1946, 2025]
+        distribution:
+          - {period: "D", weight: 0.15}
+          - {period: "E", weight: 0.15}
+          - {period: "F", weight: 0.15}
+          - {period: "G", weight: 0.1}
+          - {period: "H", weight: 0.1}
+          - {period: "I", weight: 0.1}
+          - {period: "J", weight: 0.1}
+          - {period: "K", weight: 0.1}
+          - {period: "L", weight: 0.05}
+    
+    # Detaillierte Periodendefinitionen
+    detailed_periods:
+      A: {start: null, end: 1859}
+      B: {start: 1860, end: 1918}
+      C: {start: 1919, end: 1948}
+      D: {start: 1949, end: 1957}
+      E: {start: 1958, end: 1968}
+      F: {start: 1969, end: 1978}
+      G: {start: 1979, end: 1983}
+      H: {start: 1984, end: 1994}
+      I: {start: 1995, end: 2001}
+      J: {start: 2002, end: 2009}
+      K: {start: 2010, end: 2015}
+      L: {start: 2016, end: null} 

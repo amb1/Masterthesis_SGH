@@ -8,8 +8,9 @@ einschließlich Typenmapping, Periodenbestimmung und Wertkonvertierung.
 """
 
 from pathlib import Path
-from typing import Dict, Optional, Tuple, Any, TypeVar, Callable
+from typing import Dict, Optional, Tuple, Any, TypeVar, Callable, List
 import logging
+import random
 from core.config_manager import load_config
 from core.logging_config import LoggedOperation
 
@@ -243,4 +244,118 @@ def map_construction_period(year: int) -> str:
         return "PRE-1900"
     
     decade = (year // 10) * 10
-    return f"{decade}-{decade+9}" 
+    return f"{decade}-{decade+9}"
+
+def get_wfs_period(year: int, config: Dict[str, Any]) -> Optional[str]:
+    """Bestimmt die WFS-Periode basierend auf dem Baujahr.
+    
+    Args:
+        year: Baujahr des Gebäudes
+        config: Konfigurationsobjekt mit Periodendefinitionen
+        
+    Returns:
+        WFS-Periodenbezeichnung oder None wenn keine Zuordnung möglich
+    """
+    wfs_periods = config.get('building_classification', {}).get('periods', {}).get('wfs_periods', {})
+    
+    for period_name, period_data in wfs_periods.items():
+        range_start, range_end = period_data.get('range', [None, None])
+        if range_start and range_end:
+            if range_start <= year <= range_end:
+                return period_name
+        elif range_start and not range_end:  # Für "nach 1945"
+            if year >= range_start:
+                return period_name
+            
+    return None
+
+def distribute_to_detailed_period(wfs_period: str, config: Dict[str, Any]) -> str:
+    """Verteilt eine WFS-Periode auf eine detaillierte Periode basierend auf Wahrscheinlichkeiten.
+    
+    Args:
+        wfs_period: WFS-Periodenbezeichnung
+        config: Konfigurationsobjekt mit Verteilungsdefinitionen
+        
+    Returns:
+        Detaillierte Periodenbezeichnung (A-L)
+    """
+    try:
+        # Hole die Verteilungsdefinition für die WFS-Periode
+        period_config = config.get('building_classification', {}).get('periods', {}).get('wfs_periods', {}).get(wfs_period)
+        if not period_config:
+            logger.warning(f"⚠️ Keine Verteilungskonfiguration für Periode {wfs_period} gefunden")
+            return "E"  # Standardwert als Fallback
+            
+        distribution = period_config.get('distribution', [])
+        if not distribution:
+            logger.warning(f"⚠️ Keine Verteilung für Periode {wfs_period} definiert")
+            return "E"
+            
+        # Erstelle gewichtete Liste für die Auswahl
+        periods = [d['period'] for d in distribution]
+        weights = [d['weight'] for d in distribution]
+        
+        # Normalisiere Gewichte
+        total_weight = sum(weights)
+        normalized_weights = [w/total_weight for w in weights]
+        
+        # Wähle eine Periode basierend auf den Gewichten
+        selected_period = random.choices(periods, normalized_weights, k=1)[0]
+        
+        return selected_period
+        
+    except Exception as e:
+        logger.error(f"❌ Fehler bei der Periodenverteilung: {str(e)}")
+        return "E"
+
+def generate_random_year(period: str, config: Dict[str, Any]) -> int:
+    """Generiert ein zufälliges Jahr innerhalb einer detaillierten Periode.
+    
+    Args:
+        period: Detaillierte Periodenbezeichnung (A-L)
+        config: Konfigurationsobjekt mit Periodendefinitionen
+        
+    Returns:
+        Zufällig generiertes Jahr
+    """
+    try:
+        # Hole die Periodendefinition
+        period_config = config.get('building_classification', {}).get('periods', {}).get('detailed_periods', {}).get(period)
+        if not period_config:
+            logger.warning(f"⚠️ Keine Definition für Periode {period} gefunden")
+            return 1970  # Standardwert als Fallback
+            
+        start_year = period_config.get('start', 1900)
+        end_year = period_config.get('end', 2000)
+        
+        # Setze Standardwerte für None
+        if start_year is None:
+            start_year = 1800
+        if end_year is None:
+            end_year = 2025
+            
+        # Generiere zufälliges Jahr im Bereich
+        return random.randint(start_year, end_year)
+        
+    except Exception as e:
+        logger.error(f"❌ Fehler bei der Jahresgenerierung: {str(e)}")
+        return 1970
+
+def process_building_period(wfs_period: str, config: Dict[str, Any]) -> Tuple[str, int]:
+    """Verarbeitet eine WFS-Periode zu einer detaillierten Periode und generiert ein passendes Jahr.
+    
+    Args:
+        wfs_period: WFS-Periodenbezeichnung
+        config: Konfigurationsobjekt
+        
+    Returns:
+        Tuple aus (detaillierte_periode, generiertes_jahr)
+    """
+    with LoggedOperation("Periodenverarbeitung"):
+        # Verteile auf detaillierte Periode
+        detailed_period = distribute_to_detailed_period(wfs_period, config)
+        
+        # Generiere passendes Jahr
+        year = generate_random_year(detailed_period, config)
+        
+        return detailed_period, year 

@@ -10,10 +10,20 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@': '/app'
+      '@': path.resolve(__dirname, './app')
     }
   },
+  envDir: '.',
   build: {
     outDir: 'dist',
+    sourcemap: true
+  },
+  server: {
+    port: 5173,
+    host: true,
+    fs: {
+      // Erlaubt den Zugriff auf Cesium-Assets
+      allow: ['..']
+    }
   }
 });
