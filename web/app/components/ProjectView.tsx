@@ -1,15 +1,21 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { Layers, ArrowLeft, Settings } from 'lucide-react';
 import CesiumViewer from './CesiumViewer';
 import LayerSidebar from './LayerSidebar';
 import ControlsSidebar from './ControlsSidebar';
+import { useNavigate, useParams } from 'react-router-dom';
+import { supabase } from '../lib/supabaseClient';
 
 interface ProjectViewProps {
   projectId: string;
   cesiumToken: string;
 }
 
-const ProjectView: React.FC<ProjectViewProps> = ({ projectId, cesiumToken }) => {
+const ProjectView: React.FC<ProjectViewProps> = ({ projectId: propProjectId, cesiumToken: propCesiumToken }) => {
+  const navigate = useNavigate();
+  const { id } = useParams();
+  const [projectId, setProjectId] = useState(propProjectId || id || '');
+  const [cesiumToken, setCesiumToken] = useState(propCesiumToken);
   const [showLayerSidebar, setShowLayerSidebar] = useState(true);
   const [showControlsSidebar, setShowControlsSidebar] = useState(true);
   const [showTimeline, setShowTimeline] = useState(false);
@@ -26,6 +32,29 @@ const ProjectView: React.FC<ProjectViewProps> = ({ projectId, cesiumToken }) => 
   const [tilesetUrl] = useState("https://zfwjygqjtbzjyyyuihfv.supabase.co/storage/v1/object/sign/tiles3d/Vienna%20CityGML%203D-Tile/tileset.json?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1cmwiOiJ0aWxlczNkL1ZpZW5uYSBDaXR5R01MIDNELVRpbGUvdGlsZXNldC5qc29uIiwiaWF0IjoxNzQyODYxNDM2LCJleHAiOjE3NDM0NjYyMzZ9.QgzGASmdrJbdrsZw6xXma4_aAdYEo7tVYI-q1tCCIuY");
   const [zoomToTilesetFn, setZoomToTilesetFn] = useState<(() => void) | undefined>();
   const viewerRef = useRef<any>(null);
+
+  useEffect(() => {
+    const fetchProjectData = async () => {
+      if (!projectId) return;
+
+      try {
+        const { data, error } = await supabase
+          .from('projects')
+          .select('*')
+          .eq('id', projectId)
+          .single();
+
+        if (error) throw error;
+        if (data) {
+          setCesiumToken(data.cesium_token);
+        }
+      } catch (error) {
+        console.error('Fehler beim Laden der Projektdaten:', error);
+      }
+    };
+
+    fetchProjectData();
+  }, [projectId]);
 
   const handleLayerToggle = useCallback((layer: keyof typeof enabledLayers) => {
     console.log('Toggle layer:', layer);
@@ -58,8 +87,16 @@ const ProjectView: React.FC<ProjectViewProps> = ({ projectId, cesiumToken }) => 
   };
 
   const handleBack = useCallback(() => {
-    window.location.href = '/projects';
-  }, []);
+    navigate('/');
+  }, [navigate]);
+
+  if (!cesiumToken) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full">

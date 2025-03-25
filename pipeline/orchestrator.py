@@ -13,6 +13,7 @@ from typing import Dict, Any, List, Tuple, Optional
 from core.logging_config import setup_logging, LoggedOperation
 from pipeline.data_sources.citygml_fetcher import fetch_citygml_buildings
 from pipeline.data_sources.wfs_fetcher import fetch_wfs_buildings
+from pipeline.data_sources.osm_fetcher import fetch_osm_data
 from pipeline.processing.cea_processor import CEABuildingProcessor
 from pipeline.output.writer import write_output
 
@@ -55,14 +56,15 @@ class PipelineOrchestrator:
         except Exception as e:
             raise PipelineError("Fehler beim Ermitteln der Pipeline-Schritte", "get_steps", e)
     
-    def _fetch_data(self) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    def _fetch_data(self) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
         """Holt die Daten aus den Quellen.
         
         Returns:
-            Tuple mit CityGML und WFS Daten
+            Tuple mit CityGML, WFS und OSM Daten
         """
         citygml_data = None
         wfs_data = None
+        osm_data = None
         
         try:
             # Lade CityGML-Konfiguration
@@ -137,8 +139,25 @@ class PipelineOrchestrator:
                 if wfs_data is None:
                     self.logger.warning("⚠️ Keine WFS Daten gefunden")
                     wfs_data = {}
+
+            with LoggedOperation("OSM Daten abrufen"):
+                # Hole Gebäude und Straßen von OSM
+                osm_buildings = fetch_osm_data(
+                    site_gdf=citygml_data,
+                    data_type='buildings',
+                    config=self.config.get('data_source', {}).get('osm', {})
+                )
+                osm_streets = fetch_osm_data(
+                    site_gdf=citygml_data,
+                    data_type='streets',
+                    config=self.config.get('data_source', {}).get('osm', {})
+                )
+                osm_data = {
+                    'buildings': osm_buildings,
+                    'streets': osm_streets
+                }
                 
-            return citygml_data, wfs_data
+            return citygml_data, wfs_data, osm_data
             
         except Exception as e:
             if isinstance(e, PipelineError):
@@ -149,12 +168,13 @@ class PipelineOrchestrator:
                 e
             )
     
-    def _process_data(self, citygml_data: Dict[str, Any], wfs_data: Dict[str, Any]) -> Dict[str, Any]:
+    def _process_data(self, citygml_data: Dict[str, Any], wfs_data: Dict[str, Any], osm_data: Dict[str, Any]) -> Dict[str, Any]:
         """Verarbeitet die Daten für CEA.
         
         Args:
             citygml_data: CityGML Gebäudedaten
             wfs_data: WFS Gebäudedaten
+            osm_data: OSM Daten (Gebäude und Straßen)
             
         Returns:
             Verarbeitete Daten
@@ -178,7 +198,7 @@ class PipelineOrchestrator:
 
             self.logger.info("🔄 Verarbeite Daten für CEA...")
             processor = CEABuildingProcessor(self.config)
-            processed_data = processor.process_buildings(citygml_data, wfs_data)
+            processed_data = processor.process_buildings(citygml_data, wfs_data, osm_data)
             
             if not processed_data:
                 raise PipelineError("Keine Daten verarbeitet", "process_data")
@@ -225,11 +245,11 @@ class PipelineOrchestrator:
             
             # Fetch-Phase
             if "fetch_data" in enabled_steps:
-                citygml_data, wfs_data = self._fetch_data()
+                citygml_data, wfs_data, osm_data = self._fetch_data()
             
             # Process-Phase
             if "process_data" in enabled_steps:
-                processed_data = self._process_data(citygml_data, wfs_data)
+                processed_data = self._process_data(citygml_data, wfs_data, osm_data)
             
             # Export-Phase
             if "export_data" in enabled_steps:

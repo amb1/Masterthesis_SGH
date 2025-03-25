@@ -25,9 +25,12 @@ import {
   ScreenSpaceEventHandler,
   ScreenSpaceEventType,
   Cesium3DTileFeature,
-  Color
+  Color,
+  Matrix3,
+  Quaternion
 } from "cesium";
-import { X, ArrowLeft } from 'lucide-react';
+import { X, ArrowLeft, RotateCcw, RotateCw, ArrowUp, ArrowDown, ArrowLeft as ArrowLeftIcon, ArrowRight, ZoomIn, ZoomOut } from 'lucide-react';
+import LayerSidebar from './LayerSidebar';
 
 interface CesiumViewerComponentProps {
   token: string;
@@ -76,6 +79,20 @@ const CesiumViewerComponent = forwardRef<CesiumViewerRef, CesiumViewerComponentP
   const [error, setError] = useState<string | null>(null);
   const [selectedFeature, setSelectedFeature] = useState<FeatureInfo | null>(null);
   const [currentTileset, setCurrentTileset] = useState<Cesium3DTileset | null>(null);
+  const [transformControls, setTransformControls] = useState({
+    heading: 0,
+    pitch: 0,
+    roll: 0,
+    scale: 1,
+    position: { x: 0, y: 0, z: 0 }
+  });
+  const [transformMode, setTransformMode] = useState<'position' | 'transform'>('position');
+  const [searchAddress, setSearchAddress] = useState('');
+  const [currentPosition, setCurrentPosition] = useState({
+    longitude: 0,
+    latitude: 0,
+    height: 0
+  });
 
   useImperativeHandle(ref, () => ({
     loadAsset: async (assetId: number) => {
@@ -105,7 +122,8 @@ const CesiumViewerComponent = forwardRef<CesiumViewerRef, CesiumViewerComponentP
 
     // Standardstil für alle Features
     const defaultStyle = new Cesium3DTileStyle({
-      color: 'rgba(255, 255, 255, 0.5)'
+      color: 'color("white")',
+      show: true
     });
 
     if (!feature) {
@@ -113,92 +131,101 @@ const CesiumViewerComponent = forwardRef<CesiumViewerRef, CesiumViewerComponentP
       return;
     }
 
-    // Feature ID für die Bedingung
-    const featureId = feature.getProperty('id');
-    
-    // Stil mit Hervorhebung für das ausgewählte Feature
-    const highlightStyle = new Cesium3DTileStyle({
-      color: {
-        conditions: [
-          [`\${id} === '${featureId}'`, 'rgba(255, 255, 0, 0.7)'],
-          ['true', 'rgba(255, 255, 255, 0.5)']
-        ]
-      }
-    });
+    try {
+      // Versuche verschiedene Identifikatoren für das Feature
+      const featureId = feature.getProperty('id') || 
+                       feature.getProperty('gmlid') ||
+                       feature.getProperty('fid') ||
+                       feature._batchId;
+      
+      // Stil mit stärkerer Hervorhebung für das ausgewählte Feature
+      const highlightStyle = new Cesium3DTileStyle({
+        color: {
+          conditions: [
+            [`\${id} === '${featureId}' || \${gmlid} === '${featureId}' || \${fid} === '${featureId}' || \${batchId} === ${feature._batchId}`, 
+             'color("yellow", 1.0)'],
+            ['true', 'color("white", 1.0)']
+          ]
+        }
+      });
 
-    tileset.style = highlightStyle;
+      tileset.style = highlightStyle;
+    } catch (err) {
+      console.error('Fehler beim Hervorheben des Features:', err);
+    }
   }, []);
 
-  const handleFeatureClick = useCallback((feature: Cesium3DTileFeature, tileset: Cesium3DTileset) => {
-    if (!feature || !tileset) return;
+  const handleFeatureClick = useCallback((movement: any) => {
+    if (!viewer || !currentTileset) return;
 
-    const properties: Record<string, any> = {};
-    const propertiesToCheck = [
-      'id',
-      'name',
-      'description',
-      'height',
-      'width',
-      'length',
-      'building_height',
-      'building_levels',
-      'building_type',
-      'roof_type',
-      'year_of_construction',
-      'address'
-    ];
+    const scene = viewer.scene;
+    const pickedObject = scene.pick(movement.position);
 
-    propertiesToCheck.forEach(prop => {
-      const value = feature.getProperty(prop);
-      if (value !== undefined) {
-        properties[prop] = value;
+    if (pickedObject instanceof Cesium3DTileFeature) {
+      const properties: Record<string, any> = {};
+      
+      // Versuche alle verfügbaren Properties zu sammeln
+      const availableProps = pickedObject.getPropertyNames?.() || [];
+      availableProps.forEach(prop => {
+        const value = pickedObject.getProperty(prop);
+        if (value !== undefined) {
+          properties[prop] = value;
+        }
+      });
+
+      // Basis-Informationen hinzufügen
+      properties['Batch ID'] = pickedObject._batchId;
+      if (currentTileset.asset?.id) {
+        properties['Tileset ID'] = currentTileset.asset.id;
       }
-    });
+      
+      // Geometrische Eigenschaften extrahieren
+      if (pickedObject._content?.boundingSphere) {
+        const boundingSphere = pickedObject._content.boundingSphere;
+        properties['Position'] = {
+          x: boundingSphere.center.x.toFixed(2),
+          y: boundingSphere.center.y.toFixed(2),
+          z: boundingSphere.center.z.toFixed(2)
+        };
+        properties['Größe'] = boundingSphere.radius.toFixed(2);
+      }
 
-    setSelectedFeature({
-      id: feature.getProperty('id'),
-      properties,
-      tileset
-    });
+      setSelectedFeature({
+        id: properties.id || properties.gmlid || properties.fid || pickedObject._batchId?.toString(),
+        properties,
+        tileset: currentTileset
+      });
 
-    highlightFeature(feature, tileset);
+      highlightFeature(pickedObject, currentTileset);
 
-    // Kamera auf das Feature zentrieren
-    if (viewer) {
-      const boundingSphere = (feature as any)._content.boundingSphere;
-      if (boundingSphere) {
+      // Kamera auf das Feature zentrieren
+      if (pickedObject._content?.boundingSphere) {
         viewer.camera.viewBoundingSphere(
-          boundingSphere,
-          new HeadingPitchRange(0, -0.5, boundingSphere.radius * 2)
+          pickedObject._content.boundingSphere,
+          new HeadingPitchRange(0, -0.5, pickedObject._content.boundingSphere.radius * 2)
         );
       }
+    } else {
+      setSelectedFeature(null);
+      if (currentTileset) {
+        highlightFeature(null, currentTileset);
+      }
     }
-  }, [viewer, highlightFeature]);
+  }, [viewer, currentTileset, highlightFeature]);
 
   useEffect(() => {
-    if (!viewer || !enabledLayers.tileset) return;
+    if (!viewer || !currentTileset) return;
 
     const handler = new ScreenSpaceEventHandler(viewer.scene.canvas);
-
-    handler.setInputAction((movement: any) => {
-      const pickedFeature = viewer.scene.pick(movement.position);
-      
-      if (pickedFeature && pickedFeature instanceof Cesium3DTileFeature && currentTileset) {
-        handleFeatureClick(pickedFeature, currentTileset);
-      } else {
-        setSelectedFeature(null);
-        if (currentTileset) {
-          highlightFeature(null, currentTileset);
-        }
-      }
-    }, ScreenSpaceEventType.LEFT_CLICK);
+    
+    handler.setInputAction(handleFeatureClick, ScreenSpaceEventType.LEFT_CLICK);
 
     return () => {
       if (handler && !handler.isDestroyed()) {
         handler.destroy();
       }
     };
-  }, [enabledLayers.tileset, handleFeatureClick, highlightFeature, viewer, currentTileset]);
+  }, [viewer, currentTileset, handleFeatureClick]);
 
   useEffect(() => {
     if (!terrainProvider) return;
@@ -265,20 +292,147 @@ const CesiumViewerComponent = forwardRef<CesiumViewerRef, CesiumViewerComponentP
     }
   };
 
+  const updateTilesetTransform = useCallback(() => {
+    if (!currentTileset) return;
+
+    // Erstelle die Rotationsmatrix aus Heading, Pitch und Roll
+    const headingRotation = Matrix3.fromRotationZ(CesiumMath.toRadians(transformControls.heading));
+    const pitchRotation = Matrix3.fromRotationX(CesiumMath.toRadians(transformControls.pitch));
+    const rollRotation = Matrix3.fromRotationY(CesiumMath.toRadians(transformControls.roll));
+
+    // Kombiniere die Rotationen
+    const rotation = Matrix3.multiply(
+      Matrix3.multiply(headingRotation, pitchRotation, new Matrix3()),
+      rollRotation,
+      new Matrix3()
+    );
+
+    // Erstelle die Transformationsmatrix
+    const transform = Matrix4.fromRotationTranslation(
+      rotation,
+      new Cartesian3(
+        transformControls.position.x,
+        transformControls.position.y,
+        transformControls.position.z
+      )
+    );
+
+    // Skalierung anwenden
+    const scale = Matrix4.fromScale(
+      new Cartesian3(
+        transformControls.scale,
+        transformControls.scale,
+        transformControls.scale
+      )
+    );
+
+    // Kombiniere Transformation und Skalierung
+    const finalTransform = Matrix4.multiply(transform, scale, new Matrix4());
+
+    // Wende die Transformation auf das Tileset an
+    currentTileset.modelMatrix = finalTransform;
+  }, [currentTileset, transformControls]);
+
+  const handleTransformChange = useCallback((type: string, value: number) => {
+    setTransformControls(prev => ({
+      ...prev,
+      [type]: value
+    }));
+  }, []);
+
+  const handleTransformReset = useCallback(() => {
+    setTransformControls({
+      heading: 0,
+      pitch: 0,
+      roll: 0,
+      scale: 1,
+      position: { x: 0, y: 0, z: 0 }
+    });
+  }, []);
+
+  useEffect(() => {
+    updateTilesetTransform();
+  }, [transformControls, updateTilesetTransform]);
+
+  const handleSearchAddress = async () => {
+    if (!viewer || !searchAddress) return;
+    
+    try {
+      // Hier würde die Geocoding-Logik kommen
+      // Für jetzt setzen wir nur die Position
+      const cartographic = Cartographic.fromDegrees(
+        currentPosition.longitude,
+        currentPosition.latitude,
+        currentPosition.height
+      );
+      
+      if (currentTileset) {
+        const transform = Transforms.eastNorthUpToFixedFrame(
+          Cartesian3.fromRadians(
+            cartographic.longitude,
+            cartographic.latitude,
+            cartographic.height
+          )
+        );
+        currentTileset.modelMatrix = transform;
+      }
+    } catch (err) {
+      console.error('Fehler bei der Adresssuche:', err);
+    }
+  };
+
+  const handleClickPosition = useCallback((movement: any) => {
+    if (!viewer || !currentTileset) return;
+
+    const scene = viewer.scene;
+    const cartesian = scene.camera.pickEllipsoid(
+      movement.position,
+      scene.globe.ellipsoid
+    );
+
+    if (cartesian) {
+      const cartographic = Cartographic.fromCartesian(cartesian);
+      const longitude = CesiumMath.toDegrees(cartographic.longitude);
+      const latitude = CesiumMath.toDegrees(cartographic.latitude);
+      const height = cartographic.height;
+
+      setCurrentPosition({ longitude, latitude, height });
+
+      const transform = Transforms.eastNorthUpToFixedFrame(
+        Cartesian3.fromDegrees(longitude, latitude, height)
+      );
+      currentTileset.modelMatrix = transform;
+    }
+  }, [viewer, currentTileset]);
+
   return (
     <div className="relative w-full h-full">
       <div id="cesiumContainer" className="w-full h-full" />
       
-      {/* Zurück zum Projekt Button */}
+      {/* Zurück-Button */}
       <button
-        onClick={handleBackToProject}
+        onClick={onBack}
         className="absolute top-4 left-4 bg-white p-2 rounded shadow-lg hover:bg-gray-100 z-50 flex items-center gap-2"
         title="Zurück zum Projekt"
       >
         <ArrowLeft size={20} />
         <span>Zurück zum Projekt</span>
       </button>
-      
+
+      {/* Layer Sidebar */}
+      <LayerSidebar
+        onClose={() => {/* handle close */}}
+        onLoadAsset={loadAsset}
+        enabledLayers={enabledLayers}
+        layerOpacity={layerOpacity}
+        onLayerToggle={onLayerToggle}
+        onOpacityChange={onOpacityChange}
+        onZoomToTileset={onZoomToTileset}
+        transformControls={transformControls}
+        onTransformChange={handleTransformChange}
+        onTransformReset={handleTransformReset}
+      />
+
       {/* Loading und Error Anzeige */}
       {loadingAssets && (
         <div className="absolute top-4 right-4 bg-white p-2 rounded shadow">
@@ -296,7 +450,7 @@ const CesiumViewerComponent = forwardRef<CesiumViewerRef, CesiumViewerComponentP
         <div className="absolute top-20 left-4 bg-white p-4 rounded shadow-lg max-w-md z-50">
           <div className="flex justify-between items-start mb-4">
             <h3 className="text-lg font-semibold">
-              {selectedFeature.properties.name || 'Objekt Details'}
+              Objekt Details
             </h3>
             <button
               onClick={() => {
@@ -312,7 +466,12 @@ const CesiumViewerComponent = forwardRef<CesiumViewerRef, CesiumViewerComponentP
           </div>
           <div className="space-y-2">
             {Object.entries(selectedFeature.properties)
-              .filter(([_, value]) => value !== undefined && value !== null && value !== '')
+              .filter(([key, value]) => 
+                value !== undefined && 
+                value !== null && 
+                value !== '' &&
+                typeof value !== 'object'
+              )
               .map(([key, value]) => (
                 <div key={key} className="flex">
                   <span className="font-medium w-1/3 text-gray-600">

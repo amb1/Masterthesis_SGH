@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client'
 import { createBrowserRouter, RouterProvider } from 'react-router-dom'
 import Layout from './components/Layout'
 import ProjectList from './components/ProjectList'
+import ProjectView from './components/ProjectView'
 import './globals.css'
 
 const router = createBrowserRouter([
@@ -16,7 +17,7 @@ const router = createBrowserRouter([
       },
       {
         path: "projects/:id",
-        element: <ProjectList />,
+        element: <ProjectView projectId="" cesiumToken="" />,
       },
     ],
   },

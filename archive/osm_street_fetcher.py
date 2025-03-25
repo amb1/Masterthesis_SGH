@@ -1,3 +1,7 @@
+"""
+OSM-Street-Fetcher für die Verarbeitung von OSM-Straßendaten.
+"""
+
 import osmnx as ox
 import geopandas as gpd
 import pandas as pd
@@ -10,6 +14,10 @@ import os
 from shapely.geometry import LineString
 from core.config_manager import load_config as load_yaml_config
 from osmnx._errors import InsufficientResponseError
+from typing import Dict, Any, Optional
+from .osm.client import OSMBaseClient
+from .osm.geometry import OSMGeometryProcessor
+from .osm.attributes import OSMAttributeProcessor
 
 # Füge den Root-Pfad zum Python-Path hinzu
 root_dir = str(Path(__file__).resolve().parent.parent.parent)
@@ -122,13 +130,12 @@ def fetch_streets_within_site(site_gdf, config):
         logger.error(f"❌ Fehler beim Abrufen der Straßen: {str(e)}")
         raise
 
-def process_streets(edges_gdf, defaults=None):
+def process_streets(edges_gdf):
     """
     Verarbeitet das Straßennetz und erstellt erforderliche Attribute
     
     Args:
         edges_gdf: GeoDataFrame mit Straßenkanten
-        defaults: Dictionary mit Standardwerten für fehlende Attribute
     """
     logger.info("🔄 Verarbeite Straßennetz")
     
@@ -136,40 +143,47 @@ def process_streets(edges_gdf, defaults=None):
         logger.info("✅ Straßennetz verarbeitet: 0 Segmente")
         # Erstelle leeres GeoDataFrame mit allen erforderlichen Spalten
         empty_gdf = gpd.GeoDataFrame(
-            columns=['geometry', 'Name', 'width', 'lanes', 'surface', 'highway', 'REFERENCE'],
+            columns=['geometry', 'Name', 'width', 'lanes', 'surface', 'highway', 'data_source'],
             crs=edges_gdf.crs
         )
         return empty_gdf
     
-    # Setze Standardwerte wenn nicht übergeben
-    if defaults is None:
-        defaults = {
-            'width': 3.0,
-            'lanes': 2,
-            'surface': 'asphalt',
-            'REFERENCE': ''
+    # Erstelle GeoDataFrame mit vorhandenen Attributen
+    streets_data = []
+    for _, edge in edges_gdf.iterrows():
+        street_data = {
+            'geometry': edge.geometry,
+            'data_source': 'osm'
         }
+        
+        # Extrahiere nur vorhandene Attribute
+        if 'name' in edge and edge['name']:
+            street_data['Name'] = edge['name']
+            
+        if 'width' in edge and edge['width']:
+            try:
+                street_data['width'] = float(edge['width'])
+            except (ValueError, TypeError):
+                pass
+                
+        if 'lanes' in edge and edge['lanes']:
+            try:
+                street_data['lanes'] = int(edge['lanes'])
+            except (ValueError, TypeError):
+                pass
+                
+        if 'surface' in edge and edge['surface']:
+            street_data['surface'] = edge['surface']
+            
+        if 'highway' in edge:
+            highway = edge['highway']
+            if isinstance(highway, list):
+                highway = highway[0]
+            street_data['highway'] = highway
+            
+        streets_data.append(street_data)
     
-    # Erstelle GeoDataFrame mit benötigten Spalten
-    streets_gdf = gpd.GeoDataFrame(
-        {
-            'Name': edges_gdf.get('name', ''),
-            'width': edges_gdf.get('width', defaults.get('width', 3.0)),
-            'lanes': edges_gdf.get('lanes', defaults.get('lanes', 2)),
-            'surface': edges_gdf.get('surface', defaults.get('surface', 'asphalt')),
-            'highway': edges_gdf.get('highway', ''),
-            'REFERENCE': edges_gdf.get('ref', defaults.get('REFERENCE', '')),
-            'geometry': edges_gdf.geometry
-        },
-        crs=edges_gdf.crs
-    )
-    
-    # Konvertiere Listen zu einzelnen Werten
-    if 'highway' in streets_gdf.columns:
-        streets_gdf['highway'] = streets_gdf['highway'].apply(
-            lambda x: x[0] if isinstance(x, list) else x
-        )
-    
+    streets_gdf = gpd.GeoDataFrame(streets_data, crs=edges_gdf.crs)
     logger.info(f"✅ Straßennetz verarbeitet: {len(streets_gdf)} Segmente")
     return streets_gdf
 
@@ -183,100 +197,74 @@ def save_streets(streets_gdf, output_path):
     streets_gdf.to_file(output_path, driver='ESRI Shapefile')
     print("Straßennetz erfolgreich gespeichert")
 
-def fetch_osm_streets(site_polygon, config):
+def fetch_osm_streets(site_gdf: gpd.GeoDataFrame, config: Optional[Dict[str, Any]] = None) -> gpd.GeoDataFrame:
     """
-    Ruft Straßen von OpenStreetMap ab
+    Lädt Straßen von OpenStreetMap.
     
     Args:
-        site_polygon: GeoDataFrame oder MultiPolygon mit Suchbereich
-        config: Konfigurationsobjekt mit Straßeneinstellungen
+        site_gdf: GeoDataFrame mit Site-Polygon
+        config: Optionales Konfigurationsobjekt
+        
+    Returns:
+        GeoDataFrame mit OSM-Straßen
     """
     try:
-        # Setze Standardkonfiguration wenn keine übergeben wurde
-        if not isinstance(config, dict):
-            logger.warning("⚠️ Konfiguration ist kein Dictionary, verwende Standardwerte")
-            config = {
-                'tags': {
-                    'highway': ['primary', 'secondary', 'tertiary', 'residential']
-                },
-                'defaults': {
-                    'width': 3.0,
-                    'lanes': 2,
-                    'surface': 'asphalt',
-                    'REFERENCE': ''
-                }
-            }
+        logger.info("🔍 Hole OSM-Straßen")
         
-        # Extrahiere Konfigurationswerte
-        tags = config.get('tags', {})
-        defaults = config.get('defaults', {})
-        street_types = tags.get('highway', ['primary', 'secondary', 'tertiary', 'residential'])
+        # Initialisiere Komponenten
+        client = OSMBaseClient(config)
+        geometry_processor = OSMGeometryProcessor()
+        attribute_processor = OSMAttributeProcessor(config)
         
-        logger.info(f"📡 OSM-Abfrage: Straßen mit Typen {street_types}")
+        # Hole Rohdaten von OSM
+        streets_gdf = client.fetch_streets(site_gdf)
         
-        # Konvertiere MultiPolygon zu GeoDataFrame wenn nötig
-        if not isinstance(site_polygon, gpd.GeoDataFrame):
-            logger.info("🔄 Konvertiere MultiPolygon zu GeoDataFrame")
-            site_polygon = gpd.GeoDataFrame(geometry=[site_polygon], crs="EPSG:31256")
-        
-        # Stelle sicher, dass site_polygon ein gültiges CRS hat
-        if not site_polygon.crs:
-            logger.warning("⚠️ Kein CRS in site_polygon gefunden, setze EPSG:31256")
-            site_polygon.set_crs(epsg=31256, inplace=True)
-        
-        # Erstelle custom_filter für OSM-Abfrage
-        street_types_str = '|'.join(street_types)
-        custom_filter = f'["highway"~"{street_types_str}"]'
-        
-        logger.info(f"🔍 Suche nach Straßentypen: {street_types_str}")
-        
-        # Konvertiere zu WGS84 für OSM-Abfrage
-        search_wgs84 = site_polygon.to_crs("EPSG:4326")
-        
-        try:
-            # Hole Straßen von OSM
-            G = ox.graph_from_polygon(
-                search_wgs84.geometry.iloc[0],
-                network_type='all',
-                custom_filter=custom_filter,
-                retain_all=True,
-                truncate_by_edge=True
-            )
-            
-            # Konvertiere zu GeoDataFrame
-            streets_gdf = ox.graph_to_gdfs(G, nodes=False, edges=True)
-            
-            if streets_gdf.empty:
-                logger.warning("⚠️ Keine OSM-Straßen gefunden!")
-                empty_gdf = gpd.GeoDataFrame(
-                    columns=['geometry', 'Name', 'width', 'lanes', 'surface', 'highway', 'REFERENCE'],
-                    crs="EPSG:31256"
-                )
-                return empty_gdf
-                
-            # Konvertiere zum ursprünglichen CRS
-            streets_gdf = streets_gdf.to_crs(site_polygon.crs)
-            
-            # Filtere Straßen im Suchbereich
-            streets_gdf = streets_gdf[streets_gdf.geometry.intersects(site_polygon.geometry.iloc[0])]
-            
-            # Verarbeite die Straßen mit den Standardwerten
-            streets_gdf = process_streets(streets_gdf, defaults)
-            
-            logger.info(f"✅ OSM-Straßen gefunden: {len(streets_gdf)}")
-            return streets_gdf
-            
-        except InsufficientResponseError as e:
+        if streets_gdf.empty:
             logger.warning("⚠️ Keine OSM-Straßen gefunden!")
-            empty_gdf = gpd.GeoDataFrame(
-                columns=['geometry', 'Name', 'width', 'lanes', 'surface', 'highway', 'REFERENCE'],
-                crs="EPSG:31256"
+            return gpd.GeoDataFrame(
+                columns=['Name', 'width', 'lanes', 'surface', 'highway', 'geometry', 'data_source'],
+                geometry='geometry',
+                crs=site_gdf.crs
             )
-            return empty_gdf
             
+        # Verarbeite Straßen
+        processed_streets = []
+        for idx, street in streets_gdf.iterrows():
+            # Verarbeite Geometrie
+            geometry = geometry_processor.process_street_geometry(street)
+            if not geometry or not geometry_processor.validate_street_geometry(geometry):
+                logger.warning(f"⚠️ Ungültige Geometrie für Straße {idx}")
+                continue
+                
+            # Verarbeite Attribute
+            attributes = attribute_processor.process_street_attributes(street)
+            if not attributes.get('Name'):
+                attributes['Name'] = f'OSM_STREET_{idx}'
+                
+            # Füge Geometrie hinzu
+            attributes['geometry'] = geometry
+            processed_streets.append(attributes)
+            
+        if not processed_streets:
+            logger.warning("⚠️ Keine gültigen Straßen nach Verarbeitung!")
+            return gpd.GeoDataFrame(
+                columns=['Name', 'width', 'lanes', 'surface', 'highway', 'geometry', 'data_source'],
+                geometry='geometry',
+                crs=site_gdf.crs
+            )
+            
+        # Erstelle GeoDataFrame
+        result_gdf = gpd.GeoDataFrame(processed_streets, crs=site_gdf.crs)
+        logger.info(f"✅ OSM-Straßen erfolgreich verarbeitet: {len(result_gdf)}")
+        return result_gdf
+        
     except Exception as e:
         logger.error(f"❌ Fehler beim OSM-Straßen Abruf: {str(e)}")
-        raise
+        return gpd.GeoDataFrame(
+            columns=['Name', 'width', 'lanes', 'surface', 'highway', 'geometry', 'data_source'],
+            geometry='geometry',
+            crs=site_gdf.crs
+        )
 
 def main():
     try:

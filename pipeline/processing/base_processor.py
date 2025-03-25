@@ -42,6 +42,144 @@ def load_project_config():
         logger.error(f"❌ Fehler beim Laden der Konfiguration: {str(e)}")
         return None
 
+class BaseProcessor(ABC):
+    """Basisklasse für alle Prozessoren."""
+    
+    def __init__(self, config: Dict[str, Any]):
+        """
+        Initialisiert den Basis-Prozessor.
+        
+        Args:
+            config: Konfigurationsobjekt
+        """
+        self.config = config
+        self.logger = logging.getLogger(self.__class__.__name__)
+        
+    @abstractmethod
+    def process(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Verarbeitet die Eingabedaten.
+        
+        Args:
+            data: Eingabedaten
+            
+        Returns:
+            Verarbeitete Daten
+        """
+        pass
+        
+    def validate_data(self, data: Dict[str, Any]) -> bool:
+        """
+        Validiert die Eingabedaten.
+        
+        Args:
+            data: Zu validierende Daten
+            
+        Returns:
+            True wenn Daten valide
+        """
+        try:
+            if not data:
+                self.logger.warning("⚠️ Keine Daten vorhanden")
+                return False
+                
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"❌ Fehler bei der Datenvalidierung: {str(e)}")
+            return False
+            
+    def validate_geometry(self, gdf: gpd.GeoDataFrame) -> bool:
+        """
+        Validiert die Geometrie eines GeoDataFrames.
+        
+        Args:
+            gdf: Zu validierender GeoDataFrame
+            
+        Returns:
+            True wenn Geometrie valide
+        """
+        try:
+            if gdf is None or gdf.empty:
+                self.logger.warning("⚠️ Leerer GeoDataFrame")
+                return False
+                
+            if 'geometry' not in gdf.columns:
+                self.logger.warning("⚠️ Keine Geometriespalte vorhanden")
+                return False
+                
+            invalid_geoms = gdf[~gdf.geometry.is_valid]
+            if not invalid_geoms.empty:
+                self.logger.warning(f"⚠️ {len(invalid_geoms)} ungültige Geometrien gefunden")
+                return False
+                
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"❌ Fehler bei der Geometrievalidierung: {str(e)}")
+            return False
+            
+    def validate_attributes(self, data: Dict[str, Any], required_fields: List[str]) -> bool:
+        """
+        Validiert die Attribute der Daten.
+        
+        Args:
+            data: Zu validierende Daten
+            required_fields: Liste der Pflichtfelder
+            
+        Returns:
+            True wenn Attribute valide
+        """
+        try:
+            if not data:
+                self.logger.warning("⚠️ Keine Daten vorhanden")
+                return False
+                
+            missing_fields = [field for field in required_fields if field not in data]
+            if missing_fields:
+                self.logger.warning(f"⚠️ Fehlende Pflichtfelder: {missing_fields}")
+                return False
+                
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"❌ Fehler bei der Attributvalidierung: {str(e)}")
+            return False
+            
+    def log_processing_stats(self, input_data: Dict[str, Any], output_data: Dict[str, Any]):
+        """
+        Protokolliert Statistiken zur Datenverarbeitung.
+        
+        Args:
+            input_data: Eingabedaten
+            output_data: Ausgabedaten
+        """
+        try:
+            input_count = len(input_data) if input_data else 0
+            output_count = len(output_data) if output_data else 0
+            
+            self.logger.info(f"📊 Verarbeitungsstatistik:")
+            self.logger.info(f"   - Eingabedatensätze: {input_count}")
+            self.logger.info(f"   - Ausgabedatensätze: {output_count}")
+            
+            if input_count > output_count:
+                self.logger.warning(f"⚠️ {input_count - output_count} Datensätze wurden gefiltert")
+                
+        except Exception as e:
+            self.logger.error(f"❌ Fehler beim Protokollieren der Statistik: {str(e)}")
+            
+    def handle_error(self, error: Exception, step: str):
+        """
+        Behandelt einen aufgetretenen Fehler.
+        
+        Args:
+            error: Aufgetretener Fehler
+            step: Verarbeitungsschritt
+        """
+        self.logger.error(f"❌ Fehler in Schritt '{step}': {str(error)}")
+        if hasattr(error, '__traceback__'):
+            self.logger.debug(f"Traceback:", exc_info=error)
+
 class BuildingProcessorInterface(ABC):
     """Interface für Gebäudeprozessoren"""
     

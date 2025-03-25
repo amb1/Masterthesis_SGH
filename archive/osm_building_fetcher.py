@@ -1,3 +1,7 @@
+"""
+OSM-Building-Fetcher für die Verarbeitung von OSM-Gebäudedaten.
+"""
+
 import osmnx as ox
 import geopandas as gpd
 from shapely.ops import unary_union
@@ -12,6 +16,10 @@ from pyproj import Transformer
 from pyproj import transform
 import pandas as pd
 from core.config_manager import load_config
+from typing import Dict, Any, Optional
+from .osm.client import OSMBaseClient
+from .osm.geometry import OSMGeometryProcessor
+from .osm.attributes import OSMAttributeProcessor
 
 # Füge den Root-Pfad zum Python-Path hinzu
 root_dir = str(Path(__file__).resolve().parent.parent.parent)
@@ -29,11 +37,6 @@ def fetch_surrounding_buildings(site_gdf: gpd.GeoDataFrame, config: dict) -> gpd
 
         # Hole Konfigurationswerte
         buffer_distance = min(config.get('buildings', {}).get('buffer_distance', 100), 500)  # Begrenze auf 500m
-        building_defaults = config.get('buildings', {}).get('defaults', {
-            'height': 10,
-            'floors': 3,
-            'year': 1990
-        })
 
         logger.info(f"📡 OSM-Abfrage: Gebäude im Umkreis von {buffer_distance}m")
 
@@ -59,7 +62,7 @@ def fetch_surrounding_buildings(site_gdf: gpd.GeoDataFrame, config: dict) -> gpd
         if buildings_gdf.empty:
             logger.warning("⚠️ Keine OSM-Gebäude gefunden!")
             return gpd.GeoDataFrame(
-                columns=['Name', 'height_ag', 'floors_ag', 'category', 'REFERENCE', 'geometry'],
+                columns=['Name', 'height_ag', 'floors_ag', 'category', 'REFERENCE', 'geometry', 'data_source'],
                 geometry='geometry',
                 crs=original_crs
             )
@@ -80,34 +83,32 @@ def fetch_surrounding_buildings(site_gdf: gpd.GeoDataFrame, config: dict) -> gpd
                 if not hasattr(row.geometry, 'exterior'):
                     continue
 
-                # Hole Stockwerke mit Fehlerbehandlung
-                try:
-                    floors = row.get('building:levels')
-                    if pd.isna(floors):
-                        floors = building_defaults['floors']
-                    else:
-                        floors = int(float(floors))
-                except (ValueError, TypeError):
-                    floors = building_defaults['floors']
-
-                # Hole Höhe mit Fehlerbehandlung
-                try:
-                    height = row.get('height')
-                    if pd.isna(height):
-                        height = building_defaults['height']
-                    else:
-                        height = float(height)
-                except (ValueError, TypeError):
-                    height = building_defaults['height']
-
-                processed_buildings.append({
+                building_data = {
                     'Name': f'OSM_{idx}',
-                    'height_ag': height,
-                    'floors_ag': floors,
-                    'category': 'residential',
-                    'REFERENCE': '',
-                    'geometry': row.geometry
-                })
+                    'geometry': row.geometry,
+                    'data_source': 'osm'
+                }
+
+                # Extrahiere nur vorhandene Attribute
+                if 'building:levels' in row:
+                    try:
+                        building_data['floors_ag'] = int(float(row['building:levels']))
+                    except (ValueError, TypeError):
+                        pass
+
+                if 'height' in row:
+                    try:
+                        building_data['height_ag'] = float(row['height'])
+                    except (ValueError, TypeError):
+                        pass
+
+                if 'building' in row:
+                    building_data['category'] = row['building']
+                else:
+                    building_data['category'] = 'building'
+
+                processed_buildings.append(building_data)
+
             except Exception as e:
                 logger.warning(f"⚠️ Fehler bei der Verarbeitung eines Gebäudes: {str(e)}")
                 continue
@@ -115,7 +116,7 @@ def fetch_surrounding_buildings(site_gdf: gpd.GeoDataFrame, config: dict) -> gpd
         if not processed_buildings:
             logger.warning("⚠️ Keine gültigen Gebäude gefunden!")
             return gpd.GeoDataFrame(
-                columns=['Name', 'height_ag', 'floors_ag', 'category', 'REFERENCE', 'geometry'],
+                columns=['Name', 'height_ag', 'floors_ag', 'category', 'REFERENCE', 'geometry', 'data_source'],
                 geometry='geometry',
                 crs=original_crs
             )
@@ -127,7 +128,7 @@ def fetch_surrounding_buildings(site_gdf: gpd.GeoDataFrame, config: dict) -> gpd
     except Exception as e:
         logger.error(f"❌ Fehler beim OSM-Gebäude Abruf: {str(e)}")
         return gpd.GeoDataFrame(
-            columns=['Name', 'height_ag', 'floors_ag', 'category', 'REFERENCE', 'geometry'],
+            columns=['Name', 'height_ag', 'floors_ag', 'category', 'REFERENCE', 'geometry', 'data_source'],
             geometry='geometry',
             crs=original_crs if 'original_crs' in locals() else "EPSG:4326"
         )
@@ -176,20 +177,74 @@ def save_surrounding_buildings(buildings_gdf, output_path):
     except Exception as e:
         logger.error(f"❌ Fehler beim Speichern der OSM-Gebäude: {str(e)}", exc_info=True)
 
-def fetch_osm_buildings(site_gdf, distance=100, config=None):
-    """Lädt OSM-Gebäude im Umkreis des Standorts"""
+def fetch_osm_buildings(site_gdf: gpd.GeoDataFrame, config: Optional[Dict[str, Any]] = None) -> gpd.GeoDataFrame:
+    """
+    Lädt OSM-Gebäude im Umkreis des Standorts.
+    
+    Args:
+        site_gdf: GeoDataFrame mit Site-Polygon
+        config: Optionales Konfigurationsobjekt
+        
+    Returns:
+        GeoDataFrame mit OSM-Gebäuden
+    """
     try:
-        logger.info(f"🔍 Hole OSM-Gebäude mit {distance}m Abstand")
-        buildings_gdf = fetch_surrounding_buildings(site_gdf, config)
-
+        logger.info("🔍 Hole OSM-Gebäude")
+        
+        # Initialisiere Komponenten
+        client = OSMBaseClient(config)
+        geometry_processor = OSMGeometryProcessor()
+        attribute_processor = OSMAttributeProcessor(config)
+        
+        # Hole Rohdaten von OSM
+        buildings_gdf = client.fetch_buildings(site_gdf)
+        
         if buildings_gdf.empty:
             logger.warning("⚠️ Keine OSM-Gebäude gefunden!")
-            return gpd.GeoDataFrame(geometry=[], crs=site_gdf.crs)
-
-        return buildings_gdf
+            return gpd.GeoDataFrame(
+                columns=['Name', 'height_ag', 'floors_ag', 'category', 'geometry', 'data_source'],
+                geometry='geometry',
+                crs=site_gdf.crs
+            )
+            
+        # Verarbeite Gebäude
+        processed_buildings = []
+        for idx, building in buildings_gdf.iterrows():
+            # Verarbeite Geometrie
+            geometry = geometry_processor.process_building_geometry(building)
+            if not geometry or not geometry_processor.validate_building_geometry(geometry):
+                logger.warning(f"⚠️ Ungültige Geometrie für Gebäude {idx}")
+                continue
+                
+            # Verarbeite Attribute
+            attributes = attribute_processor.process_building_attributes(building)
+            if not attributes.get('Name'):
+                attributes['Name'] = f'OSM_{idx}'
+                
+            # Füge Geometrie hinzu
+            attributes['geometry'] = geometry
+            processed_buildings.append(attributes)
+            
+        if not processed_buildings:
+            logger.warning("⚠️ Keine gültigen Gebäude nach Verarbeitung!")
+            return gpd.GeoDataFrame(
+                columns=['Name', 'height_ag', 'floors_ag', 'category', 'geometry', 'data_source'],
+                geometry='geometry',
+                crs=site_gdf.crs
+            )
+            
+        # Erstelle GeoDataFrame
+        result_gdf = gpd.GeoDataFrame(processed_buildings, crs=site_gdf.crs)
+        logger.info(f"✅ OSM-Gebäude erfolgreich verarbeitet: {len(result_gdf)}")
+        return result_gdf
+        
     except Exception as e:
-        logger.error(f"❌ Fehler beim Abruf der OSM-Gebäude: {str(e)}", exc_info=True)
-        return gpd.GeoDataFrame(geometry=[], crs=site_gdf.crs)
+        logger.error(f"❌ Fehler beim OSM-Gebäude Abruf: {str(e)}")
+        return gpd.GeoDataFrame(
+            columns=['Name', 'height_ag', 'floors_ag', 'category', 'geometry', 'data_source'],
+            geometry='geometry',
+            crs=site_gdf.crs
+        )
 
 def main():
     try:

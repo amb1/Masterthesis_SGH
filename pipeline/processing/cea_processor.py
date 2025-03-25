@@ -3,7 +3,7 @@ from typing import Dict, Any, Optional, List, Union
 import geopandas as gpd
 import pandas as pd
 import numpy as np
-from shapely.geometry import Point, Polygon
+from shapely.geometry import Point, Polygon, MultiPolygon
 import logging
 import re
 import yaml
@@ -62,20 +62,212 @@ class CEABuildingProcessor(BuildingProcessorInterface):
             
         logger.info("✅ CEA-Konfiguration geladen")
         
-    def process_cea_data(self, output_dir):
-        """Verarbeitet die Gebäudedaten für CEA."""
+    def process_buildings(
+        self,
+        citygml_data: Dict[str, Any],
+        wfs_data: Dict[str, Any],
+        osm_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Verarbeitet die Gebäudedaten für CEA.
+        
+        Args:
+            citygml_data: CityGML Gebäudedaten
+            wfs_data: WFS Gebäudedaten
+            osm_data: OSM Daten (Gebäude und Straßen)
+            
+        Returns:
+            Verarbeitete Daten für CEA
+        """
         try:
-            # Implementiere CEA-spezifische Verarbeitung
-            logger.info("🔄 Starte CEA-Verarbeitung")
+            self.logger.info("🔄 Starte CEA-Datenverarbeitung")
             
-            # TODO: Implementiere CEA-Verarbeitung
+            # Verarbeite CityGML-Daten
+            processed_citygml = self._process_citygml_data(citygml_data)
+            if processed_citygml is None:
+                self.logger.error("❌ Fehler bei der CityGML-Verarbeitung")
+                return {}
+                
+            # Verarbeite WFS-Daten wenn vorhanden
+            processed_wfs = {}
+            if wfs_data:
+                processed_wfs = self._process_wfs_data(wfs_data)
+                if processed_wfs is None:
+                    self.logger.warning("⚠️ WFS-Daten konnten nicht verarbeitet werden")
+                    processed_wfs = {}
+                    
+            # Verarbeite OSM-Daten
+            processed_osm = self._process_osm_data(osm_data)
+            if processed_osm is None:
+                self.logger.warning("⚠️ OSM-Daten konnten nicht verarbeitet werden")
+                processed_osm = {}
+                
+            # Kombiniere die Daten
+            combined_data = self._combine_data(
+                processed_citygml,
+                processed_wfs,
+                processed_osm
+            )
             
-            logger.info("✅ CEA-Verarbeitung abgeschlossen")
-            return True, None
+            if not combined_data:
+                self.logger.error("❌ Keine Daten nach Kombination")
+                return {}
+                
+            self.logger.info("✅ CEA-Datenverarbeitung abgeschlossen")
+            return combined_data
             
         except Exception as e:
-            logger.error(f"❌ Fehler bei CEA-Verarbeitung: {str(e)}")
-            return False, None
+            self.logger.error(f"❌ Fehler bei der CEA-Verarbeitung: {str(e)}")
+            return {}
+            
+    def _process_citygml_data(self, citygml_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        Verarbeitet CityGML-Daten.
+        
+        Args:
+            citygml_data: CityGML Rohdaten
+            
+        Returns:
+            Verarbeitete CityGML-Daten
+        """
+        try:
+            if not citygml_data:
+                self.logger.warning("⚠️ Keine CityGML-Daten vorhanden")
+                return None
+                
+            # Verarbeite die Daten gemäß CEA-Anforderungen
+            processed_data = {
+                'buildings': citygml_data,
+                'source': 'citygml'
+            }
+            
+            return processed_data
+            
+        except Exception as e:
+            self.logger.error(f"❌ Fehler bei CityGML-Verarbeitung: {str(e)}")
+            return None
+            
+    def _process_wfs_data(self, wfs_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        Verarbeitet WFS-Daten.
+        
+        Args:
+            wfs_data: WFS Rohdaten
+            
+        Returns:
+            Verarbeitete WFS-Daten
+        """
+        try:
+            if not wfs_data:
+                self.logger.warning("⚠️ Keine WFS-Daten vorhanden")
+                return None
+                
+            # Verarbeite die Daten gemäß CEA-Anforderungen
+            processed_data = {
+                'buildings': wfs_data,
+                'source': 'wfs'
+            }
+            
+            return processed_data
+            
+        except Exception as e:
+            self.logger.error(f"❌ Fehler bei WFS-Verarbeitung: {str(e)}")
+            return None
+            
+    def _process_osm_data(self, osm_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        Verarbeitet OSM-Daten.
+        
+        Args:
+            osm_data: OSM Rohdaten
+            
+        Returns:
+            Verarbeitete OSM-Daten
+        """
+        try:
+            if not osm_data:
+                self.logger.warning("⚠️ Keine OSM-Daten vorhanden")
+                return None
+                
+            buildings = osm_data.get('buildings')
+            streets = osm_data.get('streets')
+            
+            if buildings is None and streets is None:
+                self.logger.warning("⚠️ Keine OSM-Gebäude oder Straßen gefunden")
+                return None
+                
+            processed_data = {
+                'buildings': buildings if buildings is not None else pd.DataFrame(),
+                'streets': streets if streets is not None else pd.DataFrame(),
+                'source': 'osm'
+            }
+            
+            return processed_data
+            
+        except Exception as e:
+            self.logger.error(f"❌ Fehler bei OSM-Verarbeitung: {str(e)}")
+            return None
+            
+    def _combine_data(
+        self,
+        citygml_data: Dict[str, Any],
+        wfs_data: Dict[str, Any],
+        osm_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Kombiniert die verarbeiteten Daten.
+        
+        Args:
+            citygml_data: Verarbeitete CityGML-Daten
+            wfs_data: Verarbeitete WFS-Daten
+            osm_data: Verarbeitete OSM-Daten
+            
+        Returns:
+            Kombinierte Daten
+        """
+        try:
+            combined = {
+                'buildings': [],
+                'streets': [],
+                'metadata': {
+                    'sources': []
+                }
+            }
+            
+            # Füge CityGML-Gebäude hinzu
+            if citygml_data and 'buildings' in citygml_data:
+                combined['buildings'].extend(citygml_data['buildings'])
+                combined['metadata']['sources'].append('citygml')
+                
+            # Füge WFS-Gebäude hinzu
+            if wfs_data and 'buildings' in wfs_data:
+                combined['buildings'].extend(wfs_data['buildings'])
+                combined['metadata']['sources'].append('wfs')
+                
+            # Füge OSM-Daten hinzu
+            if osm_data:
+                if 'buildings' in osm_data and not osm_data['buildings'].empty:
+                    combined['buildings'].extend(osm_data['buildings'])
+                if 'streets' in osm_data and not osm_data['streets'].empty:
+                    combined['streets'].extend(osm_data['streets'])
+                combined['metadata']['sources'].append('osm')
+                
+            # Entferne Duplikate basierend auf Geometrie
+            if combined['buildings']:
+                buildings_gdf = gpd.GeoDataFrame(combined['buildings'])
+                buildings_gdf = buildings_gdf.drop_duplicates(subset=['geometry'])
+                combined['buildings'] = buildings_gdf.to_dict('records')
+                
+            if combined['streets']:
+                streets_gdf = gpd.GeoDataFrame(combined['streets'])
+                streets_gdf = streets_gdf.drop_duplicates(subset=['geometry'])
+                combined['streets'] = streets_gdf.to_dict('records')
+                
+            return combined
+            
+        except Exception as e:
+            self.logger.error(f"❌ Fehler beim Kombinieren der Daten: {str(e)}")
+            return {}
 
     def _map_construction_period(self, period: str) -> str:
         """Mappt eine Bauperiode auf einen CEA-Zeitcode.

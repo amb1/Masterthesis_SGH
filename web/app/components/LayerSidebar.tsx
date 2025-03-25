@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { X, Focus, ChevronDown, ChevronUp, Info } from 'lucide-react';
+import { X, Focus, ChevronDown, ChevronUp, Info, Search, RotateCcw, RotateCw, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, ZoomIn, ZoomOut } from 'lucide-react';
 import { Ion } from 'cesium';
 
 type LayerType = 'arcGIS' | 'satellite' | 'tileset';
@@ -29,6 +29,15 @@ interface LayerSidebarProps {
   onZoomToTileset?: () => void;
   token: string;
   onLoadAsset: (assetId: number) => Promise<void>;
+  transformControls?: {
+    heading: number;
+    pitch: number;
+    roll: number;
+    scale: number;
+    position: { x: number; y: number; z: number };
+  };
+  onTransformChange?: (type: string, value: number) => void;
+  onTransformReset?: () => void;
 }
 
 const LayerSidebar: React.FC<LayerSidebarProps> = ({
@@ -39,13 +48,18 @@ const LayerSidebar: React.FC<LayerSidebarProps> = ({
   onClose,
   onZoomToTileset,
   token,
-  onLoadAsset
+  onLoadAsset,
+  transformControls,
+  onTransformChange,
+  onTransformReset
 }) => {
   const [assets, setAssets] = useState<Asset[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [isAssetsOpen, setIsAssetsOpen] = useState(false);
+  const [isAssetsOpen, setIsAssetsOpen] = useState(true);
   const [selectedAssetId, setSelectedAssetId] = useState<number | null>(null);
+  const [activeTab, setActiveTab] = useState<'layers' | 'transform'>('layers');
+  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     loadAvailableAssets();
@@ -108,182 +122,224 @@ const LayerSidebar: React.FC<LayerSidebarProps> = ({
   };
 
   return (
-    <div className="bg-white w-64 h-full shadow-lg p-4 overflow-y-auto">
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="text-lg font-semibold">Layer</h2>
-        <button
-          onClick={onClose}
-          className="p-1 hover:bg-gray-100 rounded-full"
-        >
+    <div className="absolute top-0 right-0 h-full w-80 bg-white shadow-lg z-50 flex flex-col">
+      <div className="flex justify-between items-center p-4 border-b">
+        <div className="flex gap-2">
+          <button
+            onClick={() => setActiveTab('layers')}
+            className={`px-3 py-1 rounded ${
+              activeTab === 'layers' ? 'bg-blue-500 text-white' : 'bg-gray-100'
+            }`}
+          >
+            Layer
+          </button>
+          {enabledLayers.tileset && (
+            <button
+              onClick={() => setActiveTab('transform')}
+              className={`px-3 py-1 rounded ${
+                activeTab === 'transform' ? 'bg-blue-500 text-white' : 'bg-gray-100'
+              }`}
+            >
+              Transform
+            </button>
+          )}
+        </div>
+        <button onClick={onClose} className="text-gray-500 hover:text-gray-700">
           <X size={20} />
         </button>
       </div>
 
-      <div className="space-y-4">
-        {/* Basiskarten */}
-        <div className="border-b pb-4">
-          <h3 className="font-medium mb-3">Basiskarten</h3>
-          
-          {/* Satellite Layer */}
-          <div className="mb-4">
-            <div className="flex items-center justify-between mb-2">
-              <label className="flex items-center">
-                <input
-                  type="checkbox"
-                  checked={enabledLayers.satellite}
-                  onChange={() => onLayerToggle('satellite')}
-                  className="mr-2"
-                />
-                <span>Satellit</span>
-              </label>
-            </div>
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.1"
-              value={layerOpacity.satellite}
-              onChange={(e) => onOpacityChange('satellite', parseFloat(e.target.value))}
-              disabled={!enabledLayers.satellite}
-              className="w-full"
-            />
-          </div>
-
-          {/* ArcGIS Layer */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <label className="flex items-center">
-                <input
-                  type="checkbox"
-                  checked={enabledLayers.arcGIS}
-                  onChange={() => onLayerToggle('arcGIS')}
-                  className="mr-2"
-                />
-                <span>Straßenkarte</span>
-              </label>
-            </div>
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.1"
-              value={layerOpacity.arcGIS}
-              onChange={(e) => onOpacityChange('arcGIS', parseFloat(e.target.value))}
-              disabled={!enabledLayers.arcGIS}
-              className="w-full"
-            />
-          </div>
-        </div>
-
-        {/* 3D Modelle */}
-        <div>
-          <h3 className="font-medium mb-3">3D Modelle</h3>
-          
-          {/* 3D Tileset Layer */}
-          <div className="mb-4">
-            <div className="flex items-center justify-between mb-2">
-              <label className="flex items-center flex-1">
-                <input
-                  type="checkbox"
-                  checked={enabledLayers.tileset}
-                  onChange={() => onLayerToggle('tileset')}
-                  className="mr-2"
-                />
-                <span>3D Gebäude</span>
-              </label>
-              {onZoomToTileset && (
-                <button
-                  onClick={onZoomToTileset}
-                  className="p-1 hover:bg-gray-100 rounded-full ml-2"
-                  title="Zum 3D Modell zoomen"
-                >
-                  <Focus size={18} />
-                </button>
-              )}
-            </div>
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.1"
-              value={layerOpacity.tileset}
-              onChange={(e) => onOpacityChange('tileset', parseFloat(e.target.value))}
-              disabled={!enabledLayers.tileset}
-              className="w-full"
-            />
-          </div>
-
-          {/* Verfügbare Assets Dropdown */}
-          <div className="border rounded-lg overflow-hidden">
-            <button
-              onClick={() => setIsAssetsOpen(!isAssetsOpen)}
-              className="w-full p-3 flex justify-between items-center hover:bg-gray-50"
-            >
-              <span className="font-medium">Verfügbare Assets</span>
-              {isAssetsOpen ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
-            </button>
-
-            {isAssetsOpen && (
-              <div className="border-t">
-                {loading && (
-                  <div className="p-3 text-gray-600">Lade Assets...</div>
-                )}
-
-                {error && (
-                  <div className="p-3 text-red-500">{error}</div>
-                )}
-
-                <div className="divide-y">
-                  {assets.map(asset => (
-                    <div 
-                      key={asset.id}
-                      className="p-3 hover:bg-gray-50"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center flex-1">
-                          <div className="font-medium">{asset.name}</div>
-                          {asset.description && (
-                            <div className="relative ml-2">
-                              <button
-                                onMouseEnter={() => setSelectedAssetId(asset.id)}
-                                onMouseLeave={() => setSelectedAssetId(null)}
-                                className="text-gray-500 hover:text-gray-700"
-                              >
-                                <Info size={16} />
-                              </button>
-                              {selectedAssetId === asset.id && (
-                                <div className="absolute z-50 left-0 top-6 w-48 p-2 bg-white border rounded shadow-lg text-sm">
-                                  {asset.description}
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                        <button
-                          onClick={() => handleAssetToggle(asset)}
-                          className={`ml-3 px-2 py-1 rounded text-sm ${
-                            asset.loaded 
-                              ? 'bg-red-100 text-red-700 hover:bg-red-200'
-                              : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
-                          }`}
-                        >
-                          {asset.loaded ? 'Entfernen' : 'Laden'}
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-
-                  {assets.length === 0 && !loading && (
-                    <div className="p-3 text-gray-500">
-                      Keine 3D Tiles Assets gefunden
-                    </div>
+      {activeTab === 'layers' ? (
+        <div className="flex-1 overflow-y-auto p-4">
+          {/* Existierende Layer-Steuerung */}
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <h3 className="font-medium">Basiskarten</h3>
+              <div className="space-y-4">
+                <div>
+                  <label className="flex items-center justify-between">
+                    <span>ArcGIS</span>
+                    <input
+                      type="checkbox"
+                      checked={enabledLayers.arcGIS}
+                      onChange={() => onLayerToggle('arcGIS')}
+                      className="ml-2"
+                    />
+                  </label>
+                  {enabledLayers.arcGIS && (
+                    <input
+                      type="range"
+                      min="0"
+                      max="1"
+                      step="0.1"
+                      value={layerOpacity.arcGIS}
+                      onChange={(e) => onOpacityChange('arcGIS', parseFloat(e.target.value))}
+                      className="w-full mt-2"
+                    />
+                  )}
+                </div>
+                <div>
+                  <label className="flex items-center justify-between">
+                    <span>Satellit</span>
+                    <input
+                      type="checkbox"
+                      checked={enabledLayers.satellite}
+                      onChange={() => onLayerToggle('satellite')}
+                      className="ml-2"
+                    />
+                  </label>
+                  {enabledLayers.satellite && (
+                    <input
+                      type="range"
+                      min="0"
+                      max="1"
+                      step="0.1"
+                      value={layerOpacity.satellite}
+                      onChange={(e) => onOpacityChange('satellite', parseFloat(e.target.value))}
+                      className="w-full mt-2"
+                    />
                   )}
                 </div>
               </div>
-            )}
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <h3 className="font-medium">3D Modelle</h3>
+                <button
+                  onClick={() => setIsAssetsOpen(!isAssetsOpen)}
+                  className="text-gray-500 hover:text-gray-700"
+                >
+                  {isAssetsOpen ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+                </button>
+              </div>
+              {isAssetsOpen && (
+                <div className="space-y-4">
+                  <div className="relative">
+                    <input
+                      type="text"
+                      placeholder="Assets durchsuchen..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="w-full pl-8 pr-3 py-2 border rounded"
+                    />
+                    <Search className="absolute left-2 top-2.5 text-gray-400" size={16} />
+                  </div>
+                  {/* Asset Liste */}
+                </div>
+              )}
+            </div>
           </div>
         </div>
-      </div>
+      ) : (
+        <div className="flex-1 overflow-y-auto p-4">
+          {transformControls && (
+            <div className="space-y-4">
+              <div className="flex justify-between items-center">
+                <h3 className="font-medium">Transformation</h3>
+                <button
+                  onClick={onTransformReset}
+                  className="text-gray-500 hover:text-gray-700"
+                  title="Zurücksetzen"
+                >
+                  <RotateCcw size={20} />
+                </button>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  onClick={() => onTransformChange?.('heading', transformControls.heading - 5)}
+                  className="p-2 hover:bg-gray-100 rounded"
+                  title="Nach links rotieren"
+                >
+                  <RotateCcw size={20} />
+                </button>
+                <button
+                  onClick={() => onTransformChange?.('position', transformControls.position.y + 1)}
+                  className="p-2 hover:bg-gray-100 rounded"
+                  title="Nach oben bewegen"
+                >
+                  <ArrowUp size={20} />
+                </button>
+                <button
+                  onClick={() => onTransformChange?.('heading', transformControls.heading + 5)}
+                  className="p-2 hover:bg-gray-100 rounded"
+                  title="Nach rechts rotieren"
+                >
+                  <RotateCw size={20} />
+                </button>
+                <button
+                  onClick={() => onTransformChange?.('position', transformControls.position.x - 1)}
+                  className="p-2 hover:bg-gray-100 rounded"
+                  title="Nach links bewegen"
+                >
+                  <ArrowLeft size={20} />
+                </button>
+                <button
+                  onClick={() => onTransformChange?.('scale', transformControls.scale - 0.1)}
+                  className="p-2 hover:bg-gray-100 rounded"
+                  title="Verkleinern"
+                >
+                  <ZoomOut size={20} />
+                </button>
+                <button
+                  onClick={() => onTransformChange?.('position', transformControls.position.x + 1)}
+                  className="p-2 hover:bg-gray-100 rounded"
+                  title="Nach rechts bewegen"
+                >
+                  <ArrowRight size={20} />
+                </button>
+                <button
+                  onClick={() => onTransformChange?.('position', transformControls.position.y - 1)}
+                  className="p-2 hover:bg-gray-100 rounded"
+                  title="Nach unten bewegen"
+                >
+                  <ArrowDown size={20} />
+                </button>
+                <button
+                  onClick={() => onTransformChange?.('scale', transformControls.scale + 0.1)}
+                  className="p-2 hover:bg-gray-100 rounded"
+                  title="Vergrößern"
+                >
+                  <ZoomIn size={20} />
+                </button>
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span>Rotation</span>
+                  <span>{transformControls.heading.toFixed(1)}°</span>
+                </div>
+                <input
+                  type="range"
+                  min="-180"
+                  max="180"
+                  step="1"
+                  value={transformControls.heading}
+                  onChange={(e) => onTransformChange?.('heading', parseFloat(e.target.value))}
+                  className="w-full"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span>Skalierung</span>
+                  <span>{transformControls.scale.toFixed(2)}x</span>
+                </div>
+                <input
+                  type="range"
+                  min="0.1"
+                  max="10"
+                  step="0.1"
+                  value={transformControls.scale}
+                  onChange={(e) => onTransformChange?.('scale', parseFloat(e.target.value))}
+                  className="w-full"
+                />
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };
