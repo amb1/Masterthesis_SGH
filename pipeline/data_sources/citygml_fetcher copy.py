@@ -5,6 +5,8 @@ import logging
 from typing import Dict, Any, Optional, List, Tuple, Union
 from lxml import etree
 import geopandas as gpd
+import numpy as np
+import json
 from shapely.geometry import Polygon, MultiPolygon
 from shapely.ops import unary_union
 from core.config_manager import load_config, get_module_config
@@ -12,6 +14,7 @@ from core.project_paths import get_output_path, get_config_path
 import pandas as pd
 import uuid
 from collections import defaultdict
+from py3dtiles import TileSet, Tile, B3dm, BatchTable
 
 # Füge das Root-Verzeichnis zum Python-Path hinzu
 root_dir = Path(__file__).resolve().parent.parent.parent
@@ -27,7 +30,10 @@ formatter = logging.Formatter('%(message)s')
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 
-# XML Entity Resolver
+class GeometryValidationError(Exception):
+    """Fehler bei der Geometrievalidierung"""
+    pass
+
 class XMLResolver(etree.Resolver):
     def resolve(self, system_url, public_id, context):
         # Definiere häufig verwendete Entities
@@ -41,418 +47,767 @@ class XMLResolver(etree.Resolver):
             'Uuml': 'Ü'
         }
         
-        # Wenn es sich um eine bekannte Entity handelt, gib den entsprechenden Wert zurück
-        entity_name = system_url.split(';')[0] if system_url and ';' in system_url else system_url
-        if entity_name in entities:
-            return self.resolve_string(f'"{entities[entity_name]}"', context)
-            
-        # Andernfalls normal weiterverarbeiten
+        # Prüfe ob es sich um eine Entity handelt
+        if system_url.startswith('&') and system_url.endswith(';'):
+            entity_name = system_url[1:-1]  # Entferne & und ;
+            if entity_name in entities:
+                return self.resolve_string(entities[entity_name], context)
+                
         return None
 
 class CityGMLConfigError(Exception):
-    """Fehler bei der CityGML-Konfiguration"""
+    """Fehler in der CityGML-Konfiguration"""
     pass
 
 class CityGMLBuildingProcessor:
-    """CityGML-spezifische Verarbeitung"""
+    """Verarbeitet CityGML-Gebäude und extrahiert relevante Informationen"""
+    
     def __init__(self, config):
-        self.config = config
-        self.logger = logging.getLogger(__name__)
+        """
+        Initialisiert den Prozessor.
         
-        # Erweiterte Namespace-Definition
+        Args:
+            config: Dictionary mit Konfiguration:
+                fields: Dictionary mit Feldkonfigurationen:
+                    name: Name des Feldes
+                    type: Datentyp (string, float, int)
+                    xpath: XPath-Ausdruck zum Extrahieren des Wertes
+                    namespaces: Dictionary mit XML-Namespaces
+                validation:
+                    min_area: Minimale Fläche in m²
+                    max_angle: Maximaler Winkel zwischen Normalen in Grad
+        """
+        self.config = config
+        self.parser = etree.XMLParser(resolve_entities=False)
+        self.parser.resolvers.add(XMLResolver())
+        
+        # Standard-Namespaces
         self.ns = {
             'bldg': 'http://www.opengis.net/citygml/building/1.0',
             'gml': 'http://www.opengis.net/gml',
-            'core': 'http://www.opengis.net/citygml/1.0',
-            'xal': 'urn:oasis:names:tc:ciq:xsdschema:xAL:2.0',
-            'gen': 'http://www.opengis.net/citygml/generics/1.0'  # Hinzugefügter gen-Namespace
+            'gen': 'http://www.opengis.net/citygml/generics/1.0'
         }
         
-        # Initialisiere Geometrie-Statistiken
-        self.geometry_stats = {
-            'success': 0,
-            'failed': 0,
-            'total_area': 0,
-            'min_area': float('inf'),
-            'max_area': 0
-        }
-
+        # Initialisiere Logger
+        self.logger = logging.getLogger(__name__)
+        if not self.logger.handlers:
+            handler = logging.StreamHandler()
+            formatter = logging.Formatter(
+                '%(asctime)s - %(levelname)s - %(message)s'
+            )
+            handler.setFormatter(formatter)
+            self.logger.addHandler(handler)
+            self.logger.setLevel(logging.INFO)
+        
     def _extract_building_footprint(self, building) -> Optional[Union[Polygon, MultiPolygon]]:
-        """Extrahiert 2D-Footprint eines Gebäudes aus LoD1 oder LoD2 Geometrien."""
+        """
+        Extrahiert die Grundfläche eines Gebäudes.
+        
+        Args:
+            building: XML-Element des Gebäudes
+            
+        Returns:
+            Polygon/MultiPolygon der Grundfläche oder None bei Fehler
+        """
         try:
-            # Sammle alle LinearRings
-            linear_rings = building.findall('.//gml:LinearRing', namespaces=self.ns)
-            if not linear_rings:
-                self.logger.warning("⚠️ Keine LinearRings gefunden")
+            # Suche alle Grundflächen-Polygone
+            footprints = []
+            
+            # Suche nach GroundSurface
+            ground_surfaces = building.findall(
+                ".//bldg:GroundSurface//gml:Polygon",
+                namespaces=self.ns
+            )
+            
+            # Wenn keine GroundSurface gefunden, suche nach allgemeinen Polygonen
+            if not ground_surfaces:
+                ground_surfaces = building.findall(
+                    ".//gml:Polygon",
+                    namespaces=self.ns
+                )
+            
+            for polygon in ground_surfaces:
+                # Extrahiere Koordinaten
+                coords = []
+                pos_lists = polygon.findall(
+                    ".//gml:posList",
+                    namespaces=self.ns
+                )
+                
+                for pos_list in pos_lists:
+                    # Konvertiere Koordinaten-String in Liste
+                    values = [float(x) for x in pos_list.text.split()]
+                    
+                    # Gruppiere in 3D-Koordinaten
+                    points = [(values[i], values[i+1]) for i in range(0, len(values), 3)]
+                    
+                    # Füge Punkte hinzu
+                    coords.extend(points)
+                    
+                # Erstelle Polygon wenn genügend Punkte
+                if len(coords) >= 3:
+                    # Schließe Polygon falls nötig
+                    if coords[0] != coords[-1]:
+                        coords.append(coords[0])
+                        
+                    # Erstelle und validiere Polygon
+                    polygon = Polygon(coords)
+                    if self._validate_polygon(polygon):
+                        footprints.append(polygon)
+            
+            # Kombiniere Polygone
+            if not footprints:
                 return None
-
-            polygons = []
-            for linear_ring in linear_rings:
-                pos_list = linear_ring.find('gml:posList', namespaces=self.ns)
-                if pos_list is None or not pos_list.text:
-                    continue
-
-                # Verbesserte Fehlerbehandlung beim Parsen der Koordinaten
-                try:
-                    coords_raw = [float(x) for x in pos_list.text.strip().split()]
-                except Exception as e:
-                    self.logger.error(f"❌ Fehler beim Parsen der Koordinaten: {e} – Inhalt: {pos_list.text[:100]}...")
-                    continue
-
-                if len(coords_raw) % 3 != 0:
-                    self.logger.warning(f"⚠️ Ungültige 3D-Koordinatenanzahl: {len(coords_raw)} (nicht durch 3 teilbar)")
-                    continue
-
-                coords_2d = [(coords_raw[i], coords_raw[i + 1]) for i in range(0, len(coords_raw), 3)]
-                if coords_2d[0] != coords_2d[-1]:
-                    self.logger.debug(f"Ring nicht geschlossen, füge Startpunkt ans Ende an: {coords_2d[0]}")
-                    coords_2d.append(coords_2d[0])
-
-                # Verbesserte Fehlerbehandlung bei der Polygon-Erstellung
-                try:
-                    polygon = Polygon(coords_2d)
-                except Exception as e:
-                    self.logger.error(f"❌ Polygon-Fehler (Koordinaten: {coords_2d[:2]}...): {e}")
-                    continue
-
-                # Validierung und Reparatur wenn konfiguriert
-                try:
-                    if self.config.get('geometry', {}).get('validation', {}).get('check_validity', False):
-                        if not polygon.is_valid:
-                            if self.config.get('geometry', {}).get('validation', {}).get('fix_invalid', False):
-                                polygon = polygon.buffer(0)
-                                if not polygon.is_valid:
-                                    self.logger.warning("⚠️ Polygon konnte nicht repariert werden")
-                                    continue
-                            else:
-                                self.logger.warning("⚠️ Ungültiges Polygon")
-                                continue
-
-                        # Prüfe Mindestfläche wenn konfiguriert
-                        if self.config.get('geometry', {}).get('validation', {}).get('check_area', False):
-                            min_area = self.config.get('geometry', {}).get('validation', {}).get('min_area', 1.0)
-                            if polygon.area < min_area:
-                                if self.config.get('geometry', {}).get('validation', {}).get('remove_small', False):
-                                    self.logger.warning(f"⚠️ Polygon zu klein ({polygon.area:.1f}m²), wird verworfen")
-                                    continue
-                                else:
-                                    self.logger.warning(f"⚠️ Polygon kleiner als Mindestfläche ({polygon.area:.1f}m²)")
-                except Exception as e:
-                    self.logger.error(f"❌ Fehler bei der Geometrievalidierung: {e}")
-                    # Wenn Validierung fehlschlägt, nutze das unvalidierte Polygon
-                    pass
-
-                polygons.append(polygon)
-
-            if not polygons:
-                return None
-            elif len(polygons) == 1:
-                return polygons[0]
+            elif len(footprints) == 1:
+                return footprints[0]
             else:
-                # Erstelle MultiPolygon aus allen gültigen Polygonen
-                try:
-                    return MultiPolygon(polygons)
-                except Exception as e:
-                    self.logger.error(f"❌ Fehler beim Erstellen des MultiPolygons: {e}")
-                    # Fallback: Gib das erste gültige Polygon zurück
-                    return polygons[0]
+                return MultiPolygon(footprints)
+                
+        except Exception as e:
+            self.logger.warning(f"Fehler beim Extrahieren der Grundfläche: {str(e)}")
+            return None
+            
+    def _validate_roof_coordinates(self, coords: np.ndarray, config: Dict[str, Any]) -> bool:
+        """
+        Validiert eine Dachfläche anhand ihrer Koordinaten.
+        
+        Args:
+            coords: NumPy-Array mit 3D-Koordinaten
+            config: Validierungskonfiguration
+            
+        Returns:
+            True wenn gültig, False sonst
+        """
+        try:
+            if coords.shape[0] < 3:
+                self.logger.warning("Zu wenige Koordinaten für eine Dachfläche")
+                return False
+
+            # Fläche prüfen (über 2D-Projektion)
+            xy_points = [(p[0], p[1]) for p in coords]
+            polygon = Polygon(xy_points)
+            area = polygon.area
+            if area < config.get('min_area', 1.0):
+                self.logger.warning(f"Polygon zu klein: {area:.1f}m² < {config.get('min_area', 1.0)}m²")
+                return False
+
+            # Winkel prüfen (Normale vs. Z-Achse)
+            v1 = coords[1] - coords[0]
+            v2 = coords[2] - coords[0]
+            normal = np.cross(v1, v2)
+            normal = normal / np.linalg.norm(normal)
+            angle = np.arccos(np.abs(np.dot(normal, [0, 0, 1])))
+            angle_deg = np.degrees(angle)
+            if angle_deg > config.get('max_angle', 60):
+                self.logger.warning(f"Dach zu steil: {angle_deg:.1f}° > {config.get('max_angle', 60)}°")
+                return False
+
+            return True
 
         except Exception as e:
-            self.logger.error(f"❌ Fehler beim Extrahieren des Footprints: {str(e)}")
-            return None
+            self.logger.warning(f"Fehler bei Dachflächen-Validierung: {str(e)}")
+            return False
 
-    def _extract_field_value(self, building: etree.Element, field_config: Dict[str, Any]) -> Any:
-        """Extrahiert einen Feldwert basierend auf der XPath-Konfiguration.
-        
-        Args:
-            building: Das Gebäude-Element
-            field_config: Feldkonfiguration mit xpath, type und fallback
-            
-        Returns:
-            Extrahierter und konvertierter Wert oder Fallback
+    def _extract_roof_surfaces(self, building) -> List[np.ndarray]:
         """
-        value = None
-        xpaths = field_config.get('xpath', [])
-        if isinstance(xpaths, str):
-            xpaths = [xpaths]
-        
-        # Versuche jeden XPath
-        for xpath in xpaths:
-            try:
-                # Attribut-Zugriff
-                if xpath.startswith('@'):
-                    attr = xpath.replace('@', '')
-                    value = building.get(attr)
-                    if value:
-                        break
-                # Element-Zugriff
-                else:
-                    # Füge .// hinzu wenn nicht vorhanden
-                    if not xpath.startswith('.//'):
-                        xpath = f'.//{xpath}'
-                    
-                    element = building.find(xpath, namespaces=self.ns)
-                    if element is not None and element.text:
-                        value = element.text.strip()
-                        break
-                    
-                    # Prüfe auf generische Attribute
-                    if 'gen:stringAttribute' in xpath or 'gen:doubleAttribute' in xpath:
-                        # Extrahiere den Wert aus dem value-Element
-                        value_el = element.find('gen:value', namespaces=self.ns) if element else None
-                        if value_el is not None and value_el.text:
-                            value = value_el.text.strip()
-                            break
-                        
-            except Exception as e:
-                self.logger.debug(f"⚠️ Fehler bei XPath {xpath}: {str(e)}")
-                continue
-            
-        # Fallback verwenden wenn kein Wert gefunden
-        if value is None:
-            value = field_config.get('fallback')
-            if value is not None:
-                self.logger.debug(f"🔄 Verwende Fallback: {value}")
-            
-        # Typ-Konvertierung
-        if value is not None:
-            try:
-                field_type = field_config.get('type', 'str')
-                if field_type == 'int':
-                    value = int(float(value))  # Float-Konvertierung für Dezimalzahlen
-                elif field_type == 'float':
-                    value = float(value)
-                elif field_type == 'bool':
-                    value = value.lower() in ('true', '1', 'yes', 'ja')
-                else:
-                    value = str(value)
-            except (ValueError, TypeError) as e:
-                self.logger.warning(f"⚠️ Typkonvertierung fehlgeschlagen: {str(e)}")
-                value = field_config.get('fallback')
-            
-        return value
-
-    def _extract_building_attributes(self, building: etree.Element) -> Dict[str, Any]:
-        """Extrahiert alle konfigurierten Attribute aus einem Gebäude.
+        Extrahiert Dachflächen aus einem CityGML-Building-Element.
         
         Args:
-            building: Das Gebäude-Element
+            building: XML-Element des Gebäudes
             
         Returns:
-            Dictionary mit extrahierten Attributen
+            Liste von Arrays mit 3D-Koordinaten der Dachflächen
+        """
+        try:
+            # Finde alle RoofSurface-Elemente
+            roof_surfaces = building.findall(
+                ".//bldg:RoofSurface//gml:posList",
+                namespaces=self.ns
+            )
+            
+            # Extrahiere Koordinaten
+            surfaces = []
+            for surface in roof_surfaces:
+                # Konvertiere String zu Koordinaten
+                coords_str = surface.text.strip().split()
+                coords = []
+                for i in range(0, len(coords_str), 3):
+                    x = float(coords_str[i])
+                    y = float(coords_str[i + 1])
+                    z = float(coords_str[i + 2])
+                    coords.append([x, y, z])
+                coords = np.array(coords)
+                
+                # Validiere Dachfläche mit den Koordinaten
+                if self._validate_roof_coordinates(coords, self.config.get('validation', {})):
+                    surfaces.append(coords)
+                
+            return surfaces
+            
+        except Exception as e:
+            self.logger.warning(f"Fehler beim Extrahieren der Dachflächen: {str(e)}")
+            return []
+            
+    def _validate_polygon(self, polygon: Polygon) -> bool:
+        """
+        Validiert ein Polygon.
+        
+        Args:
+            polygon: Zu validierendes Polygon
+            
+        Returns:
+            True wenn valid, False sonst
+        """
+        try:
+            # Prüfe ob Polygon gültig ist
+            if not polygon.is_valid:
+                self.logger.warning("Ungültiges Polygon gefunden")
+                return False
+                
+            # Prüfe Mindestfläche
+            min_area = self.config.get('validation', {}).get('min_area', 1.0)
+            if polygon.area < min_area:
+                self.logger.warning(f"Polygon zu klein: {polygon.area:.1f}m² < {min_area}m²")
+                return False
+                
+            return True
+            
+        except Exception as e:
+            self.logger.warning(f"Fehler bei der Polygon-Validierung: {str(e)}")
+            return False
+            
+    def _extract_field_value(self, building: etree.Element, field_config: Dict[str, Any]) -> Any:
+        """
+        Extrahiert einen Feldwert aus einem Gebäude.
+        
+        Args:
+            building: XML-Element des Gebäudes
+            field_config: Konfiguration des Feldes:
+                type: Datentyp (string, float, int)
+                xpath: XPath-Ausdruck
+                namespaces: XML-Namespaces
+                
+        Returns:
+            Extrahierter Wert oder None bei Fehler
+        """
+        try:
+            # Extrahiere Wert mit XPath
+            elements = building.xpath(
+                field_config['xpath'],
+                namespaces=field_config.get('namespaces', self.ns)
+            )
+            
+            # Wenn kein Element gefunden
+            if not elements:
+                return None
+                
+            # Extrahiere Text aus Element
+            element = elements[0]
+            if isinstance(element, str):
+                value = element
+            else:
+                value = element.text
+                
+            if not value:
+                return None
+                
+            # Konvertiere in richtigen Datentyp
+            if field_config['type'] == 'float':
+                return float(value)
+            elif field_config['type'] == 'int':
+                return int(value)
+            else:
+                return str(value)
+                
+        except Exception as e:
+            self.logger.warning(f"Fehler beim Extrahieren von Feldwert: {str(e)}")
+            return None
+            
+    def _extract_building_attributes(self, building: etree.Element) -> Dict[str, Any]:
+        """
+        Extrahiert alle konfigurierten Attribute eines Gebäudes.
+        
+        Args:
+            building: XML-Element des Gebäudes
+            
+        Returns:
+            Dictionary mit Attributen
         """
         attributes = {}
         
-        # Hole Konfiguration
-        fields_config = self.config.get('attributes', {}).get('xpaths', {})
-        required_fields = self.config.get('attributes', {}).get('required', [])
-        optional_fields = self.config.get('attributes', {}).get('optional', [])
-        
-        # Verarbeite alle Felder
-        for field in required_fields + optional_fields:
-            field_config = fields_config.get(field, {})
-            if not field_config:
-                self.logger.warning(f"⚠️ Keine Konfiguration für Feld {field}")
-                continue
-            
+        # Extrahiere konfigurierte Felder
+        for field_name, field_config in self.config.get('fields', {}).items():
             value = self._extract_field_value(building, field_config)
-            
-            # Pflichtfeld-Validierung
-            if field in required_fields and value is None:
-                self.logger.warning(f"⚠️ Pflichtfeld {field} nicht gefunden")
-                continue
-            
-            attributes[field] = value
-        
+            if value is not None:
+                attributes[field_name] = value
+                
         return attributes
-
-    def process_citygml(self, citygml_path):
-        """Verarbeitet CityGML und erstellt Basis-GeoDataFrame"""
+        
+    def process_citygml(self, citygml_path: Path) -> gpd.GeoDataFrame:
+        """
+        Verarbeitet eine CityGML-Datei und extrahiert Gebäudedaten.
+        
+        Args:
+            citygml_path: Pfad zur CityGML-Datei
+            
+        Returns:
+            GeoDataFrame mit Gebäudedaten oder leeres GeoDataFrame wenn keine gültigen Gebäude
+        """
         try:
-            self.logger.info(f"Verarbeite CityGML: {Path(citygml_path).name}")
+            self.logger.info(f"Lese CityGML-Datei {citygml_path}...")
             
-            tree = etree.parse(citygml_path)
+            # Parse XML
+            tree = etree.parse(str(citygml_path))
             root = tree.getroot()
-            buildings = root.findall('.//bldg:Building', self.ns)
             
-            self.logger.info(f"=== Starte Verarbeitung von {len(buildings)} Gebäuden ===")
-            
-            building_data = []
-            geometries = []
-            
-            # Erweiterte Statistiken
-            stats = {
-                'total': len(buildings),
-                'success': 0,
-                'failed': 0,
-                'geometry': {
-                    'success': 0,
-                    'failed': 0,
-                    'total_area': 0,
-                    'min_area': float('inf'),
-                    'max_area': 0,
-                    'polygons': 0,
-                    'multipolygons': 0
-                },
-                'attributes': {
-                    'success': 0,
-                    'failed': 0,
-                    'missing_fields': defaultdict(int)
-                },
-                'lod': defaultdict(int)
-            }
-            
-            for building in buildings:
+            # Extrahiere Gebäude
+            buildings = []
+            for building in root.findall(".//bldg:Building", self.ns):
                 try:
-                    # Extrahiere Geometrie
-                    footprint = self._extract_building_footprint(building)
-                    if footprint:
-                        area = footprint.area
-                        stats['geometry']['success'] += 1
-                        stats['geometry']['total_area'] += area
-                        stats['geometry']['min_area'] = min(stats['geometry']['min_area'], area)
-                        stats['geometry']['max_area'] = max(stats['geometry']['max_area'], area)
-                        
-                        if isinstance(footprint, MultiPolygon):
-                            stats['geometry']['multipolygons'] += 1
-                        else:
-                            stats['geometry']['polygons'] += 1
-                        
-                        # Bestimme LoD-Level
-                        if building.find('.//bldg:lod2Solid', self.ns) is not None:
-                            stats['lod']['LoD2'] += 1
-                        elif building.find('.//bldg:lod1Solid', self.ns) is not None:
-                            stats['lod']['LoD1'] += 1
-                        
-                        # Extrahiere Attribute nur für gültige Geometrien
-                        building_attrs = self._extract_building_attributes(building)
-                        if building_attrs:
-                            stats['attributes']['success'] += 1
-                            building_data.append(building_attrs)
-                            geometries.append(footprint)
-                            stats['success'] += 1
-                        else:
-                            stats['attributes']['failed'] += 1
-                            stats['failed'] += 1
-                    else:
-                        stats['geometry']['failed'] += 1
-                        stats['failed'] += 1
-                
+                    # Extrahiere Attribute
+                    building_data = self._extract_building_data(building)
+                    if building_data:
+                        buildings.append(building_data)
                 except Exception as e:
-                    self.logger.error(f"❌ Fehler bei Gebäudeverarbeitung: {str(e)}")
-                    stats['failed'] += 1
-            
-            # Ausgabe der erweiterten Statistiken
-            self._print_extended_stats(stats)
-            
-            if not building_data:
-                self.logger.warning("Keine Gebäudedaten extrahiert")
-                return None
+                    self.logger.warning(f"Fehler beim Verarbeiten eines Gebäudes: {str(e)}")
+                    continue
                 
-            # Erstelle GeoDataFrame mit korrektem CRS
-            buildings_gdf = gpd.GeoDataFrame(
-                building_data,
-                geometry=geometries,
-                crs=self.config['geometry']['srs_name']
-            )
+            self.logger.info(f"{len(buildings)} Gebäude gefunden")
             
-            # Sicherer Zugriff auf Geometrie-Vereinfachungsoptionen
-            output_options = self.config.get('output', {}).get('geojson', {}).get('options', {})
-            tolerance = output_options.get('simplify_tolerance')
+            if not buildings:
+                self.logger.warning("Keine gültigen Gebäude gefunden")
+                return gpd.GeoDataFrame(
+                    columns=['building_id', 'height', 'geometry'],
+                    crs="EPSG:31256"
+                )
             
-            if tolerance:
-                self.logger.info(f"ℹ️ Vereinfache Geometrien mit Toleranz {tolerance}")
-                buildings_gdf.geometry = buildings_gdf.geometry.simplify(tolerance)
+            # Erstelle GeoDataFrame
+            gdf = gpd.GeoDataFrame(buildings)
+            gdf.set_crs(epsg=31256, inplace=True)
             
-            # Optional: Metadaten in separate Spalten aufsplitten
-            if self.config.get('split_meta_fields', False):
-                meta_df = buildings_gdf['_meta'].apply(pd.Series)
-                buildings_gdf = pd.concat([
-                    buildings_gdf.drop(columns=['_meta']), 
-                    meta_df.add_prefix('src_')
-                ], axis=1)
-            
-            return buildings_gdf
+            self.logger.info(f"{len(gdf)} Gebäude erfolgreich verarbeitet")
+            return gdf
             
         except Exception as e:
-            self.logger.error(f"❌ Fehler bei CityGML-Verarbeitung: {str(e)}")
-            raise
-
+            self.logger.error(f"Fehler beim Verarbeiten der CityGML: {str(e)}")
+            return gpd.GeoDataFrame(
+                columns=['building_id', 'height', 'geometry'],
+                crs="EPSG:31256"
+            )
+            
     def _print_extended_stats(self, stats):
-        """Gibt erweiterte Statistiken zur Verarbeitung aus"""
-        self.logger.info("\n=== Verarbeitungsstatistik ===")
-        self.logger.info(f"Gesamt: {stats['total']} Gebäude")
-        self.logger.info(f"Erfolgreich: {stats['success']} Gebäude")
-        self.logger.info(f"Fehlgeschlagen: {stats['failed']} Gebäude")
+        """
+        Gibt erweiterte Statistiken aus.
         
-        self.logger.info("\n--- Geometrie ---")
-        self.logger.info(f"Erfolgreich: {stats['geometry']['success']} Geometrien")
-        self.logger.info(f"Fehlgeschlagen: {stats['geometry']['failed']} Geometrien")
-        self.logger.info(f"Einfache Polygone: {stats['geometry']['polygons']}")
-        self.logger.info(f"MultiPolygone: {stats['geometry']['multipolygons']}")
+        Args:
+            stats: Dictionary mit Statistiken
+        """
+        self.logger.info("\nErweiterte Statistiken:")
+        self.logger.info("-" * 40)
         
-        if stats['geometry']['success'] > 0:
-            avg_area = stats['geometry']['total_area'] / stats['geometry']['success']
-            self.logger.info(f"Durchschnittliche Grundfläche: {avg_area:.1f}m²")
-            self.logger.info(f"Kleinste Grundfläche: {stats['geometry']['min_area']:.1f}m²")
-            self.logger.info(f"Größte Grundfläche: {stats['geometry']['max_area']:.1f}m²")
+        # Gebäudetypen
+        if 'building_types' in stats:
+            self.logger.info("\nGebäudetypen:")
+            for type_name, count in stats['building_types'].items():
+                self.logger.info(f"  {type_name}: {count}")
+                
+        # Höhenverteilung
+        if 'height_stats' in stats:
+            self.logger.info("\nHöhenverteilung:")
+            for stat, value in stats['height_stats'].items():
+                self.logger.info(f"  {stat}: {value:.2f}m")
+                
+        # Flächenverteilung
+        if 'area_stats' in stats:
+            self.logger.info("\nFlächenverteilung:")
+            for stat, value in stats['area_stats'].items():
+                self.logger.info(f"  {stat}: {value:.2f}m²")
+                
+        # Baujahre
+        if 'year_stats' in stats:
+            self.logger.info("\nBaujahre:")
+            for stat, value in stats['year_stats'].items():
+                self.logger.info(f"  {stat}: {value}")
+                
+        self.logger.info("-" * 40)
         
-        self.logger.info("\n--- Attribute ---")
-        self.logger.info(f"Erfolgreich: {stats['attributes']['success']} Datensätze")
-        self.logger.info(f"Fehlgeschlagen: {stats['attributes']['failed']} Datensätze")
+    def export_to_3dtiles(self, gdf: gpd.GeoDataFrame, output_path: Path) -> bool:
+        """
+        Exportiert die Gebäude als 3D Tiles.
         
-        self.logger.info("\n--- LoD-Level ---")
-        for lod, count in stats['lod'].items():
-            self.logger.info(f"{lod}: {count} Gebäude")
+        Args:
+            gdf: GeoDataFrame mit Gebäuden
+            output_path: Ausgabeverzeichnis
+            
+        Returns:
+            True bei Erfolg, False bei Fehler
+        """
+        try:
+            # Erstelle Ausgabeverzeichnis
+            output_path.mkdir(parents=True, exist_ok=True)
+            buildings_dir = output_path / "buildings"
+            buildings_dir.mkdir(exist_ok=True)
+            
+            # Erstelle Tileset
+            tileset = TileSet()
+            
+            # Erstelle Root-Tile
+            root = Tile()
+            root.geometric_error = 500.0  # TODO: Berechne basierend auf Datensatz
+            root.refine = "ADD"
+            
+            # Berechne Bounding Box
+            bounds = gdf.total_bounds
+            root.bounding_volume = {
+                "box": [
+                    (bounds[0] + bounds[2]) / 2,  # center_x
+                    (bounds[1] + bounds[3]) / 2,  # center_y
+                    0,                            # center_z
+                    (bounds[2] - bounds[0]) / 2,  # width/2
+                    0, 0,
+                    0,
+                    (bounds[3] - bounds[1]) / 2,  # height/2
+                    0,
+                    0, 0,
+                    50  # depth/2 (geschätzt)
+                ]
+            }
+            
+            # Erstelle Children für jedes Gebäude
+            for idx, building in gdf.iterrows():
+                # Erstelle B3DM
+                b3dm_path = buildings_dir / f"{building.building_id}.b3dm"
+                if not self._create_b3dm(building, b3dm_path):
+                    continue
+                    
+                # Erstelle Child-Tile
+                child = Tile()
+                child.geometric_error = 0
+                
+                # Setze Bounding Box
+                bounds = building.geometry.bounds
+                child.bounding_volume = {
+                    "box": [
+                        (bounds[0] + bounds[2]) / 2,  # center_x
+                        (bounds[1] + bounds[3]) / 2,  # center_y
+                        building.height / 2,          # center_z
+                        (bounds[2] - bounds[0]) / 2,  # width/2
+                        0, 0,
+                        0,
+                        (bounds[3] - bounds[1]) / 2,  # height/2
+                        0,
+                        0, 0,
+                        building.height / 2           # depth/2
+                    ]
+                }
+                
+                # Setze Content
+                child.content = {
+                    "uri": f"buildings/{building.building_id}.b3dm"
+                }
+                
+                root.add_child(child)
+                
+            # Speichere Tileset
+            tileset.root = root
+            with open(output_path / "tileset.json", 'w') as f:
+                json.dump(tileset.to_dict(), f, indent=2)
+                
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Fehler beim Export zu 3D Tiles: {str(e)}")
+            return False
+            
+    def _save_as_citygml(self, gdf: gpd.GeoDataFrame, output_path: Path) -> None:
+        """
+        Speichert ein GeoDataFrame als CityGML-Datei.
+        
+        Args:
+            gdf: GeoDataFrame mit Gebäudedaten
+            output_path: Ausgabepfad für die CityGML-Datei
+        """
+        try:
+            # Erstelle XML-Baum
+            root = etree.Element(
+                "CityModel",
+                nsmap={
+                    None: "http://www.opengis.net/citygml/1.0",
+                    'bldg': "http://www.opengis.net/citygml/building/1.0",
+                    'gml': "http://www.opengis.net/gml",
+                    'gen': "http://www.opengis.net/citygml/generics/1.0"
+                }
+            )
+            
+            # Füge Gebäude hinzu
+            for _, building in gdf.iterrows():
+                # Erstelle Gebäude-Element
+                building_elem = etree.SubElement(
+                    root,
+                    "cityObjectMember"
+                )
+                bldg_elem = etree.SubElement(
+                    building_elem,
+                    "{http://www.opengis.net/citygml/building/1.0}Building",
+                    attrib={
+                        "{http://www.opengis.net/gml}id": building['building_id']
+                    }
+                )
+                
+                # Füge Höhe hinzu
+                height_elem = etree.SubElement(
+                    bldg_elem,
+                    "{http://www.opengis.net/citygml/generics/1.0}stringAttribute",
+                    attrib={"name": "HoeheDach"}
+                )
+                value_elem = etree.SubElement(
+                    height_elem,
+                    "{http://www.opengis.net/citygml/generics/1.0}value"
+                )
+                value_elem.text = str(building['height'])
+                
+                # Füge Geometrie hinzu
+                solid_elem = etree.SubElement(
+                    bldg_elem,
+                    "{http://www.opengis.net/citygml/building/1.0}lod2Solid"
+                )
+                solid = etree.SubElement(
+                    solid_elem,
+                    "{http://www.opengis.net/gml}Solid"
+                )
+                exterior = etree.SubElement(
+                    solid,
+                    "{http://www.opengis.net/gml}exterior"
+                )
+                comp_surface = etree.SubElement(
+                    exterior,
+                    "{http://www.opengis.net/gml}CompositeSurface"
+                )
+                
+                # Füge Grundfläche hinzu
+                footprint = building.geometry
+                footprint_coords = np.array(footprint.exterior.coords)
+                
+                surface_member = etree.SubElement(
+                    comp_surface,
+                    "{http://www.opengis.net/gml}surfaceMember"
+                )
+                ground = etree.SubElement(
+                    surface_member,
+                    "{http://www.opengis.net/citygml/building/1.0}GroundSurface"
+                )
+                polygon = etree.SubElement(
+                    ground,
+                    "{http://www.opengis.net/gml}Polygon"
+                )
+                exterior_ring = etree.SubElement(
+                    polygon,
+                    "{http://www.opengis.net/gml}exterior"
+                )
+                linear_ring = etree.SubElement(
+                    exterior_ring,
+                    "{http://www.opengis.net/gml}LinearRing"
+                )
+                pos_list = etree.SubElement(
+                    linear_ring,
+                    "{http://www.opengis.net/gml}posList"
+                )
+                
+                # Füge Koordinaten hinzu
+                coords_text = []
+                for x, y in footprint_coords:
+                    coords_text.extend([str(x), str(y), "0"])
+                pos_list.text = " ".join(coords_text)
+                
+                # Füge Dachflächen hinzu
+                height = float(building['height'])
+                center = np.mean(footprint_coords[:-1], axis=0)  # Ohne letzten Punkt (ist gleich erstem)
+                
+                # Berechne die Dachhöhe basierend auf einem flacheren Winkel
+                max_angle = self.config.get('validation', {}).get('max_angle', 80.0)
+                # Verwende einen deutlich kleineren Winkel für die Dachneigung
+                roof_angle = max_angle * 0.25  # 25% des maximalen Winkels
+                roof_height = height + (height * 0.5) * np.tan(np.radians(roof_angle))
+                
+                # Erzeuge die Dachflächen
+                for i in range(len(footprint_coords) - 1):
+                    surface_member = etree.SubElement(
+                        comp_surface,
+                        "{http://www.opengis.net/gml}surfaceMember"
+                    )
+                    roof = etree.SubElement(
+                        surface_member,
+                        "{http://www.opengis.net/citygml/building/1.0}RoofSurface"
+                    )
+                    polygon = etree.SubElement(
+                        roof,
+                        "{http://www.opengis.net/gml}Polygon"
+                    )
+                    exterior_ring = etree.SubElement(
+                        polygon,
+                        "{http://www.opengis.net/gml}exterior"
+                    )
+                    linear_ring = etree.SubElement(
+                        exterior_ring,
+                        "{http://www.opengis.net/gml}LinearRing"
+                    )
+                    pos_list = etree.SubElement(
+                        linear_ring,
+                        "{http://www.opengis.net/gml}posList"
+                    )
+                    
+                    coords_text = []
+                    # Füge die Eckpunkte des Daches hinzu
+                    coords_text.extend([str(footprint_coords[i][0]), str(footprint_coords[i][1]), str(height)])
+                    coords_text.extend([str(center[0]), str(center[1]), str(roof_height)])
+                    coords_text.extend([str(footprint_coords[i+1][0]), str(footprint_coords[i+1][1]), str(height)])
+                    coords_text.extend([str(footprint_coords[i][0]), str(footprint_coords[i][1]), str(height)])
+                    pos_list.text = " ".join(coords_text)
+            
+            # Speichere XML
+            tree = etree.ElementTree(root)
+            tree.write(
+                str(output_path),
+                pretty_print=True,
+                xml_declaration=True,
+                encoding='utf-8'
+            )
+            
+        except Exception as e:
+            self.logger.error(f"Fehler beim Speichern als CityGML: {str(e)}")
+            
+    def _extract_building_data(self, building) -> Optional[Dict]:
+        """
+        Extrahiert Gebäudedaten aus einem CityGML-Building-Element.
+        
+        Args:
+            building: XML-Element des Gebäudes
+            
+        Returns:
+            Dictionary mit Gebäudedaten oder None bei Fehler
+        """
+        try:
+            # Extrahiere Grundfläche
+            footprint = self._extract_building_footprint(building)
+            if footprint is None:
+                return None
+            
+            # Validiere Grundfläche
+            if not self._validate_polygon(footprint):
+                return None
+            
+            # Extrahiere Dachflächen
+            roof_surfaces = self._extract_roof_surfaces(building)
+            if not roof_surfaces:
+                self.logger.warning("Keine gültigen Dachflächen gefunden")
+                return None
+            
+            # Extrahiere Attribute
+            building_id = building.get(f"{{{self.ns['gml']}}}id")
+            if not building_id:
+                building_id = str(uuid.uuid4())
+            
+            # Suche nach Höhenattribut
+            height_elem = building.find(
+                ".//gen:stringAttribute[@name='HoeheDach']/gen:value",
+                namespaces=self.ns
+            )
+            height = 10.0  # Default-Höhe
+            if height_elem is not None and height_elem.text:
+                try:
+                    height = float(height_elem.text)
+                except ValueError:
+                    self.logger.warning(f"Ungültige Höhe gefunden: {height_elem.text}")
+            
+            return {
+                'building_id': building_id,
+                'height': height,
+                'geometry': footprint
+            }
+            
+        except Exception as e:
+            self.logger.warning(f"Fehler beim Extrahieren der Gebäudedaten: {str(e)}")
+            return None
+
+    def _get_coordinates(self, surface_element) -> List[Tuple[float, float, float]]:
+        """
+        Extrahiert 3D-Koordinaten aus einem Oberflächenelement.
+        
+        Args:
+            surface_element: XML-Element der Oberfläche
+            
+        Returns:
+            Liste von (x,y,z) Koordinaten-Tupeln
+        """
+        try:
+            coords = []
+            
+            # Suche nach posList Elementen
+            pos_lists = surface_element.findall(".//gml:posList", namespaces=self.ns)
+            
+            if pos_lists:
+                for pos_list in pos_lists:
+                    # Konvertiere String in Liste von Floats
+                    values = [float(x) for x in pos_list.text.split()]
+                    
+                    # Prüfe ob Anzahl durch 3 teilbar
+                    if len(values) % 3 != 0:
+                        self.logger.warning(f"Ungültige Anzahl von Koordinaten: {len(values)}")
+                        continue
+                        
+                    # Gruppiere in 3D-Koordinaten
+                    for i in range(0, len(values), 3):
+                        coords.append((values[i], values[i+1], values[i+2]))
+            else:
+                # Suche nach einzelnen pos Elementen
+                pos_elements = surface_element.findall(".//gml:pos", namespaces=self.ns)
+                for pos in pos_elements:
+                    values = [float(x) for x in pos.text.split()]
+                    if len(values) == 3:
+                        coords.append((values[0], values[1], values[2]))
+            
+            # Prüfe ob genügend Koordinaten gefunden wurden
+            if len(coords) < 3:
+                self.logger.warning("Zu wenige Koordinaten gefunden")
+                return []
+                
+            return coords
+            
+        except Exception as e:
+            self.logger.warning(f"Fehler beim Extrahieren der Koordinaten: {str(e)}")
+            return []
 
 def fetch_citygml_buildings(citygml_file: str, output_dir: str, config: Dict[str, Any]) -> Optional[gpd.GeoDataFrame]:
     """
-    Liest CityGML-Datei und extrahiert Gebäudedaten in ein GeoDataFrame.
+    Liest Gebäude aus einer CityGML-Datei.
     
     Args:
         citygml_file: Pfad zur CityGML-Datei
-        output_dir: Ausgabeverzeichnis für Zwischenergebnisse
-        config: Globale Konfiguration
+        output_dir: Ausgabeverzeichnis
+        config: Konfiguration für den CityGML-Prozessor
         
     Returns:
-        GeoDataFrame mit Gebäudedaten oder None bei Fehler
+        GeoDataFrame mit Gebäuden oder None bei Fehler
     """
     try:
-        # Lade die spezifische CityGML-Konfiguration
-        citygml_config_path = config['data_source']['citygml'].get('config_file')
-        if not citygml_config_path:
-            raise CityGMLConfigError("Keine config_file in data_source.citygml konfiguriert")
-            
-        full_config_path = root_dir / citygml_config_path
-        logger.info(f"📄 Lade CityGML-Konfiguration aus: {full_config_path}")
+        # Erstelle Prozessor
+        processor = CityGMLBuildingProcessor(config)
         
-        if not full_config_path.exists():
-            raise CityGMLConfigError(f"CityGML-Konfigurationsdatei nicht gefunden: {full_config_path}")
-            
-        citygml_config = load_config(full_config_path)
-        
-        # Debug-Ausgabe der geladenen Konfiguration
-        logger.debug(f"🔍 CityGML-Konfiguration enthält Schlüssel: {list(citygml_config.keys())}")
-        
-        # Erstelle Processor mit der spezifischen CityGML-Konfiguration
-        processor = CityGMLBuildingProcessor(citygml_config)
-        
-        # Verarbeite die CityGML-Datei
-        gdf = processor.process_citygml(citygml_file)
-        
-        if gdf is not None and not gdf.empty:
-            # Speichere Zwischenergebnis
-            output_path = Path(output_dir) / "buildings_raw.gpkg"
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            gdf.to_file(output_path, driver="GPKG")
-            logger.info(f"✅ Gebäudedaten gespeichert in: {output_path}")
-            return gdf
-        else:
-            logger.error("❌ Keine Gebäudedaten extrahiert")
+        # Verarbeite CityGML
+        buildings = processor.process_citygml(Path(citygml_file))
+        if buildings is None:
             return None
             
+        # Speichere als GeoPackage
+        if output_dir:
+            output_path = Path(output_dir) / "buildings.gpkg"
+            buildings.to_file(output_path, driver="GPKG")
+            logger.info(f"Gebäude gespeichert in {output_path}")
+            
+        return buildings
+        
     except Exception as e:
-        logger.error(f"❌ Fehler beim Verarbeiten der CityGML-Datei: {str(e)}")
+        logger.error(f"Fehler beim Laden der CityGML: {str(e)}")
         return None
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import { Layers, ArrowLeft, Settings } from 'lucide-react';
 import CesiumViewer from './CesiumViewer';
 import LayerSidebar from './LayerSidebar';
@@ -7,113 +7,124 @@ import ControlsSidebar from './ControlsSidebar';
 interface ProjectViewProps {
   projectId: string;
   cesiumToken: string;
-  onBack: () => void;
 }
 
-export default function ProjectView({ projectId, cesiumToken, onBack }: ProjectViewProps) {
-  const [showLayerSidebar, setShowLayerSidebar] = useState(false);
-  const [showControlsSidebar, setShowControlsSidebar] = useState(false);
+const ProjectView: React.FC<ProjectViewProps> = ({ projectId, cesiumToken }) => {
+  const [showLayerSidebar, setShowLayerSidebar] = useState(true);
+  const [showControlsSidebar, setShowControlsSidebar] = useState(true);
   const [showTimeline, setShowTimeline] = useState(false);
   const [enabledLayers, setEnabledLayers] = useState({
-    arcGIS: true,
-    satellite: false,
+    arcGIS: false,
+    satellite: true,
+    tileset: true
   });
   const [layerOpacity, setLayerOpacity] = useState({
-    arcGIS: 0.7,
-    satellite: 0.7,
+    arcGIS: 1,
+    satellite: 1,
+    tileset: 1
   });
+  const [tilesetUrl] = useState("https://zfwjygqjtbzjyyyuihfv.supabase.co/storage/v1/object/sign/tiles3d/Vienna%20CityGML%203D-Tile/tileset.json?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1cmwiOiJ0aWxlczNkL1ZpZW5uYSBDaXR5R01MIDNELVRpbGUvdGlsZXNldC5qc29uIiwiaWF0IjoxNzQyODYxNDM2LCJleHAiOjE3NDM0NjYyMzZ9.QgzGASmdrJbdrsZw6xXma4_aAdYEo7tVYI-q1tCCIuY");
+  const [zoomToTilesetFn, setZoomToTilesetFn] = useState<(() => void) | undefined>();
+  const viewerRef = useRef<any>(null);
 
-  const handleLayerToggle = (layer: keyof typeof enabledLayers) => {
+  const handleLayerToggle = useCallback((layer: keyof typeof enabledLayers) => {
+    console.log('Toggle layer:', layer);
     setEnabledLayers(prev => ({
       ...prev,
       [layer]: !prev[layer]
     }));
-  };
+  }, []);
 
-  const handleOpacityChange = (layer: keyof typeof layerOpacity, value: number) => {
+  const handleOpacityChange = useCallback((layer: keyof typeof layerOpacity, value: number) => {
+    console.log('Change opacity:', layer, value);
     setLayerOpacity(prev => ({
       ...prev,
-      [layer]: value / 100
+      [layer]: value
     }));
-  };
+  }, []);
 
-  const handleTimelineToggle = () => {
+  const handleTimelineToggle = useCallback(() => {
     setShowTimeline(prev => !prev);
+  }, []);
+
+  const handleHomeClick = useCallback(() => {
+    // Wird für die Home-Button Funktionalität verwendet
+  }, []);
+
+  const handleLoadAsset = async (assetId: number) => {
+    if (viewerRef.current) {
+      await viewerRef.current.loadAsset(assetId);
+    }
   };
 
-  const handleHomeClick = () => {
-    // Diese Funktion wird an CesiumViewer übergeben
-  };
+  const handleBack = useCallback(() => {
+    window.location.href = '/projects';
+  }, []);
 
   return (
-    <div className="relative w-full h-screen">
-      {/* Cesium Viewer */}
-      <div className="absolute inset-0">
+    <div className="flex h-full">
+      {showLayerSidebar && (
+        <LayerSidebar
+          token={cesiumToken}
+          onLoadAsset={handleLoadAsset}
+          onClose={() => setShowLayerSidebar(false)}
+          enabledLayers={enabledLayers}
+          layerOpacity={layerOpacity}
+          onLayerToggle={handleLayerToggle}
+          onOpacityChange={handleOpacityChange}
+          onZoomToTileset={zoomToTilesetFn}
+        />
+      )}
+
+      <div className="flex-1 relative">
         <CesiumViewer
-          cesiumToken={cesiumToken}
+          ref={viewerRef}
+          token={cesiumToken}
           enabledLayers={enabledLayers}
           layerOpacity={layerOpacity}
           showTimeline={showTimeline}
+          tilesetUrl={tilesetUrl}
           onHomeClick={handleHomeClick}
+          onZoomToTileset={setZoomToTilesetFn}
+          projectId={projectId}
+          onBack={handleBack}
         />
-      </div>
-      
-      {/* Navigation Controls */}
-      <div className="absolute top-0 left-0 w-full p-4 flex justify-between items-start">
-        <div className="flex flex-col gap-2">
-          {/* Back Button */}
-          <button
-            onClick={onBack}
-            className="bg-white p-2 rounded-lg shadow-md hover:bg-gray-50 transition-colors flex items-center gap-2 w-fit"
-          >
-            <ArrowLeft size={20} className="text-blue-500" />
-            <span className="text-sm font-medium">Zurück zur Übersicht</span>
-          </button>
 
-          {/* Layer Toggle Button */}
-          <button
-            onClick={() => setShowLayerSidebar(true)}
-            className="bg-white p-2 rounded-lg shadow-md hover:bg-gray-50 transition-colors flex items-center gap-2 w-fit"
-          >
-            <Layers size={20} className="text-blue-500" />
-            <span className="text-sm font-medium">Layer</span>
-          </button>
+        {/* Sidebar Toggle Buttons */}
+        <div className="absolute top-4 right-4 space-x-2 z-50">
+          {!showLayerSidebar && (
+            <button
+              onClick={() => setShowLayerSidebar(true)}
+              className="bg-white p-2 rounded shadow hover:bg-gray-100 flex items-center gap-2"
+              title="Layer anzeigen"
+            >
+              <Layers size={20} />
+              <span>Layer anzeigen</span>
+            </button>
+          )}
+          {!showControlsSidebar && (
+            <button
+              onClick={() => setShowControlsSidebar(true)}
+              className="bg-white p-2 rounded shadow hover:bg-gray-100 flex items-center gap-2"
+              title="Steuerung anzeigen"
+            >
+              <Settings size={20} />
+              <span>Steuerung anzeigen</span>
+            </button>
+          )}
         </div>
-
-        {/* Controls Toggle Button */}
-        <button
-          onClick={() => setShowControlsSidebar(true)}
-          className="bg-white p-2 rounded-lg shadow-md hover:bg-gray-50 transition-colors flex items-center gap-2"
-        >
-          <Settings size={20} className="text-blue-500" />
-          <span className="text-sm font-medium">Steuerung</span>
-        </button>
       </div>
 
-      {/* Layer Sidebar */}
-      {showLayerSidebar && (
-        <div className="absolute top-0 left-0 h-full z-40">
-          <LayerSidebar
-            enabledLayers={enabledLayers}
-            layerOpacity={layerOpacity}
-            onLayerToggle={handleLayerToggle}
-            onOpacityChange={handleOpacityChange}
-            onClose={() => setShowLayerSidebar(false)}
-          />
-        </div>
-      )}
-
-      {/* Controls Sidebar */}
       {showControlsSidebar && (
-        <div className="absolute top-0 right-0 h-full z-40">
-          <ControlsSidebar
-            showTimeline={showTimeline}
-            onTimelineToggle={handleTimelineToggle}
-            onHomeClick={handleHomeClick}
-            onClose={() => setShowControlsSidebar(false)}
-          />
-        </div>
+        <ControlsSidebar
+          showTimeline={showTimeline}
+          onTimelineToggle={handleTimelineToggle}
+          onHomeClick={handleHomeClick}
+          onClose={() => setShowControlsSidebar(false)}
+        />
       )}
     </div>
   );
-} 
+};
+
+export default ProjectView; 

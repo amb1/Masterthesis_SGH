@@ -1,0 +1,31 @@
+## Regeln für Services
+
+### Allgemeine Service-Struktur
+- Services werden als TypeScript-Module implementiert
+- Jeder Service hat eine spezifische Verantwortlichkeit
+- Asynchrone Operationen verwenden Promises/async-await
+- Fehlerbehandlung erfolgt einheitlich
+
+### Hauptservices
+1. boundaryService
+   - Verwaltet Grenzen und Geometrien
+   - Bietet Funktionen für räumliche Abfragen
+   - Handhabt GeoJSON-Daten
+
+2. projectService
+   - Verwaltet Projektdaten und -metadaten
+   - Handhabt CRUD-Operationen für Projekte
+   - Synchronisiert mit Backend-API
+
+3. viennaService
+   - Integriert Vienna City-Daten
+   - Verwaltet Zugriff auf externe APIs
+   - Cached Daten für bessere Performance
+
+### Service-Prinzipien
+- Singleton-Pattern für Service-Instanzen
+- Dependency Injection wo sinnvoll
+- Klare Trennung von Geschäftslogik und UI
+- Einheitliche Fehlerbehandlung und Logging
+- Caching-Strategien für Performance
+- Typsicherheit durch TypeScript 

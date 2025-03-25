@@ -1,0 +1,43 @@
+## Regeln für React-Komponenten
+
+### Allgemeine Komponenten-Struktur
+- Komponenten werden als funktionale Komponenten mit TypeScript implementiert
+- Props-Interfaces werden über der Komponente definiert
+- Styling erfolgt mit Tailwind CSS
+- Komponenten werden in PascalCase benannt
+
+### Hauptkomponenten
+1. CesiumViewer
+   - Verantwortlich für die 3D-Visualisierung
+   - Verwendet Cesium für die Darstellung von 3D-Tiles
+   - Handhabt Kamera-Steuerung und Layer-Management
+
+2. ProjectView
+   - Zeigt Projektdetails und -einstellungen
+   - Verwaltet Projekt-spezifische Aktionen
+   - Integriert Layer- und Control-Sidebars
+
+3. LayerSidebar
+   - Verwaltet sichtbare Layer und deren Reihenfolge
+   - Ermöglicht Layer-spezifische Einstellungen
+   - Unterstützt Gruppierung von Layern
+
+4. ControlsSidebar
+   - Bietet Steuerungselemente für die 3D-Ansicht
+   - Enthält Werkzeuge für Navigation und Analyse
+   - Verwaltet globale Visualisierungseinstellungen
+
+5. ProjectForm
+   - Formular für Projekt-Erstellung und -Bearbeitung
+   - Validiert Projekteingaben
+   - Handhabt Datei-Uploads und Metadaten
+
+6. ProjectList
+   - Listet verfügbare Projekte
+   - Ermöglicht Sortierung und Filterung
+   - Bietet Aktionen für Projekt-Management
+
+### Molekulare Komponenten
+- Wiederverwendbare UI-Elemente
+- Folgen dem Atomic Design Prinzip
+- Werden in molecules/ organisiert 

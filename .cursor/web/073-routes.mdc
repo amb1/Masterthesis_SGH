@@ -1,0 +1,36 @@
+## Regeln für Routing
+
+### Allgemeine Routing-Struktur
+- Routing basiert auf React Router
+- Routen werden zentral in routes.tsx definiert
+- Lazy Loading für Route-Komponenten
+- Geschützte Routen durch Auth-Guards
+
+### Hauptrouten
+1. Projektübersicht (/)
+   - Listet alle verfügbaren Projekte
+   - Ermöglicht Filterung und Suche
+   - Zeigt Projekt-Metadaten
+
+2. Projektdetails (/project/:id)
+   - Zeigt detaillierte Projektinformationen
+   - 3D-Visualisierung mit Cesium
+   - Layer- und Kontrollsidebars
+
+3. Projektbearbeitung (/project/:id/edit)
+   - Formular zur Projektbearbeitung
+   - Validierung der Eingaben
+   - Datei-Upload-Funktionalität
+
+4. Neue Projekte (/project/new)
+   - Formular für neue Projekte
+   - Schrittweise Projekterstellung
+   - Validierung und Feedback
+
+### Routing-Prinzipien
+- Semantische URL-Struktur
+- Konsistente Parameterübergabe
+- Fehlerbehandlung (404, etc.)
+- Breadcrumb-Navigation
+- URL-Parameter für Filterung/Suche
+- Sauberes URL-Handling 

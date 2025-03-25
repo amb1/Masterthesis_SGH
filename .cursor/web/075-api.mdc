@@ -1,0 +1,44 @@
+## Regeln für API-Integration
+
+### Allgemeine API-Struktur
+- REST-API Endpoints in api/
+- Supabase für Datenbank und Auth
+- TypeScript für API-Typen
+- Einheitliche Fehlerbehandlung
+
+### API-Endpoints
+1. Projekt-API
+   - CRUD-Operationen für Projekte
+   - Datei-Upload und -Download
+   - Projekt-Metadaten-Management
+
+2. Geometrie-API
+   - 3D-Tiles Verwaltung
+   - GeoJSON-Operationen
+   - Räumliche Abfragen
+
+3. Vienna-API
+   - Integration mit Vienna City-Daten
+   - Caching von externen Daten
+   - Datenkonvertierung
+
+### API-Prinzipien
+- RESTful Design
+- Versionierung
+- Rate Limiting
+- Caching-Header
+- Authentifizierung
+- CORS-Konfiguration
+
+### Fehlerbehandlung
+- HTTP-Statuscodes
+- Detaillierte Fehlermeldungen
+- Retry-Mechanismen
+- Logging und Monitoring
+
+### Sicherheit
+- JWT-Authentication
+- HTTPS-Verschlüsselung
+- Input-Validierung
+- XSS-Schutz
+- CSRF-Schutz 

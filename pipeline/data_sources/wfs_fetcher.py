@@ -61,7 +61,6 @@ class ViennaWFS:
         try:
             # Initialisiere Logger
             self.logger = logging.getLogger(__name__)
-            self.logger = logging.getLogger(__name__)
             self.logger.setLevel(logging.INFO)
             if not self.logger.handlers:
                 handler = logging.StreamHandler()
@@ -74,7 +73,8 @@ class ViennaWFS:
                 self.logger.info("✅ WFS-Konfiguration aus Dictionary geladen")
             elif config_path is not None:
                 with open(config_path, 'r', encoding='utf-8') as f:
-                    self.config = yaml.safe_load(f).get('vienna_wfs', {})
+                    config_data = yaml.safe_load(f)
+                    self.config = config_data.get('vienna_wfs', {})
                 self.logger.info(f"✅ WFS-Konfiguration geladen von: {config_path}")
             else:
                 raise ValueError("❌ Weder config noch config_path angegeben")
@@ -172,7 +172,7 @@ class ViennaWFS:
                 'service': 'WFS',
                 'version': self.version,
                 'request': 'GetFeature',
-                'typename': layer_name,
+                'typeName': layer_name,  # Ändere typename zu typeName für WFS 1.1.0
                 'srsName': self.srs_name,
                 'outputFormat': 'json'
             }
@@ -224,29 +224,49 @@ class ViennaWFS:
             Optional[gpd.GeoDataFrame]: GeoDataFrame mit Gebäudedaten
         """
         try:
-            layer_pattern = config.get('layer_pattern', '')
-            available_layers = list(self.wfs.contents.keys())
-            matching_layers = [layer for layer in available_layers if layer_pattern in layer]
+            # Finde den Gebäude-Stream in der Konfiguration
+            building_stream = next(
+                (stream for stream in self.streams if stream.get('name') == 'buildings'),
+                None
+            )
             
-            if not matching_layers:
-                logger.error(f"❌ Keine Layer gefunden, die dem Muster {layer_pattern} entsprechen")
+            if not building_stream:
+                self.logger.error("❌ Kein Gebäude-Stream in der Konfiguration gefunden")
                 return None
             
-            building_data = []
-            for layer in matching_layers:
-                gdf = self.fetch_layer(layer, bbox=bbox)
-                if gdf is not None:
-                    building_data.append(gdf)
-            
-            if not building_data:
-                logger.error("❌ Keine Gebäudedaten gefunden")
+            # Hole den Layer-Namen aus dem Stream
+            layer_name = building_stream.get('typename')
+            if not layer_name:
+                self.logger.error("❌ Kein typename im Gebäude-Stream gefunden")
                 return None
+                
+            self.logger.info(f"🔄 Lade Gebäudedaten von Layer: {layer_name}")
             
-            combined_gdf = pd.concat(building_data, ignore_index=True)
-            return combined_gdf
+            # Hole die Bounding Box aus dem Stream wenn keine übergeben wurde
+            if bbox is None and 'bbox' in building_stream:
+                bbox_config = building_stream['bbox']
+                bbox = (
+                    bbox_config['minx'],
+                    bbox_config['miny'],
+                    bbox_config['maxx'],
+                    bbox_config['maxy']
+                )
+                self.logger.info(f"📍 Verwende BBOX aus Konfiguration: {bbox}")
+            
+            # Formatiere BBOX für WFS-Request
+            bbox_str = self._format_bbox_v11(bbox) if bbox else None
+            
+            # Hole die Daten
+            buildings = self.fetch_layer(layer_name, bbox=bbox_str)
+            if buildings is None:
+                self.logger.error("❌ Keine Gebäudedaten gefunden")
+                return None
+                
+            self.logger.info(f"✅ {len(buildings)} Gebäude geladen")
+            return buildings
             
         except Exception as e:
-            logger.error(f"❌ Fehler beim Abrufen des Gebäudemodells: {str(e)}")
+            self.logger.error(f"❌ Fehler beim Abrufen des Gebäudemodells: {str(e)}")
             return None
 
     def fetch_data(self, config: Dict[str, Any], bbox: Optional[tuple] = None) -> Dict[str, gpd.GeoDataFrame]:
@@ -545,30 +565,26 @@ def fetch_wfs_data(site_polygon: gpd.GeoDataFrame, layer_name: str, config: Dict
         return None
 
 
-def fetch_wfs_buildings(site_polygon: Optional[gpd.GeoDataFrame] = None) -> Optional[gpd.GeoDataFrame]:
-    """Holt Gebäudedaten vom WFS-Server.
+def fetch_wfs_buildings(config: Optional[Dict[str, Any]] = None) -> Optional[gpd.GeoDataFrame]:
+    """Holt Gebäudedaten vom Vienna WFS Service.
     
     Args:
-        site_polygon (Optional[gpd.GeoDataFrame]): Optional ein GeoDataFrame mit dem Standort-Polygon
+        config: Optionale Konfiguration. Wenn None, wird die Standard-Konfiguration verwendet.
         
     Returns:
         Optional[gpd.GeoDataFrame]: GeoDataFrame mit den Gebäudedaten oder None bei Fehler
     """
     try:
-        # Lade Konfiguration
-        config = load_config()
+        # Initialisiere WFS Client
+        wfs_client = ViennaWFS(config=config)
         
-        # Hole Layer-Name aus der Konfiguration
-        layer_name = config.get('wfs', {}).get('building_layer', 'ogdwien:GEBAEUDEGDT')
+        # Hole Gebäudedaten
+        buildings = wfs_client.fetch_building_model(config)
         
-        # Verwende die allgemeine fetch_wfs_data Funktion
-        buildings = fetch_wfs_data(site_polygon, layer_name, config)
-        
-        if buildings is None:
-            logger.error("❌ Keine Gebäudedaten vom WFS erhalten")
+        if buildings is None or buildings.empty:
+            logger.warning("⚠️ Keine Gebäudedaten vom WFS gefunden")
             return None
             
-        logger.info(f"✅ {len(buildings)} Gebäude vom WFS geladen")
         return buildings
         
     except Exception as e:
@@ -583,14 +599,15 @@ if __name__ == "__main__":
     try:
         # Lade Projekt-Konfiguration
         root_dir = Path(__file__).resolve().parent.parent.parent
-        project_config_path = root_dir / 'cfg' / 'project_config.yml'
+        project_config_path = root_dir / 'config' / 'global.yml'
         project_config = load_config(project_config_path)
         
         if not project_config:
             raise ValueError("❌ Keine gültige Projekt-Konfiguration gefunden")
             
         # Hole WFS-Konfigurationspfad aus project_config
-        wfs_config_path = project_config.get('project', {}).get('config_files', {}).get('wfs', {}).get('config')
+        
+        wfs_config_path = project_config.get('config_files', {}).get('wfs')
         
         if not wfs_config_path:
             raise ValueError("❌ Kein WFS-Konfigurationspfad in project/config_files/wfs/config gefunden")

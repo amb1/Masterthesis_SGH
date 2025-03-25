@@ -1,28 +1,157 @@
 # Migrated from local/cfg/project_config.yml and local/cfg/wfs/wfs_config.yml
-endpoint: "https://data.wien.gv.at/daten/geo"
-version: "2.0.0"
-srsname: "EPSG:31256"
-layers:
-  buildings:
-    typename: "ogdwien:GEBAEUDEINFOOGD"
-    bbox:
-      minx: -25000
-      miny: 330000
-      maxx: -23000
-      maxy: 342000
-    fields:
-      - name: "id"
-        type: "string"
-      - name: "year_built"
-        type: "integer"
-      - name: "building_type"
-        type: "string"
-      - name: "height"
-        type: "float"
-      - name: "floors"
-        type: "integer"
+vienna_wfs:
+  url: "https://data.wien.gv.at/daten/geo"
+  version: "1.1.0"
+  srsName: "EPSG:31256"
+  timeout: 30
+  streams:
+    - name: "Gebäudeinfo"
+      layer: "ogdwien:GEBAEUDEINFOOGD"
+      priority: 1
+      fields:
+        - "OBJECTID"
+        - "geometry"
+        - "BAUJAHR"
+        - "L_NUTZUNG"
+        - "L_BAUTYP"
+        - "GESCH_ANZ"
+        - "BASIS_INV"
+        - "L_BAUJ"
+        - "ORIG_PARZ"
+        - "ORIG_FASS"
+        - "ORIG_KERN"
+        - "ORIG_FENSTER"
+        - "ORIG_DACH"
+      mapping:
+        building_id: "OBJECTID"
+        geometry: "geometry"
+        construction_year: "BAUJAHR"
+        usage: "L_NUTZUNG"
+        building_type: "L_BAUTYP"
+        floors: "GESCH_ANZ"
+        foundation_type: "BASIS_INV"
+        construction_period: "L_BAUJ"
+        original_parcel: "ORIG_PARZ"
+        original_facade: "ORIG_FASS"
+        original_core: "ORIG_KERN"
+        original_windows: "ORIG_FENSTER"
+        original_roof: "ORIG_DACH"
 
-cache:
-  enabled: true
-  directory: "data/cache/wfs"
-  expiry: 86400  # 24 Stunden in Sekunden 
+    - name: "Gebäudetypologie"
+      layer: "ogdwien:GEBAEUDETYPOGD"
+      priority: 2
+      fields:
+        - "OBJECTID"
+        - "BEZUG"
+        - "OBJ_STR"
+        - "OBJ_STR_TXT"
+        - "OBJ_STR2"
+        - "OBJ_STR2_TXT"
+        - "BAUTYP"
+        - "BAUTYP_TXT"
+        - "ACD"
+      mapping:
+        typology_id: "OBJECTID"
+        structure: "OBJ_STR"
+        structure_text: "OBJ_STR_TXT"
+        structure2: "OBJ_STR2"
+        structure2_text: "OBJ_STR2_TXT"
+
+    - name: "Realnutzung"
+      layer: "ogdwien:REALNUT2022OGD"
+      priority: 3
+      fields:
+        - "OBJECTID"
+        - "BEZ"
+        - "ZBEZ"
+        - "ZGEB"
+        - "BLK"
+        - "NUTZUNG_CODE"
+        - "NUTZUNG_LEVEL1"
+        - "NUTZUNG_LEVEL2"
+        - "NUTZUNG_LEVEL3"
+        - "FLAECHE"
+      mapping:
+        landuse_id: "OBJECTID"
+        usage_code: "NUTZUNG_CODE"
+        usage_level1: "NUTZUNG_LEVEL1"
+        usage_level2: "NUTZUNG_LEVEL2"
+        usage_level3: "NUTZUNG_LEVEL3"
+        area: "FLAECHE"
+
+    - name: "Energieraumplan"
+      layer: "ogdwien:ENERGIERAUMPLANOGD"
+      priority: 4
+      fields:
+        - "OBJECTID"
+        - "geometry"
+        - "ERPLABEL"
+        - "BEARB_DATUM"
+        - "BEZNR"
+        - "FL_ERP"
+      mapping:
+        energy_id: "OBJECTID"
+        geometry: "geometry"
+        energy_label: "ERPLABEL"
+        measurement_date: "BEARB_DATUM"
+        energy_class: "BEZNR"
+        energy_performance: "FL_ERP"
+
+    - name: "Solarpotential"
+      layer: "ogdwien:PVPOTENZIALEOGD"
+      priority: 5
+      fields:
+        - "OBJECTID"
+        - "geometry"
+        - "EIGNUNGSKLASSE"
+      mapping:
+        solar_id: "OBJECTID"
+        geometry: "geometry"
+        suitability: "EIGNUNGSKLASSE"
+
+    - name: "Flächenwidmung"
+      layer: "ogdwien:GENFLWIDMUNGOGD"
+      priority: 6
+      fields:
+        - "OBJECTID"
+        - "WIDMUNGSKLASSE"
+        - "WIDMUNGSKLASSE_TXT"
+        - "BEZIRK"
+        - "UMFANG"
+        - "FLAECHE"
+        - "WIDMUNG"
+        - "WIDMUNG_TXT"
+      mapping:
+        landuse_id: "OBJECTID"
+        designation_class: "WIDMUNGSKLASSE"
+        designation_class_text: "WIDMUNGSKLASSE_TXT"
+        designation: "WIDMUNG"
+        designation_text: "WIDMUNG_TXT"
+
+    - name: "Gebäudemodell"
+      layer: "ogdwien:FMZKBKMOGD"
+      priority: 7
+      fields:
+        - "FMZK_ID"
+        - "F_KLASSE"
+        - "LAYER"
+        - "BEZUG"
+        - "H_KLASSE"
+        - "KLASSE_SUB"
+        - "O_KOTE"
+        - "U_KOTE"
+        - "T_KOTE"
+        - "BW_GEB_ID"
+        - "BW_BRK_ID"
+        - "BW_SON_ID"
+        - "SE_SDO_ROWID"
+      mapping:
+        model_id: "OBJECTID"
+        upper_elevation: "O_KOTE"
+        lower_elevation: "U_KOTE"
+        terrain_elevation: "T_KOTE"
+
+  cache:
+    enabled: true
+    directory: "data/cache/wfs"
+    expiry: 86400  # 24 Stunden in Sekunden 

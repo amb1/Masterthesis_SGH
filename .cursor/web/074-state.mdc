@@ -1,0 +1,42 @@
+## Regeln für State Management
+
+### Allgemeine State-Struktur
+- Verwendung von React Context für globalen State
+- Zustand wird in store/ organisiert
+- TypeScript für Type-Safety
+- Immutable State Updates
+
+### Hauptzustände
+1. Projektzustand
+   - Aktuelle Projektdaten
+   - Projektliste und Filter
+   - Lade- und Fehlerzustände
+
+2. Visualisierungszustand
+   - Kameraposition und -einstellungen
+   - Layer-Konfiguration
+   - Sichtbarkeitseinstellungen
+
+3. UI-Zustand
+   - Sidebar-Status
+   - Modal-Zustände
+   - Benutzereinstellungen
+
+4. Auth-Zustand
+   - Benutzerinformationen
+   - Authentifizierungsstatus
+   - Berechtigungen
+
+### State Management Prinzipien
+- Atomare Zustandsänderungen
+- Optimistische Updates
+- Caching-Strategien
+- Zustandsvalidierung
+- Performance-Optimierung
+- Debugging-Unterstützung
+
+### Actions und Reducers
+- Typisierte Action-Creators
+- Pure Reducer-Funktionen
+- Middleware für Side-Effects
+- Selektoren für Datenzugriff 

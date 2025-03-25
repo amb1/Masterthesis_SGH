@@ -65,11 +65,11 @@ class PipelineOrchestrator:
         wfs_data = None
         
         try:
-            # Lade CityGML-Konfiguration aus der referenzierten Datei
-            citygml_config_path = self.config.get("config_files", {}).get("citygml")
+            # Lade CityGML-Konfiguration
+            citygml_config_path = self.config.get("data_source", {}).get("citygml", {}).get("config_file")
             if not citygml_config_path:
                 raise PipelineError(
-                    "CityGML Konfigurationspfad nicht in config_files definiert",
+                    "Keine config_file in data_source.citygml konfiguriert",
                     "fetch_data"
                 )
             
@@ -80,13 +80,33 @@ class PipelineOrchestrator:
                 # Füge die CityGML-Konfiguration zur globalen Konfiguration hinzu
                 if 'data_source' not in self.config:
                     self.config['data_source'] = {}
-                self.config['data_source']['citygml'] = citygml_config
+                self.config['data_source']['citygml'].update(citygml_config)
                 
             except Exception as e:
                 raise PipelineError(
                     f"Fehler beim Laden der CityGML-Konfiguration: {str(e)}",
                     "fetch_data"
                 )
+
+            # Lade WFS-Konfiguration
+            wfs_config_path = self.config.get("data_source", {}).get("wfs", {}).get("config_file")
+            if not wfs_config_path:
+                self.logger.warning("⚠️ Keine WFS-Konfiguration gefunden")
+            else:
+                try:
+                    with open(wfs_config_path, 'r', encoding='utf-8') as f:
+                        wfs_config = yaml.safe_load(f)
+                    if 'data_source' not in self.config:
+                        self.config['data_source'] = {}
+                    if 'wfs' not in self.config['data_source']:
+                        self.config['data_source']['wfs'] = {}
+                    # Stelle sicher, dass die vienna_wfs Konfiguration korrekt übernommen wird
+                    if 'vienna_wfs' in wfs_config:
+                        self.config['data_source']['wfs'].update(wfs_config['vienna_wfs'])
+                    else:
+                        self.logger.error("❌ Keine vienna_wfs Konfiguration in der WFS-Konfigurationsdatei gefunden")
+                except Exception as e:
+                    self.logger.error(f"❌ Fehler beim Laden der WFS-Konfiguration: {str(e)}")
             
             base_path = Path(citygml_config.get("base_path", "data/raw/citygml"))
             default_file = citygml_config.get("default_file")
@@ -107,13 +127,13 @@ class PipelineOrchestrator:
                 citygml_data = fetch_citygml_buildings(
                     citygml_file=str(citygml_file),
                     output_dir=str(output_dir),
-                    config=self.config  # Übergebe die gesamte Konfiguration
+                    config=self.config
                 )
                 if citygml_data is None or citygml_data.empty:
                     raise PipelineError("Keine CityGML Daten gefunden", "fetch_citygml")
             
             with LoggedOperation("WFS Daten abrufen"):
-                wfs_data = fetch_wfs_buildings()
+                wfs_data = fetch_wfs_buildings(config=self.config.get('data_source', {}).get('wfs', {}))
                 if wfs_data is None:
                     self.logger.warning("⚠️ Keine WFS Daten gefunden")
                     wfs_data = {}
@@ -140,6 +160,22 @@ class PipelineOrchestrator:
             Verarbeitete Daten
         """
         try:
+            # Lade CEA-Konfiguration
+            cea_config_path = self.config.get("data_source", {}).get("cea", {}).get("config_file")
+            if not cea_config_path:
+                self.logger.warning("⚠️ Kein Konfigurationspfad für cea gefunden")
+            else:
+                try:
+                    with open(cea_config_path, 'r', encoding='utf-8') as f:
+                        cea_config = yaml.safe_load(f)
+                    if 'data_source' not in self.config:
+                        self.config['data_source'] = {}
+                    if 'cea' not in self.config['data_source']:
+                        self.config['data_source']['cea'] = {}
+                    self.config['data_source']['cea'].update(cea_config)
+                except Exception as e:
+                    raise PipelineError("Fehler beim Laden der CEA-Konfiguration", "process_data", e)
+
             self.logger.info("🔄 Verarbeite Daten für CEA...")
             processor = CEABuildingProcessor(self.config)
             processed_data = processor.process_buildings(citygml_data, wfs_data)

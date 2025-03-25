@@ -60,4 +60,10 @@ data_source:
   citygml:
     base_path: data/raw/citygml
     default_file: 099082.gml
-    config_file: config/citygml/config.yml 
+    config_file: config/citygml/config.yml
+  wfs:
+    config_file: config/wfs/stream_config.yml
+  cea:
+    config_file: config/cea/mapping.yml
+  osm:
+    config_file: config/osm/config.yml 

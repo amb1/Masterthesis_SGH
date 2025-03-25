@@ -20,6 +20,9 @@ class CityGMLAnalyzer:
 
     def __init__(self):
         self.stats = {
+            'roof_types': defaultdict(int),
+            'roof_surface_attributes': defaultdict(int),
+            'opening_counts': defaultdict(int),
             'namespaces': {},
             'tag_counts': defaultdict(int),
             'attribute_keys': set(),
@@ -81,6 +84,31 @@ class CityGMLAnalyzer:
         for field in known_fields:
             if building.find(f'.//bldg:{field}', namespaces=nsmap) is not None:
                 self.stats['fields_detected'].add(field)
+
+        roof_surfaces = building.findall('.//bldg:RoofSurface', namespaces=nsmap)
+        self.stats.setdefault('roof_surfaces', 0)
+        self.stats['roof_surfaces'] += len(roof_surfaces)
+        # Attribute innerhalb der Dachflächen zählen
+        for rs in roof_surfaces:
+            for attr in rs.attrib:
+                self.stats['roof_surface_attributes'][attr] += 1
+
+        # Polygon-Typen zählen
+        for polygon_type in ['gml:Polygon', 'gml:CompositeSurface', 'gml:Surface']:
+            elements = building.findall(f'.//{polygon_type}', namespaces=nsmap)
+            key = f'geometry_{polygon_type.split(":")[-1]}'
+            self.stats.setdefault(key, 0)
+            self.stats[key] += len(elements)
+
+        # Dachtyp zählen (z. B. flat, gabled, hipped...)
+        roof_type_el = building.find('.//bldg:roofType', namespaces=nsmap)
+        if roof_type_el is not None and roof_type_el.text:
+            roof_type_value = roof_type_el.text.strip()
+            self.stats['roof_types'][roof_type_value] += 1
+
+        for opening_tag in ['bldg:Opening', 'bldg:Door', 'bldg:Window']:
+            openings = building.findall(f'.//{opening_tag}', namespaces=nsmap)
+            self.stats['opening_counts'][opening_tag] += len(openings)
 
     def analyze_file(self, gml_path: Union[str, Path], output_format: str = 'terminal') -> Optional[Dict]:
         try:
@@ -148,7 +176,32 @@ class CityGMLAnalyzer:
             for field in sorted(self.stats['fields_detected']):
                 logger.info(f" - {field}")
 
+        if self.stats['roof_types']:
+            logger.info("\n🏷️ Verteilung der Dachtypen (roofType):")
+            for rtype, count in sorted(self.stats['roof_types'].items(), key=lambda x: -x[1]):
+                logger.info(f" - {rtype}: {count}")
+
+        if self.stats['roof_surface_attributes']:
+            logger.info("\n🧾 Attribute innerhalb von RoofSurface:")
+            for attr, count in sorted(self.stats['roof_surface_attributes'].items(), key=lambda x: -x[1]):
+                logger.info(f" - {attr}: {count}x")
+
+        if self.stats['opening_counts']:
+            logger.info("\n🚪 Öffnungen:")
+            for tag, count in self.stats['opening_counts'].items():
+                logger.info(f" - {tag}: {count}")
+
         logger.info("\n✅ Analyse abgeschlossen.\n")
+
+        # Dachflächen
+        if 'roof_surfaces' in self.stats:
+            logger.info(f"\n🏠 Dachflächen (RoofSurface): {self.stats['roof_surfaces']}")
+
+        # Polygon-Geometrien
+        logger.info("\n🧩 Komplexe Geometrien (gml:...):")
+        for key in ['geometry_Polygon', 'geometry_CompositeSurface', 'geometry_Surface']:
+            if key in self.stats:
+                logger.info(f" - {key}: {self.stats[key]}")
 
     def _generate_yaml(self) -> str:
         yaml_stats = dict(self.stats)

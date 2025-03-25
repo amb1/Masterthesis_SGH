@@ -81,3 +81,70 @@
 .cesium-viewer-infoBoxContainer {
   display: none !important;
 }
+
+/* Cursor Styles */
+.cursor-pointer {
+  cursor: pointer;
+}
+
+.cursor-grab {
+  cursor: grab;
+}
+
+.cursor-grabbing {
+  cursor: grabbing;
+}
+
+.cursor-zoom-in {
+  cursor: zoom-in;
+}
+
+.cursor-zoom-out {
+  cursor: zoom-out;
+}
+
+.cursor-move {
+  cursor: move;
+}
+
+.cursor-not-allowed {
+  cursor: not-allowed;
+}
+
+.cursor-wait {
+  cursor: wait;
+}
+
+/* Interaktive Elemente */
+button:not(:disabled),
+.button:not(:disabled),
+.clickable {
+  cursor: pointer;
+}
+
+button:disabled,
+.button:disabled {
+  cursor: not-allowed;
+}
+
+/* Cesium spezifische Cursor */
+.cesium-viewer-cesiumWidgetContainer {
+  cursor: default;
+}
+
+.cesium-viewer-cesiumWidgetContainer:active {
+  cursor: grabbing;
+}
+
+.cesium-navigation-help {
+  cursor: help;
+}
+
+/* Layer Controls */
+.layer-control input[type="range"] {
+  cursor: ew-resize;
+}
+
+.layer-control input[type="checkbox"] {
+  cursor: pointer;
+}
