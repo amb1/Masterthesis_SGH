@@ -104,6 +104,7 @@ const CesiumViewerComponent = forwardRef<CesiumViewerRef, CesiumViewerComponentP
   const [selectedTilesetId, setSelectedTilesetId] = useState<number | null>(null);
   const [showTimeline, setShowTimeline] = useState(false);
   const [hiddenFeatures, setHiddenFeatures] = useState<HiddenFeature[]>([]);
+  const lastHighlightedBatchId = useRef<number | null>(null);
 
   useImperativeHandle(ref, () => ({
     loadAsset: async (assetId: number) => {
@@ -164,90 +165,54 @@ const CesiumViewerComponent = forwardRef<CesiumViewerRef, CesiumViewerComponentP
 
     try {
       // Debug: Zeige Feature-Details
-      if (feature) {
-        console.log('Feature Details:', {
-          batchId: (feature as any)._batchId,
-          content: (feature as any)._content,
-          properties: feature.getPropertyIds([]),
-          hasStyle: !!tileset.style,
-          featureColor: (feature as any)._color,
-          featureShow: (feature as any)._show,
-          featureReady: (feature as any)._ready
-        });
+      const batchId = feature ? (feature as any)._batchId : null;
+      console.log('🔍 Feature Details:', {
+        batchId,
+        hasFeature: !!feature,
+        content: feature ? (feature as any)._content : null
+      });
+
+      // Setze die Farbe des letzten hervorgehobenen Features zurück
+      if (lastHighlightedBatchId.current !== null) {
+        const features = (tileset as any)._selectedTiles?.[0]?.content?.batchTable?._features || [];
+        const lastFeature = features.find((f: any) => f._batchId === lastHighlightedBatchId.current);
+        if (lastFeature) {
+          // Setze die Farbe auf weiß statt undefined
+          lastFeature.color = Color.WHITE.withAlpha(0.6);
+          console.log('🎨 Zurücksetzen der Farbe für BatchId:', lastHighlightedBatchId.current);
+        }
       }
 
-      // Erstelle einen Stil für das Highlighting
-      const styleConditions: [string, string][] = [];
-      
-      // Füge Bedingungen für versteckte Features hinzu
-      hiddenFeatures.forEach(hidden => {
-        if (hidden.tilesetId === selectedTilesetId) {
-          const condition = `\${_batchId} === ${hidden.featureId}`;
-          console.log('Adding hide condition:', condition);
-          styleConditions.push([condition, 'rgba(0, 0, 0, 0)']);
-        }
-      });
-
+      // Wenn ein neues Feature ausgewählt wurde, färbe es gelb
       if (feature) {
-        const batchId = (feature as any)._batchId;
-        console.log('Highlighting Feature mit Batch ID:', batchId);
-
-        // Färbe das ausgewählte Feature gelb ein und mache es halbtransparent
-        const highlightCondition = `\${_batchId} === ${batchId}`;
-        console.log('Adding highlight condition:', highlightCondition);
-        styleConditions.push([highlightCondition, 'rgba(255, 255, 0, 0.5)']);
+        const yellowColor = Color.YELLOW.withAlpha(0.8);
+        // Stelle sicher, dass das Feature existiert und eine gültige color-Eigenschaft hat
+        if ((feature as any)._content?.batchTable?._features) {
+          const features = (feature as any)._content.batchTable._features;
+          const currentFeature = features.find((f: any) => f._batchId === batchId);
+          if (currentFeature) {
+            currentFeature.color = yellowColor;
+            lastHighlightedBatchId.current = batchId;
+            console.log('🎨 Neue Farbe gesetzt für BatchId:', batchId);
+          }
+        }
+      } else {
+        lastHighlightedBatchId.current = null;
       }
 
-      // Alle anderen Features normal anzeigen
-      styleConditions.push(['true', 'rgba(255, 255, 255, 1.0)']);
-
-      // Debug: Zeige den kompletten Stil
-      console.log('Final style:', {
-        conditions: styleConditions,
-        tilesetHasStyle: !!tileset.style,
-        tilesetShow: tileset.show,
-        tilesetReady: tileset.ready,
-        tilesetMaximumScreenSpaceError: tileset.maximumScreenSpaceError,
-        tilesetMaximumMemoryUsage: (tileset as any).maximumMemoryUsage,
-        tilesetPreloadFlightDestinations: (tileset as any).preloadFlightDestinations,
-        tilesetPreferLeaves: (tileset as any).preferLeaves
-      });
-
-      // Setze den Stil für das Tileset
-      const style = new Cesium3DTileStyle({
-        color: {
-          conditions: styleConditions
-        }
-      });
-
-      // Debug: Zeige den erstellten Style
-      console.log('Created style:', {
-        style: style,
-        styleReady: (style as any)._ready,
-        styleColor: (style as any)._color,
-        styleConditions: (style as any)._conditions
-      });
-
-      // Warte bis der Stil bereit ist und wende ihn an
-      Promise.resolve().then(() => {
-        tileset.style = style;
-        console.log('Style applied successfully');
-        
-        // Debug: Überprüfe den Style nach der Anwendung
-        console.log('Style after application:', {
-          tilesetStyle: tileset.style,
-          tilesetStyleReady: (tileset.style as any)?._ready,
-          tilesetStyleColor: (tileset.style as any)?._color,
-          tilesetStyleConditions: (tileset.style as any)?._conditions
-        });
-      }).catch(err => {
-        console.error('Error applying style:', err);
-      });
+      // Erzwinge ein Re-Rendering des Tilesets
+      if (tileset.style) {
+        const currentStyle = tileset.style;
+        tileset.style = undefined;
+        setTimeout(() => {
+          tileset.style = currentStyle;
+        }, 0);
+      }
 
     } catch (err) {
-      console.error('Fehler beim Hervorheben des Features:', err);
+      console.error('❌ Fehler beim Hervorheben des Features:', err);
     }
-  }, [hiddenFeatures, selectedTilesetId, viewer]);
+  }, [viewer]);
 
   const handleFeatureClick = useCallback(async (movement: any) => {
     if (!viewer || !selectedTilesetId) return;
@@ -403,7 +368,10 @@ const CesiumViewerComponent = forwardRef<CesiumViewerRef, CesiumViewerComponentP
 
     // Konvertiere die Feature-ID zu einer Nummer, da wir jetzt mit batchId arbeiten
     const batchId = Number(featureId);
-    if (isNaN(batchId)) return;
+    if (isNaN(batchId)) {
+      console.warn('Invalid batchId:', featureId);
+      return;
+    }
 
     setHiddenFeatures(prev => {
       const isHidden = prev.some(hidden => 
