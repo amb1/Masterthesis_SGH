@@ -1,128 +1,134 @@
 """
-OSM-Client für die Abfrage von OpenStreetMap-Daten.
+OSM-Client für den Zugriff auf OpenStreetMap-Daten.
 """
 
+import logging
+from typing import Dict, Any, Optional, List, Union
 import osmnx as ox
 import geopandas as gpd
-from shapely.ops import transform
-from pyproj import Transformer
-import logging
-from typing import Dict, Any, Optional
-from .config import OSMConfig
+from shapely.geometry import Polygon, MultiPolygon
 
 logger = logging.getLogger(__name__)
 
-class OSMBaseClient:
-    """Basisklasse für OSM-Abfragen."""
+class OSMClient:
+    """Client für den Zugriff auf OpenStreetMap-Daten."""
     
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         """
         Initialisiert den OSM-Client.
         
         Args:
-            config: Optionales Konfigurationsobjekt
+            config: Optionale Konfiguration
         """
-        self.config = OSMConfig(config)
+        self.config = config or {}
         
-    def fetch_buildings(self, site_gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    def get_buildings(self, polygon: Union[Polygon, MultiPolygon], tags: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
-        Ruft Gebäude von OpenStreetMap ab.
-        
-        Args:
-            site_gdf: GeoDataFrame mit Site-Polygon
-            
-        Returns:
-            GeoDataFrame mit Gebäuden
-        """
-        try:
-            logger.info("🔄 Hole Gebäude von OSM")
-            
-            if site_gdf.empty:
-                logger.error("⚠️ Leeres site_gdf übergeben")
-                return gpd.GeoDataFrame(geometry=[], crs="EPSG:4326")
-                
-            # Erstelle Buffer für Suche
-            buffer_distance = self.config.buffer_distance
-            site_polygon = site_gdf.geometry.iloc[0]
-            search_area = site_polygon.buffer(buffer_distance)
-            search_gdf = gpd.GeoDataFrame(geometry=[search_area], crs=site_gdf.crs)
-            search_wgs84 = search_gdf.to_crs("EPSG:4326")
-            
-            # OSM-Abfrage
-            buildings_gdf = ox.geometries_from_polygon(
-                search_wgs84.geometry.iloc[0],
-                tags={'building': True}
-            )
-            
-            if buildings_gdf.empty:
-                logger.warning("⚠️ Keine OSM-Gebäude gefunden!")
-                return gpd.GeoDataFrame(geometry=[], crs=site_gdf.crs)
-                
-            # Konvertiere zum ursprünglichen CRS
-            buildings_gdf = buildings_gdf.to_crs(site_gdf.crs)
-            
-            # Filtere Gebäude
-            buildings_gdf = buildings_gdf[
-                ~buildings_gdf.geometry.intersects(site_polygon) &
-                buildings_gdf.geometry.intersects(search_area)
-            ]
-            
-            logger.info(f"✅ OSM-Gebäude gefunden: {len(buildings_gdf)}")
-            return buildings_gdf
-            
-        except Exception as e:
-            logger.error(f"❌ Fehler beim OSM-Gebäude Abruf: {str(e)}")
-            return gpd.GeoDataFrame(geometry=[], crs=site_gdf.crs)
-            
-    def fetch_streets(self, site_gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
-        """
-        Ruft Straßen von OpenStreetMap ab.
+        Ruft Gebäude von OSM ab.
         
         Args:
-            site_gdf: GeoDataFrame mit Site-Polygon
+            polygon: Polygon für die Abfrage
+            tags: Optionale Tags für die Filterung
             
         Returns:
-            GeoDataFrame mit Straßen
+            Dict mit Features im GeoJSON-Format
         """
         try:
-            logger.info("🔄 Hole Straßen von OSM")
+            # Standard-Tags für Gebäude
+            building_tags = tags or {'building': True}
             
-            if site_gdf.empty:
-                logger.error("⚠️ Leeres site_gdf übergeben")
-                return gpd.GeoDataFrame(geometry=[], crs="EPSG:4326")
-                
-            # Erstelle custom_filter aus der Konfiguration
-            street_types = self.config.street_types
-            street_type_list = list(street_types.keys()) if street_types else []
-            street_types_str = '|'.join(street_type_list) if street_type_list else 'primary|secondary|tertiary|residential'
-            custom_filter = f'["highway"~"{street_types_str}"]'
-            
-            # Konvertiere zu WGS84 für OSM-Abfrage
-            site_wgs84 = site_gdf.to_crs("EPSG:4326")
-            site_polygon_wgs = site_wgs84.geometry.iloc[0]
-            
-            # Hole Straßennetz
-            G = ox.graph_from_polygon(
-                site_polygon_wgs,
-                network_type=self.config.network_type,
-                custom_filter=custom_filter,
-                retain_all=True,
-                truncate_by_edge=True
+            # Hole Gebäude von OSM
+            buildings = ox.features_from_polygon(
+                polygon,
+                tags=building_tags
             )
             
-            # Konvertiere zu GeoDataFrame
-            edges = ox.graph_to_gdfs(G, nodes=False, edges=True)
-            
-            if edges.empty:
-                logger.warning("⚠️ Keine OSM-Straßen gefunden!")
-                return gpd.GeoDataFrame(geometry=[], crs=site_gdf.crs)
+            if buildings.empty:
+                return {'features': []}
                 
-            # Konvertiere zurück zum ursprünglichen CRS
-            edges = edges.to_crs(site_gdf.crs)
+            # Konvertiere zu GeoJSON
+            buildings_json = buildings.to_crs(epsg=4326).__geo_interface__
             
-            logger.info(f"✅ OSM-Straßen gefunden: {len(edges)}")
-            return edges
+            return {
+                'features': buildings_json['features']
+            }
             
         except Exception as e:
-            logger.error(f"❌ Fehler beim OSM-Straßen Abruf: {str(e)}")
-            return gpd.GeoDataFrame(geometry=[], crs=site_gdf.crs) 
+            logger.error(f"❌ Fehler beim Abrufen der Gebäude: {str(e)}")
+            return {'features': []}
+            
+    def get_streets(self, polygon: Union[Polygon, MultiPolygon], tags: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        Ruft Straßen von OSM ab.
+        
+        Args:
+            polygon: Polygon für die Abfrage
+            tags: Optionale Tags für die Filterung
+            
+        Returns:
+            Dict mit Features im GeoJSON-Format
+        """
+        try:
+            # Standard-Tags für Straßen
+            street_tags = tags or {
+                'highway': ['residential', 'primary', 'secondary', 'tertiary', 'unclassified']
+            }
+            
+            # Hole Straßen von OSM
+            streets = ox.features_from_polygon(
+                polygon,
+                tags=street_tags
+            )
+            
+            if streets.empty:
+                return {'features': []}
+                
+            # Konvertiere zu GeoJSON
+            streets_json = streets.to_crs(epsg=4326).__geo_interface__
+            
+            return {
+                'features': streets_json['features']
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Fehler beim Abrufen der Straßen: {str(e)}")
+            return {'features': []}
+            
+    def get_feature_info(self, feature_type: str) -> Dict[str, Any]:
+        """
+        Ruft Informationen über einen Feature-Typ ab.
+        
+        Args:
+            feature_type: Art der Features ('buildings' oder 'streets')
+            
+        Returns:
+            Dict mit Feature-Informationen
+        """
+        info = {
+            'buildings': {
+                'name': 'buildings',
+                'description': 'OSM-Gebäude',
+                'properties': {
+                    'building': {'type': 'string', 'description': 'Gebäudetyp'},
+                    'height': {'type': 'number', 'description': 'Gebäudehöhe'},
+                    'levels': {'type': 'number', 'description': 'Anzahl Stockwerke'},
+                    'name': {'type': 'string', 'description': 'Gebäudename'}
+                }
+            },
+            'streets': {
+                'name': 'streets',
+                'description': 'OSM-Straßen',
+                'properties': {
+                    'highway': {'type': 'string', 'description': 'Straßentyp'},
+                    'name': {'type': 'string', 'description': 'Straßenname'},
+                    'lanes': {'type': 'number', 'description': 'Anzahl Fahrspuren'},
+                    'surface': {'type': 'string', 'description': 'Oberflächentyp'}
+                }
+            }
+        }
+        
+        try:
+            return info.get(feature_type, {})
+        except Exception as e:
+            logger.error(f"❌ Fehler beim Abrufen der Feature-Informationen: {str(e)}")
+            return {} 

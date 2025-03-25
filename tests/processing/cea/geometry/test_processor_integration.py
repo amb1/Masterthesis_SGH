@@ -183,20 +183,24 @@ def test_process_all_buildings(citygml_processor, geometry_processor, citygml_da
     print(f"Gesamtfläche: {total_area:.2f} m²")
     print(f"Durchschnittshöhe: {avg_height:.2f} m")
 
-def test_export_buildings_geojson(citygml_processor, geometry_processor, citygml_data):
+def test_export_buildings_geojson(citygml_processor, geometry_processor, config):
     """Exportiert die verarbeiteten Gebäude als GeoJSON für QGIS."""
-    assert not citygml_data.empty, "Keine Gebäude in den CityGML-Daten gefunden"
+    # Lade und verarbeite CityGML-Daten
+    citygml_path = 'data/raw/citygml/099082.gml'
+    buildings_gdf = citygml_processor.process(citygml_path)
+    
+    assert not buildings_gdf.empty, "Keine Gebäude in den CityGML-Daten gefunden"
     
     # Erstelle Ausgabeordner
     output_dir = Path('outputs/results')
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    # Verarbeite alle Gebäude
+    # Verarbeite alle Gebäude mit dem CEA-Geometrie-Prozessor
     processed_buildings = []
-    for _, building_data in citygml_data.iterrows():
+    for _, building_data in buildings_gdf.iterrows():
         result = geometry_processor.process({
             'geometry': building_data.geometry,
-            'height': building_data.height
+            'height': building_data.get('height', 12.0)  # Standardhöhe wenn nicht verfügbar
         })
         if result:
             processed_buildings.append({

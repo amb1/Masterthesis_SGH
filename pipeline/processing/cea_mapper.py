@@ -1,8 +1,5 @@
 """
-CEA-spezifische Hilfsfunktionen.
-
-Dieses Modul enthält Funktionen für die Verarbeitung und Anreicherung
-von Gebäudedaten im CEA-Format.
+CEA-spezifische Hilfsfunktionen für das Mapping von Gebäudedaten.
 """
 
 import random
@@ -13,6 +10,10 @@ from lxml import etree
 import logging
 from pathlib import Path
 import yaml
+import numpy as np
+import os
+
+from .building_classifier import BuildingClassifier
 
 logger = logging.getLogger(__name__)
 
@@ -68,300 +69,301 @@ def adjust_field_widths(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     
     return adjusted_gdf
 
-def enrich_building_data(buildings_gdf: gpd.GeoDataFrame, wfs_data: Dict[str, Any]) -> gpd.GeoDataFrame:
+def enrich_building_data(gdf: gpd.GeoDataFrame, wfs_data: Dict[str, Any]) -> gpd.GeoDataFrame:
     """
-    Reichert die Gebäudedaten mit WFS-Daten an.
+    Reichert GeoDataFrame mit WFS-Daten an.
     
     Args:
-        buildings_gdf: GeoDataFrame mit Gebäudedaten
-        wfs_data: Dictionary mit WFS-Daten
+        gdf: GeoDataFrame mit Gebäudedaten
+        wfs_data: WFS-Daten als Dictionary
         
     Returns:
-        GeoDataFrame: Angereichertes GeoDataFrame
+        gpd.GeoDataFrame: Angereicherter GeoDataFrame
     """
-    enriched_gdf = buildings_gdf.copy()
-    
-    if not wfs_data:
-        return enriched_gdf
-    
-    # Verarbeite jeden WFS Layer
-    for layer_name, layer_data in wfs_data.items():
-        if not layer_data or 'features' not in layer_data:
-            continue
+    try:
+        if not wfs_data or 'Gebäudeinfo' not in wfs_data:
+            return gdf
             
-        # Extrahiere Eigenschaften für jedes Gebäude
-        for i, row in enriched_gdf.iterrows():
-            feature = layer_data['features'][i]
-            props = feature.get('properties', {})
-            for key, value in props.items():
-                enriched_gdf.at[i, f"{layer_name}_{key}"] = value
-    
-    return enriched_gdf
+        features = wfs_data['Gebäudeinfo'].get('features', [])
+        if not features:
+            return gdf
+            
+        # Extrahiere Properties aus Features
+        for i, feature in enumerate(features):
+            if not feature or 'properties' not in feature:
+                continue
+                
+            properties = feature['properties']
+            if not properties:
+                continue
+                
+            # Füge Properties zum GeoDataFrame hinzu
+            for key, value in properties.items():
+                gdf.at[i, f'Gebäudeinfo_{key}'] = value
+                
+        return gdf
+        
+    except Exception as e:
+        logger.error(f"❌ Fehler bei der Datenanreicherung: {str(e)}")
+        return gdf
 
 class CEAMapper:
-    """
-    Mapper für CEA-Felder aus verschiedenen Datenquellen.
-    
-    Implementiert die Interface-Regeln aus base/053-interfaces.
-    """
+    """Klasse für das Mapping von Gebäudedaten auf CEA-Attribute."""
     
     def __init__(self, config: Dict[str, Any]):
         """
         Initialisiert den CEA-Mapper.
         
         Args:
-            config: Mapping-Konfiguration mit Feldmappings und Validierungsregeln
+            config: Mapping-Konfiguration
         """
         self.config = config
-        self.validation_rules = config.get("validation", {})
-        self.field_mappings = self._load_field_mappings()
+        self.cea_mappings = config.get('cea_mappings', {})
         
-        # Standard-Namespaces für CityGML
-        self.namespaces = {
-            'gml': 'http://www.opengis.net/gml',
-            'bldg': 'http://www.opengis.net/citygml/building/1.0',
-            'bldg2': 'http://www.opengis.net/citygml/building/2.0',
-            'xAL': 'urn:oasis:names:tc:ciq:xsdschema:xAL:2.0',
-            'core': 'http://www.opengis.net/citygml/2.0',
-            'gen': 'http://www.opengis.net/citygml/generics/2.0'
-        }
-        
-    def _load_field_mappings(self) -> Dict[str, Any]:
+    def create_zone_file(self, gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
         """
-        Lädt die Feldmappings aus der Konfiguration.
+        Erstellt die zone.shp Datei.
         
+        Args:
+            gdf: GeoDataFrame mit Gebäudedaten
+            
         Returns:
-            Dict[str, Any]: Feldmappings für verschiedene Datenquellen
+            gpd.GeoDataFrame: GeoDataFrame im zone.shp Format
         """
         try:
-            mapping_path = Path(self.config.get('mapping_file', 'config/cea/mapping.yml'))
-            if not mapping_path.exists():
-                logger.warning(f"⚠️ Mapping-Datei nicht gefunden: {mapping_path}")
-                return {}
+            # Erstelle neuen GeoDataFrame für zone.shp
+            zone_gdf = gpd.GeoDataFrame(geometry=gdf.geometry)
+            
+            # Hole zone-Mappings aus Konfiguration
+            zone_mappings = self.cea_mappings.get('zone', {})
+            
+            # Mappe Felder gemäß Konfiguration
+            for cea_field, mapping in zone_mappings.items():
+                sources = mapping.get('sources', {})
                 
-            with open(mapping_path, 'r', encoding='utf-8') as f:
-                mappings = yaml.safe_load(f)
-                return mappings.get('mappings', {})
-                
+                # WFS-Mapping
+                if 'wfs' in sources:
+                    wfs_mapping = sources['wfs']
+                    format_str = sources.get('format')
+                    
+                    if format_str:
+                        # Hole Werte für das Format
+                        values = {}
+                        for key, field in wfs_mapping.items():
+                            values[key] = gdf[field]
+                            
+                        # Wende Format an
+                        zone_gdf[cea_field] = [format_str.format(**{k: row[v] for k, v in wfs_mapping.items()}) 
+                                             for _, row in gdf.iterrows()]
+                    else:
+                        # Direktes Mapping ohne Format
+                        field = next(iter(wfs_mapping.values()))
+                        zone_gdf[cea_field] = gdf[field]
+                        
+            return zone_gdf
+            
         except Exception as e:
-            logger.error(f"❌ Fehler beim Laden der Feldmappings: {str(e)}")
-            return {}
+            logger.error(f"❌ Fehler beim Erstellen der zone.shp: {str(e)}")
+            return gdf
             
-    def map_field(self, field_name: str, data: Union[dict, etree._Element], source: str) -> Any:
-        """
-        Mapped ein Feld aus den Quelldaten.
+    def create_typology_file(self, gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+        """Erstellt die typology.shp Datei.
         
         Args:
-            field_name: Name des Zielfelds
-            data: Quelldaten (Dict für WFS/OSM, XML für CityGML)
-            source: Datenquelle ('wfs', 'osm' oder 'citygml')
+            gdf: GeoDataFrame mit Gebäudedaten
             
         Returns:
-            Any: Gemappter Wert für das Feld
-        """
-        if field_name not in self.field_mappings:
-            return None
-            
-        mapping = self.field_mappings[field_name]
-        source_mapping = mapping.get(source, {})
-        
-        if source == "citygml":
-            return self._map_citygml_field(field_name, data, source_mapping)
-        else:
-            return self._map_source_field(field_name, data, source_mapping)
-            
-    def _map_citygml_field(self, field_name: str, xml: etree._Element, mapping: Dict[str, Any]) -> Any:
-        """
-        Mapped ein Feld aus CityGML-Daten.
-        
-        Args:
-            field_name: Name des Zielfelds
-            xml: CityGML XML-Element
-            mapping: Mapping-Konfiguration für das Feld
-            
-        Returns:
-            Any: Gemappter Wert
+            gpd.GeoDataFrame: Gemappte Daten für typology.shp
         """
         try:
-            # Spezialfall für Name-Generierung
-            if field_name == "Name":
-                street = self._get_street_name(xml)
-                number = self._get_building_number(xml)
-                if street and number:
-                    return f"{street}_{number}"
-                return None
+            result = gdf.copy()
+            
+            # Mappe jedes Gebäude
+            for idx, row in result.iterrows():
+                data = row.to_dict()
                 
-            # Spezialfall für REFERENCE
-            if field_name == "REFERENCE":
-                return xml.get("{http://www.opengis.net/gml}id")
+                # Name aus Straße und Hausnummer
+                street = self._get_value(data, self.config["cea_mappings"]["typology"]["Name"]["sources"]["wfs"]["street"])
+                house_no = self._get_value(data, self.config["cea_mappings"]["typology"]["Name"]["sources"]["wfs"]["number"])
+                result.at[idx, "Name"] = f"{street}_{house_no}"
                 
-            # Normale Feldmappings
-            xpath = mapping.get("xpath")
-            if not xpath:
-                return None
+                # Baujahr und Standard
+                result.at[idx, "YEAR"] = self._get_value(data, self.config["cea_mappings"]["typology"]["YEAR"])
+                result.at[idx, "STANDARD"] = self._get_standard(data)
+                
+                # Nutzungstypen
+                result.at[idx, "1ST_USE"] = self._get_use_type(data)
+                result.at[idx, "1ST_USE_R"] = 1
+                result.at[idx, "2ND_USE"] = ""
+                result.at[idx, "2ND_USE_R"] = 0
+                result.at[idx, "3RD_USE"] = ""
+                result.at[idx, "3RD_USE_R"] = 0
+                
+                # Referenz
+                result.at[idx, "REFERENCE"] = self._get_value(data, self.config["cea_mappings"]["typology"]["REFERENCE"])
+                
+            return result
+            
+        except Exception as e:
+            logger.error(f"❌ Fehler beim Erstellen der typology.shp: {str(e)}")
+            return gdf
+            
+    def _get_value(self, data: Dict, field_config: Dict) -> str:
+        """
+        Extrahiert einen Wert aus den Daten basierend auf der Feldkonfiguration.
+        
+        Args:
+            data: Dictionary mit Gebäudedaten
+            field_config: Konfiguration für das Feld
+            
+        Returns:
+            str: Der extrahierte Wert
+        """
+        if not field_config:
+            return ""
+            
+        # Default-Wert zurückgeben, wenn konfiguriert
+        if "default" in field_config:
+            return str(field_config["default"])
+            
+        # Wenn keine sources definiert sind
+        if "sources" not in field_config:
+            return ""
+            
+        sources = field_config["sources"]
+        
+        # Wenn WFS-Quellen als Liste definiert sind
+        if isinstance(sources.get("wfs"), list):
+            for field in sources["wfs"]:
+                if field in data and data[field]:
+                    return str(data[field])
+            return ""
+            
+        # Wenn WFS-Quellen als Dictionary mit Format definiert sind
+        if isinstance(sources.get("wfs"), dict) and "format" in sources:
+            format_str = sources["format"]
+            format_values = {}
+            
+            for key, field in sources["wfs"].items():
+                format_values[key] = str(data.get(field, ""))
                 
             try:
-                value = xml.xpath(xpath, namespaces=self.namespaces)
-                if value:
-                    return self._convert_value(value[0], mapping.get("type", "str"))
-            except (IndexError, ValueError):
-                pass
+                return format_str.format(**format_values)
+            except KeyError:
+                return ""
                 
-            return mapping.get("default")
+        # Einzelne WFS-Quelle
+        if isinstance(sources.get("wfs"), str):
+            return str(data.get(sources["wfs"], ""))
+            
+        return ""
+            
+    def _get_floors_ag(self, data: Dict) -> int:
+        """Bestimmt die Anzahl der Stockwerke über Grund."""
+        try:
+            # Versuche direkt GESCH_ANZ
+            floors = data.get("GEBAEUDEINFOOGD_GESCH_ANZ")
+            if floors is not None:
+                return int(floors)
+                
+            # Alternativ aus Höhe berechnen
+            height = data.get("measuredHeight")
+            if height is not None:
+                return max(1, int(float(height) / 3.0))
+                
+            return 1  # Fallback
             
         except Exception as e:
-            logger.error(f"❌ Fehler beim Mapping von CityGML-Feld {field_name}: {str(e)}")
-            return None
+            logger.error(f"❌ Fehler bei der Stockwerkbestimmung: {str(e)}")
+            return 1
             
-    def _map_source_field(self, field_name: str, data: Dict[str, Any], mapping: Dict[str, Any]) -> Any:
-        """
-        Mapped ein Feld aus WFS/OSM-Daten.
-        
-        Args:
-            field_name: Name des Zielfelds
-            data: Quelldaten als Dictionary
-            mapping: Mapping-Konfiguration für das Feld
-            
-        Returns:
-            Any: Gemappter Wert
-        """
+    def _get_height_ag(self, data: Dict) -> float:
+        """Bestimmt die Gebäudehöhe über Grund."""
         try:
-            source_field = mapping.get("field")
-            if not source_field:
-                return None
+            # Versuche measuredHeight
+            height = data.get("measuredHeight")
+            if height is not None:
+                return float(height)
                 
-            value = data.get(source_field)
-            if value is None:
-                return mapping.get("default")
+            # Alternativ HoeheDach
+            height = data.get("HoeheDach")
+            if height is not None:
+                return float(height)
                 
-            return self._convert_value(value, mapping.get("type", "str"))
+            # Fallback: Berechnung aus Stockwerken
+            floors = self._get_floors_ag(data)
+            return float(floors * 3.0)
             
         except Exception as e:
-            logger.error(f"❌ Fehler beim Mapping von Feld {field_name}: {str(e)}")
-            return None
+            logger.error(f"❌ Fehler bei der Höhenbestimmung: {str(e)}")
+            return 3.0
             
-    def _get_street_name(self, xml: etree._Element) -> Optional[str]:
-        """
-        Extrahiert den Straßennamen aus CityGML-Daten.
-        
-        Args:
-            xml: CityGML XML-Element
-            
-        Returns:
-            Optional[str]: Straßenname oder None
-        """
+    def _get_standard(self, data: Dict) -> str:
+        """Generiert den STANDARD-Wert für ein Gebäude."""
         try:
-            street_queries = [
-                ".//xAL:ThoroughfareName/text()",
-                ".//xAL:StreetNameElement/text()",
-                ".//gen:stringAttribute[@name='street']/gen:value/text()"
-            ]
+            # Bestimme Gebäudetyp-Präfix
+            building_type = data.get("Gebäudeinfo_L_NUTZUNG", "")
+            prefix = self.config["wfs"]["vienna"]["building_types"]["standard_prefix"].get(building_type, "AB")
             
-            for query in street_queries:
-                try:
-                    result = xml.xpath(query, namespaces=self.namespaces)
-                    if result:
-                        return result[0]
-                except:
-                    continue
+            # Bestimme Perioden-Suffix
+            suffix = self._get_period_suffix(data)
+            
+            return f"{prefix}_{suffix}"
+            
+        except Exception as e:
+            logger.error(f"❌ Fehler bei der STANDARD-Generierung: {str(e)}")
+            return "NONE_X"
+            
+    def _get_period_suffix(self, data: Dict) -> str:
+        """Bestimmt den Perioden-Suffix."""
+        try:
+            # Versuche exaktes Jahr
+            year = data.get("Gebäudeinfo_BAUJAHR")
+            if year is not None:
+                return self._map_year_to_period(int(year))
+                
+            return "X"  # Fallback
+            
+        except Exception as e:
+            logger.error(f"❌ Fehler bei der Suffix-Bestimmung: {str(e)}")
+            return "X"
+            
+    def _map_year_to_period(self, year: int) -> str:
+        """Mappt ein Jahr auf eine Periode."""
+        try:
+            periods = self.config["wfs"]["vienna"]["building_periods"]
+            
+            for period in periods:
+                start = period["start"] if period["start"] is not None else float('-inf')
+                end = period["end"] if period["end"] is not None else float('inf')
+                
+                if start <= year <= end:
+                    return period["suffix"].replace("_", "")
                     
-            return None
+            return "X"
             
         except Exception as e:
-            logger.error(f"❌ Fehler beim Extrahieren des Straßennamens: {str(e)}")
-            return None
+            logger.error(f"❌ Fehler beim Jahr-Mapping: {str(e)}")
+            return "X"
             
-    def _get_building_number(self, xml: etree._Element) -> Optional[str]:
-        """
-        Extrahiert die Hausnummer aus CityGML-Daten.
-        
-        Args:
-            xml: CityGML XML-Element
-            
-        Returns:
-            Optional[str]: Hausnummer oder None
-        """
+    def _get_use_type(self, data: Dict) -> str:
+        """Bestimmt den Gebäudenutzungstyp."""
         try:
-            number_queries = [
-                ".//xAL:BuildingNumber/text()",
-                ".//xAL:ThoroughfareNumber/text()",
-                ".//gen:stringAttribute[@name='number']/gen:value/text()"
-            ]
-            
-            for query in number_queries:
-                try:
-                    result = xml.xpath(query, namespaces=self.namespaces)
-                    if result:
-                        return result[0]
-                except:
-                    continue
-                    
-            return None
+            building_type = data.get("Gebäudeinfo_L_NUTZUNG", "")
+            return self.config["wfs"]["vienna"]["building_types"]["use_type"].get(building_type, "RESIDENTIAL")
             
         except Exception as e:
-            logger.error(f"❌ Fehler beim Extrahieren der Hausnummer: {str(e)}")
-            return None
-            
-    def _convert_value(self, value: Any, target_type: str) -> Any:
-        """
-        Konvertiert einen Wert in den Zieltyp.
-        
-        Args:
-            value: Zu konvertierender Wert
-            target_type: Zieltyp ('str', 'int', 'float', 'bool')
-            
-        Returns:
-            Any: Konvertierter Wert
-        """
-        if value is None:
-            return None
-            
-        try:
-            if target_type == "int":
-                return int(float(value))
-            elif target_type == "float":
-                return float(value)
-            elif target_type == "bool":
-                return str(value).lower() in ("true", "1", "yes", "ja")
-            else:
-                return str(value)
-        except (ValueError, TypeError):
-            return None
-            
-    def validate_field(self, field_name: str, value: Any) -> bool:
-        """
-        Validiert einen Feldwert gegen die definierten Regeln.
-        
-        Args:
-            field_name: Name des Felds
-            value: Zu validierender Wert
-            
-        Returns:
-            bool: True wenn der Wert gültig ist
-        """
-        if field_name not in self.validation_rules:
+            logger.error(f"❌ Fehler bei der Nutzungsbestimmung: {str(e)}")
+            return "RESIDENTIAL"
+
+    def validate_field(self, field_name, value):
+        """Validiert ein gemapptes Feld."""
+        field_config = self.field_mappings.get(field_name)
+        if not field_config:
             return True
-            
-        rules = self.validation_rules[field_name]
-        
-        try:
-            # Prüfe Minimum
-            if "min" in rules and value < rules["min"]:
-                logger.warning(f"⚠️ Wert {value} für {field_name} ist kleiner als Minimum {rules['min']}")
-                return False
-                
-            # Prüfe Maximum
-            if "max" in rules and value > rules["max"]:
-                logger.warning(f"⚠️ Wert {value} für {field_name} ist größer als Maximum {rules['max']}")
-                return False
-                
-            # Prüfe erlaubte Werte
-            if "allowed_values" in rules and value not in rules["allowed_values"]:
-                logger.warning(f"⚠️ Wert {value} für {field_name} ist nicht in erlaubten Werten {rules['allowed_values']}")
-                return False
-                
-            return True
-            
-        except Exception as e:
-            logger.error(f"❌ Fehler bei der Feldvalidierung von {field_name}: {str(e)}")
-            return False 
+
+        # Prüfe ob das Feld erforderlich ist
+        if field_config.get('required', False) and value is None:
+            raise ValueError(f"Feld {field_name} ist erforderlich, aber kein Wert vorhanden")
+
+        return True 

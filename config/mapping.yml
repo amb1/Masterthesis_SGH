@@ -106,34 +106,80 @@ value_ranges:
 
 # CEA-spezifische Mappings
 cea_mappings:
-  # Mapping von Bauperioden
-  construction_periods:
-    "1848–1918": [1848, 1918]
-    "1919–1945": [1919, 1945]
-    "nach 1945": [1946, 2025]
+  # Mapping-Definitionen für zone.shp
+  zone:
+    Name:
+      sources:
+        wfs:
+          street: "Gebäudeinfo_STRNAML"
+          number: "Gebäudeinfo_VONN"
+        format: "{street}_{number}"
+    floors_ag:
+      sources:
+        wfs: "GEBAEUDEINFOOGD_GESCH_ANZ"
+        citygml: "measuredHeight"
+      transform: "to_floors"  # Bei measuredHeight wird durch 3 geteilt
+    floors_bg:
+      default: 1
+    height_ag:
+      sources:
+        citygml: "measuredHeight"
+        wfs: "HoeheDach"
+    height_bg:
+      transform: "multiply"
+      field: "floors_bg"
+      factor: 3
+    REFERENCE:
+      sources:
+        citygml: "gml:id"
+    house_no:
+      sources:
+        wfs: "Gebäudeinfo_VONN"
+    street:
+      sources:
+        wfs: "Gebäudeinfo_STRNAML"
+    postcode:
+      sources:
+        wfs: "Gebäudeinfo_BEZ"
+    house_name:
+      sources:
+        wfs: "Gebäudeinfo_HA_NAME"
+    resi_type:
+      sources:
+        wfs: 
+          - "Gebäudeinfo_L_NUTZUNG"
+          - "Realnutzung_NUTZUNG_LEVEL1"
 
-  # Gebäudetyp-Mappings für CEA
-  building_types:
-    RESIDENTIAL:
-      cea_type: "RESIDENTIAL"
-      construction: "SOLID"
-      window_wall_ratio: 0.3
-      occupancy: "RESIDENTIAL"
-    OFFICE:
-      cea_type: "OFFICE"
-      construction: "SOLID"
-      window_wall_ratio: 0.4
-      occupancy: "OFFICE"
-    RETAIL:
-      cea_type: "RETAIL"
-      construction: "SOLID"
-      window_wall_ratio: 0.5
-      occupancy: "RETAIL"
-    INDUSTRIAL:
-      cea_type: "INDUSTRIAL"
-      construction: "SOLID"
-      window_wall_ratio: 0.2
-      occupancy: "INDUSTRIAL"
+  # Mapping-Definitionen für typology.shp
+  typology:
+    Name:
+      sources:
+        wfs:
+          street: "Gebäudeinfo_STRNAML"
+          number: "Gebäudeinfo_VONN"
+        format: "{street}_{number}"
+    YEAR:
+      sources:
+        wfs: "Gebäudeinfo_BAUJAHR"
+    STANDARD:
+      transform: "standard"  # Spezielle Transformation basierend auf building_type und year/period
+    1ST_USE:
+      sources:
+        wfs: "Gebäudeinfo_L_NUTZUNG"
+      transform: "use_type"  # Verwendet das use_type Mapping
+    1ST_USE_R:
+      default: 1
+    2ND_USE:
+      default: ""
+    2ND_USE_R:
+      default: 0
+    3RD_USE:
+      default: ""
+    3RD_USE_R:
+      default: 0
+    REFERENCE:
+      sources:
+        citygml: "gml:id"
 
 # Zentrale Mapping-Konfiguration
 
@@ -336,18 +382,15 @@ wfs:
         - suitability
 
     building_periods:
-      - {start: null, end: 1859, suffix: "_A"}
-      - {start: 1860, end: 1918, suffix: "_B"}
-      - {start: 1919, end: 1948, suffix: "_C"}
-      - {start: 1949, end: 1957, suffix: "_D"}
-      - {start: 1958, end: 1968, suffix: "_E"}
-      - {start: 1969, end: 1978, suffix: "_F"}
-      - {start: 1979, end: 1983, suffix: "_G"}
-      - {start: 1984, end: 1994, suffix: "_H"}
-      - {start: 1995, end: 2001, suffix: "_I"}
-      - {start: 2002, end: 2009, suffix: "_J"}
-      - {start: 2010, end: 2015, suffix: "_K"}
-      - {start: 2016, end: null, suffix: "_L"}
+      - {start: null, end: 1918, suffix: "_A"}
+      - {start: 1919, end: 1944, suffix: "_B"}
+      - {start: 1945, end: 1960, suffix: "_C"}
+      - {start: 1961, end: 1980, suffix: "_D"}
+      - {start: 1981, end: 1990, suffix: "_E"}
+      - {start: 1991, end: 2000, suffix: "_F"}
+      - {start: 2001, end: 2009, suffix: "_G"}
+      - {start: 2010, end: null, suffix: "_H"}
+
 
     period_ranges:
       "1848 -1918": [1848, 1918]
@@ -420,36 +463,28 @@ building_classification:
       "1848-1918":
         range: [1848, 1918]
         distribution:
-          - {period: "A", weight: 0.4}  # Höhere Wahrscheinlichkeit für ältere Gebäude
-          - {period: "B", weight: 0.6}
+          - {period: "A", weight: 1}  # Höhere Wahrscheinlichkeit für ältere Gebäude
       "1919-1945":
         range: [1919, 1945]
         distribution:
-          - {period: "C", weight: 1.0}
+          - {period: "B", weight: 1.0}
       "nach 1945":
         range: [1946, 2025]
         distribution:
+          - {period: "C", weight: 0.15}
           - {period: "D", weight: 0.15}
           - {period: "E", weight: 0.15}
           - {period: "F", weight: 0.15}
           - {period: "G", weight: 0.1}
           - {period: "H", weight: 0.1}
-          - {period: "I", weight: 0.1}
-          - {period: "J", weight: 0.1}
-          - {period: "K", weight: 0.1}
-          - {period: "L", weight: 0.05}
     
     # Detaillierte Periodendefinitionen
     detailed_periods:
-      A: {start: null, end: 1859}
-      B: {start: 1860, end: 1918}
-      C: {start: 1919, end: 1948}
-      D: {start: 1949, end: 1957}
-      E: {start: 1958, end: 1968}
-      F: {start: 1969, end: 1978}
-      G: {start: 1979, end: 1983}
-      H: {start: 1984, end: 1994}
-      I: {start: 1995, end: 2001}
-      J: {start: 2002, end: 2009}
-      K: {start: 2010, end: 2015}
-      L: {start: 2016, end: null} 
+      A: {start: null, end: 1918}
+      B: {start: 1919, end: 1944}
+      C: {start: 1945, end: 1960}
+      D: {start: 1961, end: 1980}
+      E: {start: 1981, end: 1990}
+      F: {start: 1991, end: 2000}
+      G: {start: 2001, end: 2019}
+      H: {start: 2020, end: null}

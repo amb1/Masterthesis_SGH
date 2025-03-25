@@ -56,17 +56,22 @@ class CityGMLConfigError(Exception):
 class CityGMLBuildingProcessor:
     """CityGML-spezifische Verarbeitung"""
     def __init__(self, config):
-        self.config = config
+        """
+        Initialisiert den CityGML-Prozessor.
+        
+        Args:
+            config: Konfigurationsobjekt
+        """
+        # Lade CityGML-spezifische Konfiguration
+        citygml_config_path = Path(root_dir) / "config" / "citygml" / "config.yml"
+        if not citygml_config_path.exists():
+            raise FileNotFoundError(f"CityGML-Konfigurationsdatei nicht gefunden: {citygml_config_path}")
+            
+        self.config = load_config(citygml_config_path)
         self.logger = logging.getLogger(__name__)
         
-        # Erweiterte Namespace-Definition
-        self.ns = {
-            'bldg': 'http://www.opengis.net/citygml/building/1.0',
-            'gml': 'http://www.opengis.net/gml',
-            'core': 'http://www.opengis.net/citygml/1.0',
-            'xal': 'urn:oasis:names:tc:ciq:xsdschema:xAL:2.0',
-            'gen': 'http://www.opengis.net/citygml/generics/1.0'  # Hinzugefügter gen-Namespace
-        }
+        # Verwende Namespaces aus Konfiguration
+        self.ns = self.config.get('namespaces', {})
         
         # Initialisiere Geometrie-Statistiken
         self.geometry_stats = {
@@ -117,30 +122,25 @@ class CityGMLBuildingProcessor:
 
                 # Validierung und Reparatur wenn konfiguriert
                 try:
-                    if self.config.get('geometry', {}).get('validation', {}).get('check_validity', False):
-                        if not polygon.is_valid:
-                            if self.config.get('geometry', {}).get('validation', {}).get('fix_invalid', False):
-                                polygon = polygon.buffer(0)
-                                if not polygon.is_valid:
-                                    self.logger.warning("⚠️ Polygon konnte nicht repariert werden")
-                                    continue
-                            else:
-                                self.logger.warning("⚠️ Ungültiges Polygon")
+                    if not polygon.is_valid:
+                        if self.config.get('geometry', {}).get('validation', {}).get('fix_invalid', True):
+                            polygon = polygon.buffer(0)
+                            if not polygon.is_valid:
+                                self.logger.warning("⚠️ Polygon konnte nicht repariert werden")
                                 continue
+                        else:
+                            self.logger.warning("⚠️ Ungültiges Polygon")
+                            continue
 
-                        # Prüfe Mindestfläche wenn konfiguriert
-                        if self.config.get('geometry', {}).get('validation', {}).get('check_area', False):
-                            min_area = self.config.get('geometry', {}).get('validation', {}).get('min_area', 1.0)
-                            if polygon.area < min_area:
-                                if self.config.get('geometry', {}).get('validation', {}).get('remove_small', False):
-                                    self.logger.warning(f"⚠️ Polygon zu klein ({polygon.area:.1f}m²), wird verworfen")
-                                    continue
-                                else:
-                                    self.logger.warning(f"⚠️ Polygon kleiner als Mindestfläche ({polygon.area:.1f}m²)")
+                    # Prüfe Mindestfläche
+                    min_area = self.config.get('geometry', {}).get('min_area', 1.0)
+                    if polygon.area < min_area:
+                        self.logger.warning(f"⚠️ Polygon zu klein ({polygon.area:.1f}m²), wird verworfen")
+                        continue
+
                 except Exception as e:
                     self.logger.error(f"❌ Fehler bei der Geometrievalidierung: {e}")
-                    # Wenn Validierung fehlschlägt, nutze das unvalidierte Polygon
-                    pass
+                    continue
 
                 polygons.append(polygon)
 
@@ -161,124 +161,69 @@ class CityGMLBuildingProcessor:
             self.logger.error(f"❌ Fehler beim Extrahieren des Footprints: {str(e)}")
             return None
 
-    def _extract_building_data(self, building):
-        """Extrahiert alle relevanten Attribute eines Gebäudes"""
+    def _extract_building_data(self, building: etree.Element) -> Optional[Dict[str, Any]]:
+        """Extrahiert alle konfigurierten Attribute aus einem Gebäude"""
         try:
             attributes = {}
-            meta_fields = {}  # Speichert die Herkunft der Attribute
+            field_stats = defaultdict(int)
             
-            building_id = building.get('{' + self.ns['gml'] + '}id', str(uuid.uuid4()))
-            attributes['Name'] = building_id
-            meta_fields['Name'] = 'extracted'
-            
-            missing_fields = []
-            debug_mode = self.config.get('debug', False)  # Debug-Modus aus Config
-            
-            # Extrahiere konfigurierte Felder
-            for field in self.config['required_fields']:
-                field_conf = self.config['citygml_fields'].get(field, {})
-                xpath = field_conf.get('xpath')
-                field_type = field_conf.get('type')
-                fallback = field_conf.get('fallback')
-
-                if not xpath:
-                    if debug_mode:
-                        self.logger.debug(f"⚠️ Kein XPath für Feld {field} konfiguriert")
-                    continue
-                    
-                value = None
+            # Sammle alle Felder
+            for field, field_config in self.config['citygml_fields'].items():
                 try:
-                    # Spezielle Behandlung für komplexe Attribute
-                    if field == 'year_of_construction':
-                        for attr in building.findall('.//gen:stringAttribute', self.ns):
-                            name_elem = attr.find('gen:name', self.ns)
-                            val_elem = attr.find('gen:value', self.ns)
-                            if name_elem is not None and name_elem.text and 'Baujahr' in name_elem.text:
-                                value = val_elem.text.strip() if val_elem is not None and val_elem.text else None
-                                meta_fields[field] = 'extracted'
-                                break
+                    value = None
+                    xpath = field_config.get('xpath')
+                    field_type = field_config.get('type', 'str')
                     
-                    elif field == 'building_type':
-                        for attr in building.findall('.//gen:stringAttribute', self.ns):
-                            name_elem = attr.find('gen:name', self.ns)
-                            val_elem = attr.find('gen:value', self.ns)
-                            if name_elem is not None and name_elem.text and 'Nutzung' in name_elem.text:
-                                value = val_elem.text.strip() if val_elem is not None and val_elem.text else None
-                                meta_fields[field] = 'extracted'
-                                break
-                                
-                    elif field == 'measured_height':
-                        for attr in building.findall('.//gen:doubleAttribute', self.ns):
-                            name_elem = attr.find('gen:name', self.ns)
-                            val_elem = attr.find('gen:value', self.ns)
-                            if name_elem is not None and name_elem.text and 'Gebäudehöhe' in name_elem.text:
-                                value = val_elem.text.strip() if val_elem is not None and val_elem.text else None
-                                meta_fields[field] = 'extracted'
-                                break
-                    
-                    else:
-                        # Standardverarbeitung für einfache XPath-Ausdrücke
+                    if xpath:
+                        # XPath-basierte Extraktion
                         if xpath.startswith('@'):
                             # Attribut-Extraktion
                             attr_name = xpath[1:]
-                            if ':' in attr_name:
-                                ns, attr = attr_name.split(':')
-                                attr_name = '{' + self.ns[ns] + '}' + attr
-                            value = building.get(attr_name)
-                            if value is not None:
-                                meta_fields[field] = 'extracted'
+                            if '{' in attr_name:
+                                value = building.get(attr_name)
+                            else:
+                                value = building.get(attr_name)
                         else:
-                            # Element-Extraktion mit direkter Namespace-Verwendung
-                            element = building.find(f'.//{xpath}', self.ns)
+                            # Element-Extraktion
+                            element = building.find(xpath, self.ns)
                             if element is not None:
-                                value = element.text.strip() if element.text else None
-                                if value is not None:
-                                    meta_fields[field] = 'extracted'
-
-                    # Wenn None, auf fallback setzen
-                    if value is None and fallback is not None:
-                        value = fallback
-                        meta_fields[field] = 'fallback'
-                        if debug_mode:
-                            self.logger.debug(f"⬇️ Fallback-Wert {fallback} für Feld {field} verwendet")
-
-                    # Typkonvertierung
-                    if value is not None and field_type:
+                                value = element.text
+                    
+                    # Typ-Konvertierung
+                    if value is not None:
                         try:
-                            if field_type == "float":
+                            if field_type == 'float':
                                 value = float(value)
-                            elif field_type == "int":
+                            elif field_type == 'int':
                                 value = int(value)
-                            elif field_type == "str":
-                                value = str(value)
-                        except ValueError:
-                            if debug_mode:
-                                self.logger.debug(f"⚠️ Typkonvertierung fehlgeschlagen für Feld {field}: {value}")
-                            if fallback is not None:
-                                value = fallback
-                                meta_fields[field] = 'fallback_after_conversion_error'
+                            field_stats[field] += 1
+                        except (ValueError, TypeError):
+                            self.logger.debug(f"⚠️ Konvertierung fehlgeschlagen für {field}: {value}")
+                            value = None
                             
+                    if value is not None:
+                        attributes[field] = value
+                        
                 except Exception as e:
-                    if debug_mode:
-                        self.logger.debug(f"⚠️ Fehler bei Extraktion von Feld {field}: {str(e)}")
-                    missing_fields.append(field)
-                    meta_fields[field] = 'missing'
-                    continue
-
-                attributes[field] = value
-                if field not in meta_fields:
-                    meta_fields[field] = 'missing' if value is None else 'extracted'
-
-            if missing_fields and debug_mode:
-                self.logger.debug(f"ℹ️ Fehlende Pflichtfelder für Gebäude {building_id}: {', '.join(missing_fields)}")
-
-            # Füge Metadaten hinzu
-            attributes['_meta'] = meta_fields
+                    self.logger.debug(f"⚠️ Fehler bei Extraktion von {field}: {str(e)}")
+                
+            # Wenn collect_all_fields aktiv ist, ignoriere required_fields
+            if self.config.get('collect_all_fields', False):
+                return attributes
+            
+            # Prüfe ob alle Pflichtfelder vorhanden sind
+            required_fields = self.config.get('required_fields', [])
+            if required_fields:
+                missing_fields = [f for f in required_fields if f not in attributes]
+                if missing_fields:
+                    self.logger.error(f"❌ Fehlende Pflichtfelder: {missing_fields}")
+                    return None
+                
             return attributes
-
+            
         except Exception as e:
-            self.logger.error(f"❌ Fehler bei Attributextraktion für Gebäude: {str(e)}")
-            raise
+            self.logger.error(f"❌ Fehler bei Gebäudeverarbeitung: {str(e)}")
+            return None
 
     def process_citygml(self, citygml_path):
         """Verarbeitet CityGML und erstellt Basis-GeoDataFrame"""
@@ -293,6 +238,7 @@ class CityGMLBuildingProcessor:
             
             building_data = []
             geometries = []
+            field_stats = defaultdict(int)
             
             # Erweiterte Statistiken
             stats = {
@@ -311,7 +257,7 @@ class CityGMLBuildingProcessor:
                 'attributes': {
                     'success': 0,
                     'failed': 0,
-                    'missing_fields': defaultdict(int)
+                    'field_coverage': defaultdict(int)
                 },
                 'lod': defaultdict(int)
             }
@@ -338,16 +284,21 @@ class CityGMLBuildingProcessor:
                         elif building.find('.//bldg:lod1Solid', self.ns) is not None:
                             stats['lod']['LoD1'] += 1
                         
-                        # Extrahiere Attribute nur für gültige Geometrien
+                        # Extrahiere Attribute
                         building_attrs = self._extract_building_data(building)
                         if building_attrs:
-                            stats['attributes']['success'] += 1
+                            # Zähle vorhandene Felder
+                            for field in building_attrs.keys():
+                                stats['attributes']['field_coverage'][field] += 1
+                                
                             building_data.append(building_attrs)
                             geometries.append(footprint)
                             stats['success'] += 1
+                            stats['attributes']['success'] += 1
                         else:
                             stats['attributes']['failed'] += 1
-                            stats['failed'] += 1
+                            if not self.config.get('collect_all_fields', False):
+                                stats['failed'] += 1
                     else:
                         stats['geometry']['failed'] += 1
                         stats['failed'] += 1
@@ -363,28 +314,24 @@ class CityGMLBuildingProcessor:
                 self.logger.warning("Keine Gebäudedaten extrahiert")
                 return None
                 
-            # Erstelle GeoDataFrame mit korrektem CRS
+            # Erstelle GeoDataFrame
             buildings_gdf = gpd.GeoDataFrame(
                 building_data,
                 geometry=geometries,
                 crs=self.config['geometry']['srs_name']
             )
             
-            # Sicherer Zugriff auf Geometrie-Vereinfachungsoptionen
-            output_options = self.config.get('output', {}).get('geojson', {}).get('options', {})
-            tolerance = output_options.get('simplify_tolerance')
-            
-            if tolerance:
-                self.logger.info(f"ℹ️ Vereinfache Geometrien mit Toleranz {tolerance}")
-                buildings_gdf.geometry = buildings_gdf.geometry.simplify(tolerance)
-            
-            # Optional: Metadaten in separate Spalten aufsplitten
-            if self.config.get('split_meta_fields', False):
-                meta_df = buildings_gdf['_meta'].apply(pd.Series)
-                buildings_gdf = pd.concat([
-                    buildings_gdf.drop(columns=['_meta']), 
-                    meta_df.add_prefix('src_')
-                ], axis=1)
+            # Entferne Felder mit geringer Abdeckung
+            if self.config.get('statistics', {}).get('collect_empty_fields', False):
+                min_coverage = self.config.get('statistics', {}).get('min_coverage_threshold', 0.1)
+                total_buildings = len(buildings)
+                
+                for field, count in stats['attributes']['field_coverage'].items():
+                    coverage = count / total_buildings
+                    if coverage < min_coverage:
+                        self.logger.info(f"🗑️ Entferne Feld '{field}' (Abdeckung: {coverage:.1%})")
+                        if field in buildings_gdf.columns:
+                            buildings_gdf = buildings_gdf.drop(columns=[field])
             
             return buildings_gdf
             
@@ -414,6 +361,14 @@ class CityGMLBuildingProcessor:
         self.logger.info("\n--- Attribute ---")
         self.logger.info(f"Erfolgreich: {stats['attributes']['success']} Datensätze")
         self.logger.info(f"Fehlgeschlagen: {stats['attributes']['failed']} Datensätze")
+        
+        # Feldabdeckung
+        if stats['attributes']['field_coverage']:
+            self.logger.info("\n--- Feldabdeckung ---")
+            total_buildings = stats['total']
+            for field, count in sorted(stats['attributes']['field_coverage'].items()):
+                coverage = count / total_buildings
+                self.logger.info(f"{field}: {count} ({coverage:.1%})")
         
         self.logger.info("\n--- LoD-Level ---")
         for lod, count in stats['lod'].items():

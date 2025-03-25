@@ -1,66 +1,80 @@
 """
-WFS Stream Handler für die Verarbeitung von WFS-Streams.
+WFS-Stream-Verarbeitung für große Datenmengen.
 """
 
 import logging
-from typing import Dict, Any, Optional
-import geopandas as gpd
-from .client import WFSBaseClient
+from typing import Dict, Any, Iterator, Optional
+import requests
+from owslib.wfs import WebFeatureService
 
-class WFSStreamHandler:
-    """Handler für WFS-Streams."""
+logger = logging.getLogger(__name__)
+
+class WFSStream:
+    """Klasse für das Streaming von WFS-Daten."""
     
-    def __init__(self, client: WFSBaseClient, streams: Dict[str, Any]):
-        """Initialisiert den WFS Stream Handler.
+    def __init__(self, url: str, version: str = '2.0.0', page_size: int = 1000):
+        """
+        Initialisiert den WFS-Stream.
         
         Args:
-            client: WFS Base Client
-            streams: Stream-Konfigurationen
+            url: URL des WFS-Dienstes
+            version: WFS-Version
+            page_size: Anzahl Features pro Seite
         """
-        self.logger = logging.getLogger(__name__)
-        self.client = client
-        self.streams = streams
+        self.url = url
+        self.version = version
+        self.page_size = page_size
+        self.wfs = WebFeatureService(url=self.url, version=self.version)
         
-    def process_streams(self, bbox: Optional[str] = None) -> Dict[str, gpd.GeoDataFrame]:
-        """Verarbeitet alle konfigurierten Streams.
+    def stream_features(self, layer: str, bbox: Optional[str] = None) -> Iterator[Dict[str, Any]]:
+        """
+        Streamt Features von einem WFS-Layer.
         
         Args:
-            bbox: Optional[str] - Bounding Box für die Abfrage
+            layer: Name des WFS-Layers
+            bbox: Optional[str] - Bounding Box im Format "minx,miny,maxx,maxy"
             
-        Returns:
-            Dict[str, gpd.GeoDataFrame]: Dictionary mit Stream-Namen und GeoDataFrames
+        Yields:
+            Dict: Ein Feature als GeoJSON
         """
-        results = {}
-        
-        if not self.streams:
-            self.logger.warning("⚠️ Keine Streams konfiguriert")
-            return results
+        try:
+            start_index = 0
             
-        for stream_name, stream_config in self.streams.items():
-            try:
-                # Hole Layer-Name aus Konfiguration
-                layer_name = stream_config.get('layer')
-                if not layer_name:
-                    self.logger.warning(f"⚠️ Kein Layer für Stream {stream_name} konfiguriert")
-                    continue
-                    
-                # Hole Daten vom WFS
-                self.logger.info(f"🔄 Verarbeite Stream: {stream_name} (Layer: {layer_name})")
-                gdf = self.client.fetch_layer(layer_name, bbox)
+            while True:
+                # Parameter für die Anfrage
+                params = {
+                    'service': 'WFS',
+                    'version': self.version,
+                    'request': 'GetFeature',
+                    'typeName': layer,
+                    'outputFormat': 'application/json',
+                    'startIndex': start_index,
+                    'count': self.page_size
+                }
                 
-                if gdf is not None and not gdf.empty:
-                    # Füge Stream-spezifische Attribute hinzu
-                    gdf['stream_name'] = stream_name
-                    gdf['data_source'] = 'wfs'
+                if bbox:
+                    params['bbox'] = bbox
                     
-                    # Füge zu Ergebnissen hinzu
-                    results[stream_name] = gdf
-                    self.logger.info(f"✅ Stream {stream_name} erfolgreich verarbeitet")
-                else:
-                    self.logger.warning(f"⚠️ Keine Daten für Stream {stream_name}")
-                    
-            except Exception as e:
-                self.logger.error(f"❌ Fehler bei Stream {stream_name}: {str(e)}")
-                continue
+                # Anfrage ausführen
+                response = requests.get(self.url, params=params)
+                response.raise_for_status()
                 
-        return results 
+                # Features verarbeiten
+                data = response.json()
+                features = data.get('features', [])
+                
+                if not features:
+                    break
+                    
+                for feature in features:
+                    yield feature
+                    
+                start_index += len(features)
+                
+                # Prüfe ob alle Features abgerufen wurden
+                if len(features) < self.page_size:
+                    break
+                    
+        except Exception as e:
+            logger.error(f"❌ Fehler beim Streaming der Features: {str(e)}")
+            return None 

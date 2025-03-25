@@ -1,0 +1,41 @@
+citygml:
+  namespaces:
+    bldg: "http://www.opengis.net/citygml/building/1.0"
+    gml: "http://www.opengis.net/gml"
+    core: "http://www.opengis.net/citygml/1.0"
+    gen: "http://www.opengis.net/citygml/generics/1.0"
+    xal: "urn:oasis:names:tc:ciq:xsdschema:xAL:2.0"
+
+required_fields:
+  - "Name"
+  - "height_ag"
+  - "floors_ag"
+
+geometry:
+  validation:
+    check_validity: true
+    fix_invalid: true
+    check_area: true
+    min_area: 1.0
+    remove_small: true
+  simplify_tolerance: 0.1
+
+citygml_fields:
+  Name:
+    xpath: "@{gml}id"
+    type: "str"
+  
+  height_ag:
+    xpath: ".//bldg:measuredHeight"
+    type: "float"
+    fallback: 12.0
+  
+  floors_ag:
+    search_text: "AnzahlGeschosse"
+    type: "int"
+    fallback: 4
+
+debug: true
+
+file_formats:
+  - "geojson" 

@@ -14,21 +14,20 @@ namespaces:
   core: http://www.opengis.net/citygml/1.0
   xAL: urn:oasis:names:tc:ciq:xsdschema:xAL:2.0
 
-required_fields:
-  - measured_height
-  - year_of_construction
-  - building_type
+# Alle möglichen Felder sammeln, Pflichtfelder später definieren
+collect_all_fields: true
+required_fields: []
 
 geometry:
   srs_name: EPSG:31256
-  min_area: 10.0
+  min_area: 1.0
   validate: true
   validation:
     check_validity: true
     fix_invalid: true
     check_area: true
-    min_area: 10.0
-    remove_small: false
+    min_area: 1.0
+    remove_small: true
 
 file_formats:
   - geojson
@@ -36,61 +35,89 @@ file_formats:
 
 output:
   geojson:
-    directory: data/processed/geojson
+    directory: outputs/results
     options:
       driver: GeoJSON
       encoding: utf-8
-      simplify_tolerance: 0.1  # Optional: Geometrie-Vereinfachung
-  shp:
-    directory: data/processed/shp
-    options:
-      driver: ESRI Shapefile
-      encoding: utf-8
+      simplify_tolerance: 0.1
 
 citygml_fields:
+  # Basis-Attribute
+  gml_id:
+    xpath: "@{gml}id"
+    type: str
+  
+  gml_name:
+    xpath: ".//gml:name"
+    type: str
+    
+  core_creationdate:
+    xpath: ".//core:creationDate"
+    type: str
+
+  # Höhenattribute
   measured_height:
-    xpath: .//bldg:measuredHeight  # Einfacher XPath beibehalten
+    xpath: ".//bldg:measuredHeight"
     type: float
-    fallback: null
-  year_of_construction:
-    xpath: .//gen:stringAttribute  # Vereinfacht - Logik jetzt in Python
+    
+  height:
+    xpath: ".//gen:doubleAttribute[gen:name='Height']/gen:value"
+    type: float
+    
+  roof_height:
+    xpath: ".//gen:doubleAttribute[gen:name='HoeheDach']/gen:value"
+    type: float
+    
+  ground_height:
+    xpath: ".//gen:doubleAttribute[gen:name='HoeheGrund']/gen:value"
+    type: float
+    
+  terrain_height:
+    xpath: ".//gen:doubleAttribute[gen:name='TerrainHeight']/gen:value"
+    type: float
+    
+  lowest_eaves:
+    xpath: ".//gen:doubleAttribute[gen:name='NiedrigsteTraufeDesGebaeudes']/gen:value"
+    type: float
+
+  # Koordinaten
+  latitude:
+    xpath: ".//gen:doubleAttribute[gen:name='Latitude']/gen:value"
+    type: float
+    
+  longitude:
+    xpath: ".//gen:doubleAttribute[gen:name='Longitude']/gen:value"
+    type: float
+
+  # Gebäudeattribute
+  roof_type:
+    xpath: ".//bldg:roofType"
+    type: str
+    
+  sheet_number:
+    xpath: ".//gen:stringAttribute[gen:name='Blattnummer']/gen:value"
+    type: str
+
+  # Zusätzliche Attribute für spätere Verarbeitung
+  storeys_above_ground:
+    xpath: ".//bldg:storeysAboveGround"
     type: int
-    fallback: null
-    search_text: "Baujahr"  # Neues Feld für die Python-Suche
-  building_type:
-    xpath: .//gen:stringAttribute  # Vereinfacht - Logik jetzt in Python
+    
+  building_function:
+    xpath: ".//bldg:function"
     type: str
-    fallback: "unknown"
-    search_text: "Nutzung"  # Neues Feld für die Python-Suche
-  name:
-    xpath: .//gen:stringAttribute
+    
+  building_usage:
+    xpath: ".//bldg:usage"
     type: str
-    fallback: null
-    search_text: "Name"
-  house_no:
-    xpath: .//gen:stringAttribute
-    type: str
-    fallback: null
-    search_text: "Hausnummer"
-  street:
-    xpath: .//gen:stringAttribute
-    type: str
-    fallback: null
-    search_text: "Strasse"
-  postcode:
-    xpath: .//gen:stringAttribute
-    type: str
-    fallback: null
-    search_text: "PLZ"
-  city:
-    xpath: .//gen:stringAttribute
-    type: str
-    fallback: "Wien"
-    search_text: "Stadt"
-  country:
-    xpath: .//bldg:address/core:Address/xAL:AddressDetails/xAL:Country/xAL:CountryName
-    type: str
-    fallback: "Österreich"
+
+debug: true
+
+# Statistik-Einstellungen
+statistics:
+  collect_empty_fields: true
+  report_field_coverage: true
+  min_coverage_threshold: 0.1  # 10% Mindestabdeckung für Felder
 
 # Fallback-XPath für Adressfelder
 fallback_address_xpath:

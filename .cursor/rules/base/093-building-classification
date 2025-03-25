@@ -1,0 +1,96 @@
+# Gebäudeklassifizierungs-Regeln
+
+## Bauperioden-Klassifizierung
+
+### WFS-Perioden
+- "1848-1918": 
+  - Zeitraum: [1848, 1918]
+  - Zuordnung: Periode A (100%)
+- "1919-1945":
+  - Zeitraum: [1919, 1945]
+  - Zuordnung: Periode B (100%)
+- "nach 1945":
+  - Zeitraum: [1946, 2025]
+  - Probabilistische Zuordnung:
+    * Periode C (1945-1960): 15%
+    * Periode D (1961-1980): 15%
+    * Periode E (1981-1990): 15%
+    * Periode F (1991-2000): 15%
+    * Periode G (2001-2019): 20%
+    * Periode H (2020-...): 20%
+
+### Detaillierte Perioden
+- A: < 1919
+- B: 1919-1944
+- C: 1945-1960
+- D: 1961-1980
+- E: 1981-1990
+- F: 1991-2000
+- G: 2001-2019
+- H: >= 2020
+
+## Gebäudetyp-Klassifizierung
+
+### Standard-Präfixe
+- SFH: Einfamilienhaus
+- MFH: Mehrfamilienhaus
+- TH: Terrassenhaus/Großwohnbau
+- AB: Andere Gebäude (Büro, Handel, etc.)
+
+### Mapping-Regeln
+1. WFS-Typen:
+   - Direktes Mapping über building_types.standard_prefix
+   - Beispiel: "W3.1" -> "TH"
+
+2. CityGML-Typen:
+   - Mapping basierend auf building:function
+   - Fallback auf building:class
+   - Validierung gegen CEA-Nutzungstypen
+
+3. OSM-Typen:
+   - Primär: building:use
+   - Sekundär: building:type
+   - Tertiär: building
+
+## Implementierung
+
+### Klassifizierungs-Logik
+```python
+def classify_building(source_type: str, building_data: dict) -> tuple[str, str]:
+    """
+    Klassifiziert ein Gebäude basierend auf Quelle und Daten.
+    
+    Args:
+        source_type: "WFS", "CityGML" oder "OSM"
+        building_data: Dict mit Gebäudedaten
+        
+    Returns:
+        tuple[str, str]: (building_type_prefix, period_suffix)
+    """
+    # 1. Gebäudetyp-Präfix bestimmen
+    if source_type == "WFS":
+        prefix = map_wfs_type(building_data["building_type"])
+    elif source_type == "CityGML":
+        prefix = map_citygml_type(building_data)
+    else:  # OSM
+        prefix = map_osm_type(building_data)
+        
+    # 2. Perioden-Suffix bestimmen
+    if "year" in building_data:  # Exaktes Jahr
+        suffix = map_exact_year(building_data["year"])
+    else:  # WFS-Periode
+        suffix = map_wfs_period(building_data["period"])
+        
+    return prefix, suffix
+```
+
+### Validierung
+- Prüfung der Eingabedaten
+- Validierung der Mapping-Ergebnisse
+- Logging der Entscheidungen
+- Fehlerbehandlung für unbekannte Typen
+
+### Konfiguration
+- Verwendung der mapping.yml für Mapping-Definitionen
+- Zentrale Verwaltung der Wahrscheinlichkeiten
+- Erweiterbare Typ- und Periodendefinitionen 

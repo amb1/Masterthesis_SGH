@@ -1,0 +1,131 @@
+# CEA-Mapping-Regeln
+
+## Standardisierte Attribute
+
+### Zone.shp Pflichtfelder
+- Name (str): Eindeutiger Identifikator des Gebäudes
+- floors_ag (int): Anzahl der oberirdischen Geschosse
+- floors_bg (int, default=1): Anzahl der unterirdischen Geschosse
+- height_ag (float): Höhe des Gebäudes über Grund [m]
+- height_bg (float, default=3.0): Höhe des Gebäudes unter Grund [m]
+- REFERENCE (str): Referenzidentifikator
+- city (str, default="Wien"): Stadt
+- country (str, default="Austria"): Land
+
+### Zone.shp Optionale Felder
+- house_no (str): Hausnummer
+- street (str): Straßenname
+- postcode (str): Postleitzahl
+- house_name (str): Name des Gebäudes
+- resi_type (str): Wohnungstyp
+
+### Typology.shp Pflichtfelder
+- Name (str): Eindeutiger Identifikator des Gebäudes
+- YEAR (int): Baujahr des Gebäudes
+- STANDARD (str): Gebäudestandard
+- 1ST_USE (str): Primäre Nutzung
+- REFERENCE (str): Referenzidentifikator
+
+### Typology.shp Optionale Felder
+- 1ST_USER (str): Primärer Nutzer
+- 2ND_USE (str): Sekundäre Nutzung
+- 2ND_USER (str): Sekundärer Nutzer
+- 3RD_USE (str): Tertiäre Nutzung
+- 3RD_USER (str): Tertiärer Nutzer
+
+## Datenquellen-Mapping
+
+### CityGML
+- Name: gml:id
+- height_ag: bldg:measuredHeight
+- floors_ag: bldg:storeysAboveGround
+- floors_bg: bldg:storeysBelowGround
+- YEAR: bldg:yearOfConstruction
+- REFERENCE: "CITYGML"
+- Adresse:
+  - street: xAL:ThoroughfareName
+  - house_no: xAL:ThoroughfareNumber
+  - postcode: xAL:PostalCodeNumber
+  - city: xAL:LocalityName
+  - country: xAL:CountryName
+
+### WFS
+- Name: OBJECTID
+- height_ag: GEBAEUDE_HOEHE
+- floors_ag: GESCHOSSE_AG
+- floors_bg: GESCHOSSE_UG
+- YEAR: BAUJAHR
+- REFERENCE: "WFS"
+- Adresse:
+  - street: STRASSE
+  - house_no: HAUSNUMMER
+  - postcode: PLZ
+  - city: STADT
+  - country: LAND
+
+### OSM
+- Name: osm_id
+- height_ag: height
+- floors_ag: building:levels
+- floors_bg: building:levels:underground
+- YEAR: start_date
+- REFERENCE: "OSM"
+- Adresse:
+  - street: addr:street
+  - house_no: addr:housenumber
+  - postcode: addr:postcode
+  - city: addr:city
+  - country: addr:country
+
+## Standardwerte und Berechnungen
+- height_bg = floors_bg * 3.0 (wenn nicht verfügbar)
+- floors_bg = 1 (wenn nicht verfügbar)
+- city = "Wien" (wenn nicht verfügbar)
+- country = "Austria" (wenn nicht verfügbar)
+- STANDARD = f"{building_type}_{construction_period}" (basierend auf YEAR und 1ST_USE)
+
+## STANDARD-Feld-Generierung
+
+### Komponenten
+- Prefix: Gebäudetyp-Präfix aus building_types.standard_prefix
+- Suffix: Bauperioden-Suffix basierend auf YEAR
+
+### Ablauf
+1. Bestimmung Gebäudetyp-Präfix:
+   - WFS: Direktes Mapping über building_types.standard_prefix
+   - CityGML: Mapping über Gebäudenutzung
+   - OSM: Mapping über building:use oder building:type
+
+2. Bestimmung Bauperioden-Suffix:
+   - Bei exaktem Baujahr: Direkte Zuordnung zur detaillierten Periode (A-H)
+   - Bei WFS-Perioden:
+     - "1848-1918" -> Suffix "_A"
+     - "1919-1945" -> Suffix "_B"
+     - "nach 1945" -> Wahrscheinlichkeitsbasierte Zuordnung zu C-H
+       * C (1945-1960): 15%
+       * D (1961-1980): 15%
+       * E (1981-1990): 15%
+       * F (1991-2000): 15%
+       * G (2001-2019): 20%
+       * H (2020-...): 20%
+
+### Beispiele
+- WFS-Gebäude "W3.1" aus "nach 1945":
+  - Prefix: "TH" (aus standard_prefix)
+  - Suffix: Zufällig aus C-H basierend auf Verteilung
+  - Mögliche Ergebnisse: TH_C, TH_D, TH_E, TH_F, TH_G, TH_H
+
+- CityGML-Gebäude mit exaktem Baujahr 1975:
+  - Prefix: Basierend auf Gebäudenutzung
+  - Suffix: "_D" (1961-1980)
+
+### Validierung
+- STANDARD muss Format "{PREFIX}_{SUFFIX}" haben
+- PREFIX muss einer der definierten Typen sein: SFH, MFH, TH, AB
+- SUFFIX muss einer der definierten Perioden entsprechen: A-H
+
+## Implementierungshinweise
+- Verwendung einer Mapping-Klasse für Typ-Zuordnung
+- Wahrscheinlichkeitsbasierte Periodenzuordnung für WFS
+- Validierung des generierten STANDARD-Wertes
+- Logging der Zuordnungsentscheidungen 

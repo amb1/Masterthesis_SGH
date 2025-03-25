@@ -1,110 +1,157 @@
 """
-WFS Base Client für grundlegende WFS-Operationen.
+WFS-Client für den Zugriff auf WFS-Dienste.
 """
 
-from owslib.wfs import WebFeatureService
-import geopandas as gpd
-from typing import Optional, Dict, Any
 import logging
-from urllib.parse import urlencode
+from typing import Dict, Any, Optional, List
 import requests
+from owslib.wfs import WebFeatureService
+from owslib.fes import PropertyIsEqualTo, And, Or, PropertyIsLike
+import json
 
-class WFSBaseClient:
-    """Basis-Client für WFS-Operationen."""
+logger = logging.getLogger(__name__)
+
+class WFSClient:
+    """Client für den Zugriff auf WFS-Dienste."""
     
-    def __init__(self, url: str, version: str = '1.1.0', timeout: int = 30, srs_name: str = 'EPSG:31256'):
-        """Initialisiert den WFS Base Client.
+    def __init__(self, url: str, version: str = '2.0.0'):
+        """
+        Initialisiert den WFS-Client.
         
         Args:
-            url: WFS Service URL
-            version: WFS Version (default: 1.1.0)
-            timeout: Request Timeout in Sekunden (default: 30)
-            srs_name: Koordinatensystem (default: EPSG:31256)
+            url: URL des WFS-Dienstes
+            version: WFS-Version (default: 2.0.0)
         """
-        self.logger = logging.getLogger(__name__)
-        
-        if not url:
-            raise ValueError("❌ Keine WFS-URL angegeben")
-            
         self.url = url
         self.version = version
-        self.timeout = timeout
-        self.srs_name = srs_name
+        self.wfs = None
+        self._connect()
         
-        # Initialisiere WFS Service
-        self.wfs = WebFeatureService(
-            url=self.url,
-            version=self.version,
-            timeout=self.timeout
-        )
-        
-        # Verfügbare Layer
-        self.available_layers = list(self.wfs.contents.keys())
-        self.logger.info(f"✅ WFS-Verbindung hergestellt. {len(self.available_layers)} Layer verfügbar")
-        
-    def test_connection(self) -> bool:
-        """Testet die WFS-Verbindung.
-        
-        Returns:
-            bool: True wenn Verbindung erfolgreich
-        """
+    def _connect(self):
+        """Verbindung zum WFS-Dienst herstellen."""
         try:
-            self.wfs.getcapabilities()
-            self.logger.info("✅ WFS-Verbindung erfolgreich getestet")
-            return True
+            self.wfs = WebFeatureService(url=self.url, version=self.version)
         except Exception as e:
-            self.logger.error(f"❌ WFS-Verbindungstest fehlgeschlagen: {str(e)}")
-            return False
+            logger.error(f"❌ Fehler beim Verbinden mit WFS: {str(e)}")
+            raise ConnectionError(f"Konnte keine Verbindung zum WFS-Dienst unter {self.url} herstellen")
             
-    def fetch_layer(self, layer_name: str, bbox: Optional[str] = None) -> Optional[gpd.GeoDataFrame]:
-        """Holt Daten für einen Layer.
+    def get_features(self, layer: str, bbox: Optional[List[float]] = None, 
+                    filters: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        Ruft Features von einem WFS-Layer ab.
         
         Args:
-            layer_name: Name des Layers
-            bbox: Optional[str] - Bounding Box im Format "minx,miny,maxx,maxy,CRS"
+            layer: Name des WFS-Layers
+            bbox: Bounding Box [minx, miny, maxx, maxy]
+            filters: Dictionary mit Filterkriterien
             
         Returns:
-            Optional[gpd.GeoDataFrame]: GeoDataFrame mit Features oder None
+            Dict mit Features im GeoJSON-Format
         """
         try:
-            if layer_name not in self.available_layers:
-                self.logger.error(f"❌ Layer {layer_name} nicht verfügbar")
-                return None
-                
-            # Baue Request Parameter
+            # Parameter für die Anfrage
             params = {
                 'service': 'WFS',
                 'version': self.version,
                 'request': 'GetFeature',
-                'typeName': layer_name,
-                'srsName': self.srs_name,
-                'outputFormat': 'json'
+                'typeName': layer,
+                'outputFormat': 'application/json'
             }
             
-            # Füge BBOX hinzu wenn vorhanden
+            # Bounding Box hinzufügen
             if bbox:
-                params['bbox'] = bbox
-                self.logger.info(f"📍 Verwende BBOX: {bbox}")
-            
-            # Baue URL und führe Request aus
-            url = f"{self.url}?{urlencode(params)}"
-            self.logger.debug(f"🔗 WFS URL: {url}")
-            
-            response = requests.get(url, timeout=self.timeout)
+                params['bbox'] = ','.join(map(str, bbox))
+                
+            # Filter hinzufügen
+            if filters:
+                filter_parts = []
+                for key, value in filters.items():
+                    if isinstance(value, (list, tuple)):
+                        # OR-Verknüpfung für Listen
+                        or_filters = [PropertyIsLike(propertyname=key, literal=str(v)) for v in value]
+                        filter_parts.append(Or(or_filters))
+                    else:
+                        # Einzelner Filter
+                        filter_parts.append(PropertyIsEqualTo(propertyname=key, literal=str(value)))
+                        
+                if len(filter_parts) > 1:
+                    params['filter'] = And(filter_parts).toXML()
+                else:
+                    params['filter'] = filter_parts[0].toXML()
+                    
+            # Anfrage ausführen
+            response = requests.get(self.url, params=params)
             response.raise_for_status()
             
-            # Verarbeite Response
-            data = response.json()
-            if not data.get('features'):
-                self.logger.warning(f"⚠️ Keine Features im GeoJSON für Layer {layer_name}")
-                return None
-                
-            # Konvertiere zu GeoDataFrame
-            gdf = gpd.GeoDataFrame.from_features(data['features'])
-            gdf.crs = self.srs_name
-            
-            return gdf
+            # GeoJSON parsen
+            return response.json()
             
         except Exception as e:
-            self.logger.error(f"❌ Fehler beim Abrufen von Layer {layer_name}: {str(e)}")
-            return None 
+            logger.error(f"❌ Fehler beim Abrufen der Features: {str(e)}")
+            return {'features': []}
+            
+    def get_feature_info(self, layer: str) -> Dict[str, Any]:
+        """
+        Ruft Informationen über einen Layer ab.
+        
+        Args:
+            layer: Name des WFS-Layers
+            
+        Returns:
+            Dict mit Layer-Informationen
+        """
+        try:
+            layer_info = self.wfs.contents[layer]
+            return {
+                'name': layer_info.id,
+                'title': layer_info.title,
+                'abstract': layer_info.abstract,
+                'bbox': layer_info.boundingBoxWGS84,
+                'crs': layer_info.crsOptions,
+                'properties': self._get_feature_type_info(layer)
+            }
+        except Exception as e:
+            logger.error(f"❌ Fehler beim Abrufen der Layer-Informationen: {str(e)}")
+            return {} 
+
+    def _get_feature_type_info(self, layer: str) -> Dict[str, Any]:
+        """
+        Ruft Informationen über die Eigenschaften eines Feature-Types ab.
+        
+        Args:
+            layer: Name des WFS-Layers
+            
+        Returns:
+            Dict mit Eigenschaftsinformationen
+        """
+        try:
+            # Parameter für DescribeFeatureType
+            params = {
+                'service': 'WFS',
+                'version': self.version,
+                'request': 'DescribeFeatureType',
+                'typeName': layer,
+                'outputFormat': 'application/json'
+            }
+            
+            # Anfrage ausführen
+            response = requests.get(self.url, params=params)
+            response.raise_for_status()
+            
+            # Schema parsen
+            schema = response.json()
+            properties = {}
+            
+            if 'properties' in schema:
+                for prop in schema['properties']:
+                    properties[prop['name']] = {
+                        'type': prop.get('type'),
+                        'description': prop.get('description', ''),
+                        'required': prop.get('required', False)
+                    }
+                    
+            return properties
+            
+        except Exception as e:
+            logger.error(f"❌ Fehler beim Abrufen der Feature-Type-Informationen: {str(e)}")
+            return {} 

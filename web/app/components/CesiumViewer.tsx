@@ -172,32 +172,28 @@ const CesiumViewerComponent = forwardRef<CesiumViewerRef, CesiumViewerComponentP
         content: feature ? (feature as any)._content : null
       });
 
-      // Setze die Farbe des letzten hervorgehobenen Features zurück
-      if (lastHighlightedBatchId.current !== null) {
-        const features = (tileset as any)._selectedTiles?.[0]?.content?.batchTable?._features || [];
-        const lastFeature = features.find((f: any) => f._batchId === lastHighlightedBatchId.current);
-        if (lastFeature) {
-          // Setze die Farbe auf weiß statt undefined
-          lastFeature.color = Color.WHITE.withAlpha(0.6);
-          console.log('🎨 Zurücksetzen der Farbe für BatchId:', lastHighlightedBatchId.current);
+      // Hole alle Features des Tilesets
+      const allFeatures = (tileset as any)._selectedTiles?.reduce((acc: any[], tile: any) => {
+        if (tile.content?.batchTable?._features) {
+          return [...acc, ...tile.content.batchTable._features];
         }
-      }
+        return acc;
+      }, []) || [];
+
+      // Setze alle Features auf die Standardfarbe zurück
+      allFeatures.forEach((f: any) => {
+        if (f._batchId !== batchId) {
+          f.color = Color.WHITE.withAlpha(0.6);
+        }
+      });
 
       // Wenn ein neues Feature ausgewählt wurde, färbe es gelb
-      if (feature) {
-        const yellowColor = Color.YELLOW.withAlpha(0.8);
-        // Stelle sicher, dass das Feature existiert und eine gültige color-Eigenschaft hat
-        if ((feature as any)._content?.batchTable?._features) {
-          const features = (feature as any)._content.batchTable._features;
-          const currentFeature = features.find((f: any) => f._batchId === batchId);
-          if (currentFeature) {
-            currentFeature.color = yellowColor;
-            lastHighlightedBatchId.current = batchId;
-            console.log('🎨 Neue Farbe gesetzt für BatchId:', batchId);
-          }
+      if (feature && batchId !== null) {
+        const currentFeature = allFeatures.find((f: any) => f._batchId === batchId);
+        if (currentFeature) {
+          currentFeature.color = Color.YELLOW.withAlpha(0.8);
+          console.log('🎨 Neue Farbe gesetzt für BatchId:', batchId);
         }
-      } else {
-        lastHighlightedBatchId.current = null;
       }
 
       // Erzwinge ein Re-Rendering des Tilesets
@@ -602,20 +598,56 @@ const CesiumViewerComponent = forwardRef<CesiumViewerRef, CesiumViewerComponentP
 
     const handler = new ScreenSpaceEventHandler(viewer.scene.canvas);
     
-    // Mouse-Over-Handler
     handler.setInputAction((movement: any) => {
-      const pickedObject = viewer.scene.pick(movement.endPosition);
+      // Verwende die originale Mausposition
+      const scene = viewer.scene;
+      const camera = scene.camera;
       
-      if (pickedObject instanceof Cesium3DTileFeature) {
-        const tileset = loadedTilesets.get(selectedTilesetId);
-        if (tileset) {
-          highlightFeature(pickedObject, tileset);
-        }
+      // Erstelle einen Ray von der Kamera durch den Mauspunkt
+      const ray = camera.getPickRay(movement.endPosition);
+      
+      if (!ray) {
+        console.log('❌ Kein gültiger Pick-Ray erstellt');
+        return;
+      }
+
+      // Debug-Ausgabe für Ray und Kamera
+      console.log('📍 Pick Details:', {
+        mousePosition: movement.endPosition,
+        cameraPosition: camera.position,
+        rayDirection: ray.direction,
+        rayOrigin: ray.origin
+      });
+
+      // Führe den Pick mit dem Ray durch
+      const pickedObject = scene.pickFromRay({
+        ray: ray,
+        scene: scene,
+        width: 1,
+        height: 1
+      });
+
+      // Alternative Pick-Methode als Fallback
+      let feature = null;
+      if (pickedObject && pickedObject.object instanceof Cesium3DTileFeature) {
+        feature = pickedObject.object;
       } else {
-        const tileset = loadedTilesets.get(selectedTilesetId);
-        if (tileset) {
-          highlightFeature(null, tileset);
+        // Fallback auf normales Pick wenn Ray-Pick nichts findet
+        const regularPick = scene.pick(movement.endPosition);
+        if (regularPick instanceof Cesium3DTileFeature) {
+          feature = regularPick;
         }
+      }
+
+      const tileset = loadedTilesets.get(selectedTilesetId);
+      if (tileset) {
+        if (feature) {
+          console.log('🎯 Feature gefunden:', {
+            method: pickedObject ? 'ray' : 'regular',
+            batchId: (feature as any)._batchId
+          });
+        }
+        highlightFeature(feature, tileset);
       }
     }, ScreenSpaceEventType.MOUSE_MOVE);
 

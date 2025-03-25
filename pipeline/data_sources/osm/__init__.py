@@ -1,15 +1,13 @@
 """
-OSM-Modul für die Verarbeitung von OpenStreetMap-Daten.
+OSM-Modul für den Zugriff auf OpenStreetMap-Daten.
 """
 
-from .client import OSMBaseClient
-from .geometry import OSMGeometryProcessor
-from .attributes import OSMAttributeProcessor
-from .config import OSMConfig
+from .client import OSMClient
+from .geometry import OSMGeometry
+from .stream import OSMStream
 
 __all__ = [
-    'OSMBaseClient',
-    'OSMGeometryProcessor',
-    'OSMAttributeProcessor',
-    'OSMConfig'
+    'OSMClient',
+    'OSMGeometry',
+    'OSMStream'
 ] 

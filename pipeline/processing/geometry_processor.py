@@ -115,8 +115,39 @@ class GeometryProcessor(BaseProcessor):
             # Entferne ungültige Geometrien
             valid_mask = gdf.geometry.is_valid
             if not valid_mask.all():
-                self.logger.warning(f"⚠️ {(~valid_mask).sum()} ungültige Geometrien gefunden")
-                gdf = gdf[valid_mask].copy()
+                invalid_count = (~valid_mask).sum()
+                self.logger.warning(f"⚠️ {invalid_count} ungültige Geometrien gefunden")
+                
+                # Versuche Reparatur
+                repaired = gdf.copy()
+                for idx in repaired[~valid_mask].index:
+                    try:
+                        # Versuche verschiedene Reparaturmethoden
+                        geom = repaired.loc[idx, 'geometry']
+                        if not geom.is_valid:
+                            # Methode 1: Buffer mit 0
+                            fixed = geom.buffer(0)
+                            if fixed.is_valid and fixed.area > 0:
+                                repaired.loc[idx, 'geometry'] = fixed
+                                continue
+                                
+                            # Methode 2: Vereinfache
+                            fixed = geom.simplify(self.simplify_tolerance)
+                            if fixed.is_valid and fixed.area > 0:
+                                repaired.loc[idx, 'geometry'] = fixed
+                                continue
+                                
+                            # Methode 3: Konvexe Hülle
+                            fixed = geom.convex_hull
+                            if fixed.is_valid and fixed.area > 0:
+                                repaired.loc[idx, 'geometry'] = fixed
+                                continue
+                                
+                    except Exception as e:
+                        self.logger.warning(f"Reparatur fehlgeschlagen für Geometrie {idx}: {str(e)}")
+                        
+                # Entferne verbleibende ungültige Geometrien
+                gdf = repaired[repaired.geometry.is_valid].copy()
                 
             # Konvertiere MultiPolygone zu Polygonen
             if any(gdf.geometry.type == 'MultiPolygon'):
@@ -191,6 +222,12 @@ class GeometryProcessor(BaseProcessor):
             exploded = multis.explode(index_parts=True)
             exploded = exploded.reset_index(drop=True)
             
+            # Validiere explodierte Geometrien
+            valid_mask = exploded.geometry.is_valid & (exploded.geometry.area > 0)
+            if not valid_mask.all():
+                self.logger.warning(f"⚠️ {(~valid_mask).sum()} ungültige Geometrien nach Explosion")
+                exploded = exploded[valid_mask]
+                
             # Kombiniere zurück
             result = pd.concat([singles, exploded], ignore_index=True)
             
@@ -202,7 +239,7 @@ class GeometryProcessor(BaseProcessor):
             
     def simplify_geometries(self, gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
         """
-        Vereinfacht die Geometrien.
+        Vereinfacht die Geometrien mit adaptiver Toleranz.
         
         Args:
             gdf: Eingabe-GeoDataFrame
@@ -211,12 +248,26 @@ class GeometryProcessor(BaseProcessor):
             GeoDataFrame mit vereinfachten Geometrien
         """
         try:
-            tolerance = float(self.config.get('simplify_tolerance', 0.1))
+            # Kopiere DataFrame
+            simplified = gdf.copy()
             
-            self.logger.info(f"🔄 Vereinfache Geometrien (Toleranz: {tolerance})")
-            gdf.geometry = gdf.geometry.simplify(tolerance, preserve_topology=True)
-            
-            return gdf
+            # Vereinfache jede Geometrie
+            for idx, row in simplified.iterrows():
+                geom = row.geometry
+                if not geom.is_valid or geom.area <= 0:
+                    continue
+                    
+                # Versuche verschiedene Toleranzen
+                for tolerance in [self.simplify_tolerance, self.simplify_tolerance * 2]:
+                    try:
+                        simple = geom.simplify(tolerance)
+                        if simple.is_valid and simple.area > 0:
+                            simplified.loc[idx, 'geometry'] = simple
+                            break
+                    except:
+                        continue
+                        
+            return simplified
             
         except Exception as e:
             self.logger.error(f"❌ Fehler bei Geometrievereinfachung: {str(e)}")

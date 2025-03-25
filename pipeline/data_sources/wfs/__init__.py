@@ -1,15 +1,15 @@
 """
-WFS-Paket für die Verarbeitung von WFS-Daten.
+WFS-Modul für den Zugriff auf WFS-Dienste.
 """
 
-from .client import WFSBaseClient
+from .client import WFSClient
 from .config import WFSConfig
-from .stream import WFSStreamHandler
-from .geometry import WFSGeometryProcessor
+from .geometry import WFSGeometry
+from .stream import WFSStream
 
 __all__ = [
-    'WFSBaseClient',
+    'WFSClient',
     'WFSConfig',
-    'WFSStreamHandler',
-    'WFSGeometryProcessor'
+    'WFSGeometry',
+    'WFSStream'
 ] 

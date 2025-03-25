@@ -1,0 +1,74 @@
+# Writer-Regeln
+
+## CEA-Ausgabeformate
+
+### zone.shp
+- Geometrie: Gebäudegrundrisse (MultiPolygon)
+- CRS: EPSG:2056 (CH1903+ / LV95)
+- Pflichtfelder:
+  - Name (str): Eindeutiger Identifikator
+  - floors_ag (int): Oberirdische Geschosse
+  - floors_bg (int): Unterirdische Geschosse [default=1]
+  - height_ag (float): Höhe über Grund [m]
+  - height_bg (float): Höhe unter Grund [m] [default=3.0]
+  - REFERENCE (str): Datenquelle
+  - city (str): Stadt [default="Wien"]
+  - country (str): Land [default="Austria"]
+- Optionale Felder:
+  - house_no (str): Hausnummer
+  - street (str): Straßenname
+  - postcode (str): Postleitzahl
+  - house_name (str): Gebäudename
+  - resi_type (str): Wohnungstyp
+
+### typology.shp
+- Referenz auf zone.shp via Name-Feld
+- Pflichtfelder:
+  - Name (str): Eindeutiger Identifikator
+  - YEAR (int): Baujahr
+  - STANDARD (str): Gebäudestandard
+  - 1ST_USE (str): Primäre Nutzung
+  - REFERENCE (str): Datenquelle
+- Optionale Felder:
+  - 1ST_USER (str): Primärer Nutzer
+  - 2ND_USE (str): Sekundäre Nutzung
+  - 2ND_USER (str): Sekundärer Nutzer
+  - 3RD_USE (str): Tertiäre Nutzung
+  - 3RD_USER (str): Tertiärer Nutzer
+
+### surroundings.shp
+- Umgebungsgebäude als Verschattungsobjekte
+- Vereinfachte Geometrien (LOD1)
+- Minimale Attributinformationen
+- Buffer-Zone um Projektgebiet
+
+### streets.shp
+- Straßennetzwerk als Linien
+- Verknüpfung mit Gebäudezugängen
+- Routing-relevante Attribute
+- Topologische Korrektheit
+
+### config.yml
+- Projekteinstellungen
+- Verarbeitungsparameter
+- Mapping-Konfiguration
+- Metadaten und Provenienz
+
+## Validierungsregeln
+
+### Geometrie
+- Keine ungültigen Geometrien
+- Keine Selbstüberschneidungen
+- Minimale Gebäudefläche: 10m²
+- Maximale Vertices pro Polygon: 100
+
+### Attribute
+- Keine NULL-Werte in Pflichtfeldern
+- Wertebereichsprüfungen:
+  - floors_ag > 0
+  - floors_bg >= 0
+  - height_ag > 0
+  - height_bg >= 0
+  - YEAR > 1800
+- Referenzielle Integrität zwischen zone.shp und typology.shp
+- Standardwerte für fehlende optionale Felder 

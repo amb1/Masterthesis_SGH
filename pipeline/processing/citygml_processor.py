@@ -15,6 +15,7 @@ from shapely.geometry import Polygon, MultiPolygon
 from pipeline.processing.base_processor import BaseProcessor
 from .geometry_processor import GeometryProcessor
 from .attribute_processor import AttributeProcessor
+from pipeline.data_sources.citygml_fetcher import CityGMLBuildingProcessor
 
 logger = logging.getLogger(__name__)
 
@@ -37,33 +38,19 @@ class CityGMLProcessor(BaseProcessor):
         # Lade CityGML-spezifische Konfiguration
         self.citygml_config = config.get('citygml', {})
         
-    def process(self, citygml_data: Dict[str, Any]) -> Dict[str, Any]:
+        self.building_processor = CityGMLBuildingProcessor(config)
+        
+    def process(self, citygml_path: str) -> gpd.GeoDataFrame:
         """
-        Verarbeitet CityGML-Daten.
+        Verarbeitet CityGML-Daten und gibt ein GeoDataFrame zurück.
         
         Args:
-            citygml_data: CityGML-Gebäudedaten
+            citygml_path: Pfad zur CityGML-Datei
             
         Returns:
-            Verarbeitete Gebäudedaten
+            GeoDataFrame mit verarbeiteten Gebäudedaten
         """
-        try:
-            if not self.validate_input(citygml_data):
-                return {}
-                
-            # Extrahiere und verarbeite Gebäude
-            processed_buildings = self._process_buildings(citygml_data)
-            if not processed_buildings:
-                logger.warning("⚠️ Keine Gebäudedaten verarbeitet")
-                return {}
-                
-            return {
-                'buildings': processed_buildings
-            }
-            
-        except Exception as e:
-            self.handle_error(e, "citygml_processing")
-            return {}
+        return self.building_processor.process_citygml(citygml_path)
             
     def validate_input(self, citygml_data: Dict[str, Any]) -> bool:
         """

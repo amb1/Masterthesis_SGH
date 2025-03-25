@@ -1,0 +1,30 @@
+# Orchestrierungs-Regeln
+
+## Pipeline-Struktur
+
+### Komponenten
+- Datenquellen
+  - CityGML (citygml_fetcher.py, client.py, geometry.py, attributes.py)
+  - WFS (wfs_fetcher.py, client.py, geometry.py, stream.py)
+  - OSM (osm_fetcher.py, client.py, geometry.py, attributes.py)
+- Core Utilities
+  - config_manager.py (Konfigurationsverwaltung)
+  - project_paths.py (Pfadmanagement)
+  - logging_config.py (Logging)
+  - utilities.py (Hilfsfunktionen)
+- Prozessoren
+  - cea_processor.py (Hauptkoordinator)
+  - cea_mapper.py (Attribut-Mapping)
+  - transformations.py (Datentransformationen)
+  - geometry_processor.py (Geometrieverarbeitung)
+  - network_processor.py (Straßennetzwerk)
+- Writer
+  - Gebäude (zone.shp, typology.shp, surroundings.shp)
+  - Netzwerke (streets.shp)
+  - Konfiguration (config.yml)
+
+### Datenfluss
+- Fetcher produzieren standardisierte GeoDataFrames
+- Core Utilities unterstützen alle Komponenten
+- Prozessoren transformieren Daten ins CEA-Format
+- Writer speichern Ergebnisse in definierten Formaten 
