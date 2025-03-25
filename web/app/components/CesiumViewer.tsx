@@ -31,7 +31,8 @@ import {
   Ray,
   IntersectionTests,
   Plane,
-  Cartesian2
+  Cartesian2,
+  BoundingSphere
 } from "cesium";
 import { X, ArrowLeft, Settings } from 'lucide-react';
 import LayerSidebar from './LayerSidebar';
@@ -159,59 +160,94 @@ const CesiumViewerComponent = forwardRef<CesiumViewerRef, CesiumViewerComponentP
   }, [viewer, token]);
 
   const highlightFeature = useCallback((feature: Cesium3DTileFeature | null, tileset: Cesium3DTileset) => {
-    if (!tileset) return;
+    if (!tileset || !viewer) return;
 
     try {
-      // Erstelle einen Stil, der versteckte Features berücksichtigt
+      // Debug: Zeige Feature-Details
+      if (feature) {
+        console.log('Feature Details:', {
+          batchId: (feature as any)._batchId,
+          content: (feature as any)._content,
+          properties: feature.getPropertyIds([]),
+          hasStyle: !!tileset.style,
+          featureColor: (feature as any)._color,
+          featureShow: (feature as any)._show,
+          featureReady: (feature as any)._ready
+        });
+      }
+
+      // Erstelle einen Stil für das Highlighting
       const styleConditions: [string, string][] = [];
       
       // Füge Bedingungen für versteckte Features hinzu
       hiddenFeatures.forEach(hidden => {
         if (hidden.tilesetId === selectedTilesetId) {
-          styleConditions.push([
-            `\${id} === '${hidden.featureId}' || \${gmlid} === '${hidden.featureId}' || \${fid} === '${hidden.featureId}'`, 
-            'color("transparent", 0.0)'
-          ]);
+          const condition = `\${_batchId} === ${hidden.featureId}`;
+          console.log('Adding hide condition:', condition);
+          styleConditions.push([condition, 'rgba(0, 0, 0, 0)']);
         }
       });
 
-      // Füge Bedingung für das ausgewählte Feature hinzu
       if (feature) {
-        const featureId = feature.getProperty('id') || 
-                         feature.getProperty('gmlid') ||
-                         feature.getProperty('fid');
-        
-        styleConditions.push([
-          `\${id} === '${featureId}' || \${gmlid} === '${featureId}' || \${fid} === '${featureId}'`, 
-          'color("yellow", 1.0)'
-        ]);
+        const batchId = (feature as any)._batchId;
+        console.log('Highlighting Feature mit Batch ID:', batchId);
+
+        // Färbe das ausgewählte Feature gelb ein und mache es halbtransparent
+        const highlightCondition = `\${_batchId} === ${batchId}`;
+        console.log('Adding highlight condition:', highlightCondition);
+        styleConditions.push([highlightCondition, 'rgba(255, 255, 0, 0.5)']);
       }
 
-      // Füge Standardfarbe für alle anderen Features hinzu
-      styleConditions.push(['true', 'color("white", 1.0)']);
+      // Alle anderen Features normal anzeigen
+      styleConditions.push(['true', 'rgba(255, 255, 255, 1.0)']);
 
+      // Debug: Zeige den kompletten Stil
+      console.log('Final style:', {
+        conditions: styleConditions,
+        tilesetHasStyle: !!tileset.style,
+        tilesetShow: tileset.show,
+        tilesetReady: tileset.ready,
+        tilesetMaximumScreenSpaceError: tileset.maximumScreenSpaceError,
+        tilesetMaximumMemoryUsage: (tileset as any).maximumMemoryUsage,
+        tilesetPreloadFlightDestinations: (tileset as any).preloadFlightDestinations,
+        tilesetPreferLeaves: (tileset as any).preferLeaves
+      });
+
+      // Setze den Stil für das Tileset
       const style = new Cesium3DTileStyle({
         color: {
           conditions: styleConditions
-        },
-        show: {
-          conditions: [
-            ...hiddenFeatures
-              .filter(hidden => hidden.tilesetId === selectedTilesetId)
-              .map(hidden => [
-                `\${id} === '${hidden.featureId}' || \${gmlid} === '${hidden.featureId}' || \${fid} === '${hidden.featureId}'`,
-                false
-              ]),
-            ['true', true]
-          ]
         }
       });
 
-      tileset.style = style;
+      // Debug: Zeige den erstellten Style
+      console.log('Created style:', {
+        style: style,
+        styleReady: (style as any)._ready,
+        styleColor: (style as any)._color,
+        styleConditions: (style as any)._conditions
+      });
+
+      // Warte bis der Stil bereit ist und wende ihn an
+      Promise.resolve().then(() => {
+        tileset.style = style;
+        console.log('Style applied successfully');
+        
+        // Debug: Überprüfe den Style nach der Anwendung
+        console.log('Style after application:', {
+          tilesetStyle: tileset.style,
+          tilesetStyleReady: (tileset.style as any)?._ready,
+          tilesetStyleColor: (tileset.style as any)?._color,
+          tilesetStyleConditions: (tileset.style as any)?._conditions
+        });
+      }).catch(err => {
+        console.error('Error applying style:', err);
+      });
+
     } catch (err) {
       console.error('Fehler beim Hervorheben des Features:', err);
     }
-  }, [hiddenFeatures, selectedTilesetId]);
+  }, [hiddenFeatures, selectedTilesetId, viewer]);
 
   const handleFeatureClick = useCallback(async (movement: any) => {
     if (!viewer || !selectedTilesetId) return;
@@ -225,6 +261,10 @@ const CesiumViewerComponent = forwardRef<CesiumViewerRef, CesiumViewerComponentP
       try {
         // Debug: Zeige das komplette Feature-Objekt
         console.log('Picked Object:', pickedObject);
+
+        // Hole die batchId als Feature-ID
+        const batchId = (pickedObject as any)._batchId;
+        console.log('Batch ID:', batchId);
 
         // Versuche alle verfügbaren Property IDs zu bekommen
         const propertyIds = pickedObject.getPropertyIds([]);
@@ -243,15 +283,6 @@ const CesiumViewerComponent = forwardRef<CesiumViewerRef, CesiumViewerComponentP
               propertyDescriptions: batchTable._propertyTable._propertyDescriptions
             });
           }
-        }
-
-        // Versuche den batchId zu bekommen und die entsprechenden Features
-        const batchId = (pickedObject as any)._batchId;
-        console.log('Batch ID:', batchId);
-        
-        if (batchTable && batchId !== undefined) {
-          const feature = batchTable._features[batchId];
-          console.log('Feature from Batch Table:', feature);
         }
 
         // Versuche alle Properties über verschiedene Methoden zu sammeln
@@ -370,6 +401,10 @@ const CesiumViewerComponent = forwardRef<CesiumViewerRef, CesiumViewerComponentP
   const toggleFeatureVisibility = useCallback((featureId: string) => {
     if (!selectedTilesetId) return;
 
+    // Konvertiere die Feature-ID zu einer Nummer, da wir jetzt mit batchId arbeiten
+    const batchId = Number(featureId);
+    if (isNaN(batchId)) return;
+
     setHiddenFeatures(prev => {
       const isHidden = prev.some(hidden => 
         hidden.featureId === featureId && hidden.tilesetId === selectedTilesetId
@@ -441,16 +476,27 @@ const CesiumViewerComponent = forwardRef<CesiumViewerRef, CesiumViewerComponentP
       setLoadingAssets(true);
       setError(null);
 
-      const tileset = await Cesium3DTileset.fromIonAssetId(assetId);
+      const tileset = await Cesium3DTileset.fromIonAssetId(assetId, {
+        maximumScreenSpaceError: 8,
+        preloadFlightDestinations: true,
+        preferLeaves: true,
+        skipLevelOfDetail: false,
+        baseScreenSpaceError: 1024,
+        skipScreenSpaceErrorFactor: 16,
+        skipLevels: 1,
+        immediatelyLoadDesiredLevelOfDetail: false,
+        loadSiblings: true,
+        cullRequestsWhileMoving: true,
+        cullRequestsWhileMovingMultiplier: 0.5,
+        preloadWhenHidden: true,
+        dynamicScreenSpaceError: true,
+        dynamicScreenSpaceErrorDensity: 0.00278,
+        dynamicScreenSpaceErrorFactor: 4.0,
+        dynamicScreenSpaceErrorHeightFalloff: 0.25
+      });
       
-      // Verbesserte Darstellung für 3D-Gebäude
-      tileset.maximumScreenSpaceError = 8; // Höhere Detailgenauigkeit
-      
-      // Optimierte Darstellungseinstellungen
-      tileset.preloadWhenHidden = true;
-      tileset.loadSiblings = true;
-      tileset.cullRequestsWhileMoving = true;
-      tileset.cullRequestsWhileMovingMultiplier = 0.5;
+      // Aktiviere Terrain-Collision
+      viewer.scene.globe.depthTestAgainstTerrain = true;
 
       // Standardmäßig alle Properties aktivieren
       (tileset as ExtendedCesium3DTileset).selectedProperties = [
@@ -469,12 +515,11 @@ const CesiumViewerComponent = forwardRef<CesiumViewerRef, CesiumViewerComponentP
         return next;
       });
 
-      await viewer.zoomTo(tileset, new HeadingPitchRange(0, -0.5, 0));
-
-      const extras = tileset.asset.extras;
-      if (extras?.ion?.defaultStyle) {
-        tileset.style = new Cesium3DTileStyle(extras.ion.defaultStyle);
-      }
+      // Initiale Kameraposition
+      viewer.zoomTo(
+        tileset,
+        new HeadingPitchRange(0.0, -0.5, tileset.boundingSphere.radius / 4.0)
+      );
 
       setSelectedTilesetId(assetId);
 
@@ -510,6 +555,109 @@ const CesiumViewerComponent = forwardRef<CesiumViewerRef, CesiumViewerComponentP
     }
   };
 
+  // Eigenschaftsgruppen und Übersetzungen definieren
+  const PROPERTY_GROUPS: Record<string, { label: string; properties: string[] }> = {
+    identification: {
+      label: 'Identifikation',
+      properties: ['ID', 'Name', 'gml:id', 'gml:name', 'Blattnummer']
+    },
+    geometry: {
+      label: 'Geometrie',
+      properties: ['Height', 'TerrainHeight', 'Latitude', 'Longitude']
+    },
+    building: {
+      label: 'Gebäude',
+      properties: ['HoeheDach', 'HoeheGrund', 'NiedrigsteTraufeDesGebaeudes', 'bldg:measuredheight', 'bldg:rooftype']
+    },
+    metadata: {
+      label: 'Metadaten',
+      properties: ['Erstellungsdatum', 'core:creationdate']
+    }
+  };
+
+  const PROPERTY_TRANSLATIONS: Record<string, string> = {
+    'Height': 'Höhe',
+    'TerrainHeight': 'Geländehöhe',
+    'Latitude': 'Breitengrad',
+    'Longitude': 'Längengrad',
+    'core:creationdate': 'Erstellungsdatum',
+    'gml:id': 'GML ID',
+    'gml:name': 'GML Name',
+    'Blattnummer': 'Blattnummer',
+    'HoeheDach': 'Dachhöhe',
+    'HoeheGrund': 'Grundhöhe',
+    'NiedrigsteTraufeDesGebaeudes': 'Niedrigste Traufe',
+    'bldg:measuredheight': 'Gemessene Höhe',
+    'bldg:rooftype': 'Dachtyp',
+    'ID': 'ID',
+    'Name': 'Name'
+  };
+
+  const formatValue = (key: string, value: any): string => {
+    // Formatiere den Wert basierend auf dem Eigenschaftstyp
+    if (typeof value === 'number') {
+      // Höhenangaben mit 2 Dezimalstellen und Einheit
+      if (key.toLowerCase().includes('height') || 
+          key.toLowerCase().includes('hoehe') || 
+          key.toLowerCase().includes('traufe')) {
+        return `${value.toFixed(2)} m`;
+      }
+      // Koordinaten mit 6 Dezimalstellen
+      if (key === 'Latitude' || key === 'Longitude') {
+        return value.toFixed(6) + '°';
+      }
+      // Andere Zahlen normal formatieren
+      return value.toLocaleString('de-DE');
+    }
+    // Datumsformatierung
+    if (key.includes('date') || key.includes('datum')) {
+      try {
+        return new Date(value).toLocaleDateString('de-DE');
+      } catch {
+        return value;
+      }
+    }
+    return value.toString();
+  };
+
+  // Timeline-Steuerung
+  if (viewer) {
+    const timeline = viewer.timeline?.container as HTMLElement;
+    const animation = viewer.animation?.container as HTMLElement;
+    if (timeline) timeline.style.visibility = showTimeline ? 'visible' : 'hidden';
+    if (animation) animation.style.visibility = showTimeline ? 'visible' : 'hidden';
+  }
+
+  // Füge Mouse-Over-Effekt hinzu
+  useEffect(() => {
+    if (!viewer || !selectedTilesetId) return;
+
+    const handler = new ScreenSpaceEventHandler(viewer.scene.canvas);
+    
+    // Mouse-Over-Handler
+    handler.setInputAction((movement: any) => {
+      const pickedObject = viewer.scene.pick(movement.endPosition);
+      
+      if (pickedObject instanceof Cesium3DTileFeature) {
+        const tileset = loadedTilesets.get(selectedTilesetId);
+        if (tileset) {
+          highlightFeature(pickedObject, tileset);
+        }
+      } else {
+        const tileset = loadedTilesets.get(selectedTilesetId);
+        if (tileset) {
+          highlightFeature(null, tileset);
+        }
+      }
+    }, ScreenSpaceEventType.MOUSE_MOVE);
+
+    return () => {
+      if (handler && !handler.isDestroyed()) {
+        handler.destroy();
+      }
+    };
+  }, [viewer, selectedTilesetId, highlightFeature, loadedTilesets]);
+
   return (
     <div className="relative w-full h-full">
       <div id="cesiumContainer" className="w-full h-full" />
@@ -544,14 +692,22 @@ const CesiumViewerComponent = forwardRef<CesiumViewerRef, CesiumViewerComponentP
               });
             }
           }}
+          onSettingsClick={(assetId) => {
+            const tileset = loadedTilesets.get(assetId);
+            if (tileset) {
+              // Öffne die Einstellungen für dieses Asset
+              onToggleSettings();
+              setSelectedTilesetId(assetId);
+            }
+          }}
         />
       )}
 
       {/* Settings Sidebar */}
-      {showSettings && (
-        <div className="absolute top-0 right-0 h-full w-80 bg-white shadow-lg z-50 flex flex-col">
+      {showSettings && selectedTilesetId && (
+        <div className="absolute top-0 right-80 h-full w-80 bg-white shadow-lg z-50 flex flex-col">
           <div className="flex justify-between items-center p-4 border-b">
-            <h2 className="text-lg font-semibold">Einstellungen</h2>
+            <h2 className="text-lg font-semibold">Asset Einstellungen</h2>
             <button 
               onClick={onToggleSettings}
               className="text-gray-500 hover:text-gray-700"
@@ -560,18 +716,58 @@ const CesiumViewerComponent = forwardRef<CesiumViewerRef, CesiumViewerComponentP
             </button>
           </div>
           <div className="p-4 space-y-4">
-            <div className="flex items-center justify-between">
-              <span>Timeline anzeigen</span>
-              <button
-                onClick={() => setShowTimeline(!showTimeline)}
-                className={`px-3 py-1 rounded ${
-                  showTimeline ? 'bg-blue-500 text-white' : 'bg-gray-200'
-                }`}
-              >
-                {showTimeline ? 'An' : 'Aus'}
-              </button>
+            <div>
+              <h3 className="font-medium mb-2">Darstellung</h3>
+              <div className="space-y-2">
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={showTimeline}
+                    onChange={(e) => {
+                      setShowTimeline(e.target.checked);
+                      if (viewer) {
+                        viewer.timeline.container.style.visibility = e.target.checked ? 'visible' : 'hidden';
+                        viewer.animation.container.style.visibility = e.target.checked ? 'visible' : 'hidden';
+                      }
+                    }}
+                    className="rounded"
+                  />
+                  <span>Timeline anzeigen</span>
+                </label>
+                <div className="space-y-2">
+                  <label className="block">
+                    <span className="text-sm text-gray-600">Detailgrad</span>
+                    <select
+                      className="mt-1 block w-full rounded border-gray-300"
+                      value={loadedTilesets.get(selectedTilesetId)?.maximumScreenSpaceError || 8}
+                      onChange={(e) => {
+                        const tileset = loadedTilesets.get(selectedTilesetId);
+                        if (tileset) {
+                          const newError = Number(e.target.value);
+                          tileset.maximumScreenSpaceError = newError;
+                          
+                          // Aktualisiere auch andere relevante Einstellungen
+                          tileset.maximumMemoryUsage = newError <= 4 ? 2048 : 1024;
+                          tileset.preloadFlightDestinations = newError <= 8;
+                          tileset.preferLeaves = newError <= 4;
+                          
+                          // Aktualisiere den State
+                          setLoadedTilesets(new Map(loadedTilesets));
+                        }
+                      }}
+                    >
+                      <option value="16">Niedrig (bessere Performance)</option>
+                      <option value="8">Mittel</option>
+                      <option value="4">Hoch</option>
+                      <option value="2">Sehr hoch (beste Qualität)</option>
+                    </select>
+                  </label>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Niedrigere Werte bedeuten höhere Qualität, aber können die Performance beeinträchtigen
+                  </p>
+                </div>
+              </div>
             </div>
-            {/* Weitere Einstellungen hier */}
           </div>
         </div>
       )}
@@ -620,28 +816,77 @@ const CesiumViewerComponent = forwardRef<CesiumViewerRef, CesiumViewerComponentP
               </button>
             </div>
           </div>
-          <div className="space-y-2">
-            {Object.entries(selectedFeature.properties)
-              .filter(([key, value]) => 
-                value !== undefined && 
-                value !== null && 
-                value !== '' &&
-                typeof value !== 'object' &&
-                !key.startsWith('_') // Ignoriere interne Properties
-              )
-              .sort(([keyA], [keyB]) => keyA.localeCompare(keyB)) // Sortiere alphabetisch
-              .map(([key, value]) => (
-                <div key={key} className="flex">
-                  <span className="font-medium w-1/3 text-gray-600">
-                    {key.split(/(?=[A-Z])|_/).map(word => 
-                      word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
-                    ).join(' ')}:
-                  </span>
-                  <span className="w-2/3">
-                    {typeof value === 'number' ? value.toLocaleString('de-DE') : value.toString()}
-                  </span>
+          <div className="space-y-4">
+            {Object.entries(PROPERTY_GROUPS).map(([groupKey, group]) => {
+              const groupProperties = Object.entries(selectedFeature.properties)
+                .filter(([key, value]) => 
+                  group.properties.includes(key) &&
+                  value !== undefined && 
+                  value !== null && 
+                  value !== '' &&
+                  typeof value !== 'object' &&
+                  !key.startsWith('_')
+                );
+
+              if (groupProperties.length === 0) return null;
+
+              return (
+                <div key={groupKey} className="border-t pt-2 first:border-t-0 first:pt-0">
+                  <h4 className="font-medium text-gray-700 mb-2">{group.label}</h4>
+                  <div className="space-y-1">
+                    {groupProperties
+                      .sort(([keyA], [keyB]) => keyA.localeCompare(keyB))
+                      .map(([key, value]) => (
+                        <div key={key} className="flex text-sm">
+                          <span className="font-medium w-1/2 text-gray-600">
+                            {PROPERTY_TRANSLATIONS[key] || key}:
+                          </span>
+                          <span className="w-1/2">
+                            {formatValue(key, value)}
+                          </span>
+                        </div>
+                      ))}
+                  </div>
                 </div>
-              ))}
+              );
+            })}
+            
+            {/* Nicht gruppierte Eigenschaften */}
+            {(() => {
+              const ungroupedProperties = Object.entries(selectedFeature.properties)
+                .filter(([key, value]) => 
+                  !Object.values(PROPERTY_GROUPS)
+                    .flatMap(group => group.properties)
+                    .includes(key) &&
+                  value !== undefined && 
+                  value !== null && 
+                  value !== '' &&
+                  typeof value !== 'object' &&
+                  !key.startsWith('_')
+                );
+
+              if (ungroupedProperties.length === 0) return null;
+
+              return (
+                <div className="border-t pt-2">
+                  <h4 className="font-medium text-gray-700 mb-2">Weitere Eigenschaften</h4>
+                  <div className="space-y-1">
+                    {ungroupedProperties
+                      .sort(([keyA], [keyB]) => keyA.localeCompare(keyB))
+                      .map(([key, value]) => (
+                        <div key={key} className="flex text-sm">
+                          <span className="font-medium w-1/2 text-gray-600">
+                            {PROPERTY_TRANSLATIONS[key] || key}:
+                          </span>
+                          <span className="w-1/2">
+                            {formatValue(key, value)}
+                          </span>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </div>
       )}

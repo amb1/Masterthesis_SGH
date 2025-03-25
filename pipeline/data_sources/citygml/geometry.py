@@ -7,6 +7,7 @@ from typing import Dict, Any, Optional, List, Tuple, Union
 import numpy as np
 from shapely.geometry import Polygon, MultiPolygon
 from lxml import etree
+import geopandas as gpd
 
 class CityGMLGeometryProcessor:
     """Prozessor für CityGML-Geometrien."""
@@ -25,6 +26,9 @@ class CityGMLGeometryProcessor:
         # Extrahiere Validierungsparameter
         self.validation = config.get('validation', {})
         self.min_area = float(self.validation.get('min_area', 10.0))
+        
+        # CRS aus der Konfiguration oder Standard
+        self.crs = config.get('crs', 'EPSG:31256')
         
     def extract_building_footprint(self, building: etree.Element) -> Optional[Union[Polygon, MultiPolygon]]:
         """Extrahiert die Grundfläche eines Gebäudes.
@@ -72,9 +76,14 @@ class CityGMLGeometryProcessor:
             if not footprints:
                 return None
             elif len(footprints) == 1:
-                return footprints[0]
+                # Erstelle GeoDataFrame mit einem Polygon
+                gdf = gpd.GeoDataFrame(geometry=[footprints[0]], crs=self.crs)
+                return gdf.geometry[0]
             else:
-                return MultiPolygon(footprints)
+                # Erstelle GeoDataFrame mit MultiPolygon
+                multi_polygon = MultiPolygon(footprints)
+                gdf = gpd.GeoDataFrame(geometry=[multi_polygon], crs=self.crs)
+                return gdf.geometry[0]
                 
         except Exception as e:
             self.logger.error(f"❌ Fehler beim Extrahieren der Grundfläche: {str(e)}")

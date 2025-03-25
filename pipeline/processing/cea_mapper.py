@@ -8,8 +8,13 @@ von Gebäudedaten im CEA-Format.
 import random
 import pandas as pd
 import geopandas as gpd
-from typing import Tuple, Dict, Any, Optional
+from typing import Tuple, Dict, Any, Optional, Union, List
 from lxml import etree
+import logging
+from pathlib import Path
+import yaml
+
+logger = logging.getLogger(__name__)
 
 def get_year_and_suffix(period_str: str, config: Dict[str, Any]) -> Tuple[int, str]:
     """
@@ -94,206 +99,269 @@ def enrich_building_data(buildings_gdf: gpd.GeoDataFrame, wfs_data: Dict[str, An
     return enriched_gdf
 
 class CEAMapper:
-    """Mapper für CEA-Gebäudedaten."""
-
+    """
+    Mapper für CEA-Felder aus verschiedenen Datenquellen.
+    
+    Implementiert die Interface-Regeln aus base/053-interfaces.
+    """
+    
     def __init__(self, config: Dict[str, Any]):
         """
         Initialisiert den CEA-Mapper.
-
+        
         Args:
-            config: Die Mapping-Konfiguration
+            config: Mapping-Konfiguration mit Feldmappings und Validierungsregeln
         """
         self.config = config
+        self.validation_rules = config.get("validation", {})
+        self.field_mappings = self._load_field_mappings()
+        
+        # Standard-Namespaces für CityGML
         self.namespaces = {
             'gml': 'http://www.opengis.net/gml',
-            'bldg': 'http://www.opengis.net/citygml/building/2.0',
+            'bldg': 'http://www.opengis.net/citygml/building/1.0',
+            'bldg2': 'http://www.opengis.net/citygml/building/2.0',
             'xAL': 'urn:oasis:names:tc:ciq:xsdschema:xAL:2.0',
             'core': 'http://www.opengis.net/citygml/2.0',
             'gen': 'http://www.opengis.net/citygml/generics/2.0'
         }
-
-    def map_field(self, field_name: str, citygml_data: Optional[etree._Element] = None,
-                  wfs_data: Optional[Dict[str, Any]] = None) -> Any:
-        """
-        Mappt ein Feld basierend auf den verfügbaren Datenquellen.
-
-        Args:
-            field_name: Name des zu mappenden Feldes
-            citygml_data: CityGML-Daten als XML-Element
-            wfs_data: WFS-Daten als Dictionary
-
-        Returns:
-            Der gemappte Wert
-        """
-        if field_name not in self.config['zone_mappings'] and field_name not in self.config['typology_mappings']:
-            return None
-
-        mapping = (self.config['zone_mappings'].get(field_name) or 
-                  self.config['typology_mappings'].get(field_name))
-
-        # Verarbeite Mapping-Vererbung
-        if 'mapping' in mapping and '_inherit' in mapping['mapping']:
-            parent_field = mapping['mapping']['_inherit'].split('.')[0]
-            parent_mapping = (self.config['zone_mappings'].get(parent_field) or 
-                            self.config['typology_mappings'].get(parent_field))
-            if parent_mapping and 'mapping' in parent_mapping:
-                mapping['mapping'].update(parent_mapping['mapping'])
-                del mapping['mapping']['_inherit']
-
-        # Prüfe Datenquellen in der konfigurierten Reihenfolge
-        for source in self.config['data_source_priority']:
-            if source == 'citygml' and citygml_data is not None:
-                value = self._map_citygml_field(mapping, citygml_data)
-                if value is not None:
-                    return self._transform_value(value, mapping)
-            elif source == 'wfs' and wfs_data is not None:
-                value = self._map_wfs_field(mapping, wfs_data)
-                if value is not None:
-                    return self._transform_value(value, mapping)
-
-        # Wenn kein Wert gefunden wurde, verwende den Default-Wert
-        return mapping.get('default')
-
-    def _map_citygml_field(self, mapping: Dict[str, Any], data: etree._Element) -> Optional[Any]:
-        """Mappt ein Feld aus CityGML-Daten."""
-        if 'sources' not in mapping or 'citygml' not in mapping['sources']:
-            return None
-
-        citygml_source = mapping['sources']['citygml']
         
-        # Spezialbehandlung für Name-Feld
-        if mapping.get('transform') == 'combine_address':
-            street = data.xpath(".//xAL:ThoroughfareName/text()", namespaces=self.namespaces)
-            number = data.xpath(".//xAL:ThoroughfareNumber/text()", namespaces=self.namespaces)
-            if street and number:
-                return f"{street[0]}_{number[0]}"
-            return mapping.get('default', 'Unknown')
-
-        # Spezialbehandlung für Höhe und Geschosse
-        if citygml_source == 'bldg:measuredHeight':
-            value = data.xpath(".//bldg:measuredHeight/text()", namespaces=self.namespaces)
-            if value:
-                return float(value[0])
-        elif citygml_source == 'bldg:storeysAboveGround':
-            value = data.xpath(".//bldg:storeysAboveGround/text()", namespaces=self.namespaces)
-            if value:
-                return int(value[0])
-
-        # Spezialbehandlung für Adressfelder
-        if citygml_source in ['ThoroughfareName', 'ThoroughfareNumber', 'PostalCodeNumber']:
-            xpath_map = {
-                'ThoroughfareName': ".//xAL:ThoroughfareName/text()",
-                'ThoroughfareNumber': ".//xAL:ThoroughfareNumber/text()",
-                'PostalCodeNumber': ".//xAL:PostalCodeNumber/text()"
-            }
-            value = data.xpath(xpath_map[citygml_source], namespaces=self.namespaces)
-            if value:
-                return value[0]
-
-        # Spezialbehandlung für REFERENCE
-        if citygml_source == '@gml:id':
-            value = data.get('{http://www.opengis.net/gml}id')
-            if value:
-                return value
-
-        if isinstance(citygml_source, list):
-            values = []
-            for xpath in citygml_source:
-                try:
-                    value = data.xpath(xpath, namespaces=self.namespaces)
-                    if value:
-                        values.append(value[0])
-                    else:
-                        values.append('')
-                except Exception:
-                    values.append('')
+    def _load_field_mappings(self) -> Dict[str, Any]:
+        """
+        Lädt die Feldmappings aus der Konfiguration.
+        
+        Returns:
+            Dict[str, Any]: Feldmappings für verschiedene Datenquellen
+        """
+        try:
+            mapping_path = Path(self.config.get('mapping_file', 'config/cea/mapping.yml'))
+            if not mapping_path.exists():
+                logger.warning(f"⚠️ Mapping-Datei nicht gefunden: {mapping_path}")
+                return {}
+                
+            with open(mapping_path, 'r', encoding='utf-8') as f:
+                mappings = yaml.safe_load(f)
+                return mappings.get('mappings', {})
+                
+        except Exception as e:
+            logger.error(f"❌ Fehler beim Laden der Feldmappings: {str(e)}")
+            return {}
             
-            if all(v == '' for v in values):
-                return mapping.get('default')
+    def map_field(self, field_name: str, data: Union[dict, etree._Element], source: str) -> Any:
+        """
+        Mapped ein Feld aus den Quelldaten.
+        
+        Args:
+            field_name: Name des Zielfelds
+            data: Quelldaten (Dict für WFS/OSM, XML für CityGML)
+            source: Datenquelle ('wfs', 'osm' oder 'citygml')
             
-            if 'format' in mapping:
-                return mapping['format'].format(*values)
-            return values[0] if len(values) == 1 else values
-
-        return mapping.get('default')
-
-    def _map_wfs_field(self, mapping: Dict[str, Any], data: Dict[str, Any]) -> Optional[Any]:
-        """Mappt ein Feld aus WFS-Daten."""
-        if 'sources' not in mapping or 'wfs' not in mapping['sources']:
+        Returns:
+            Any: Gemappter Wert für das Feld
+        """
+        if field_name not in self.field_mappings:
             return None
-
-        wfs_source = mapping['sources']['wfs']
-        if isinstance(wfs_source, dict):
-            # Für zusammengesetzte Felder (z.B. Adresse)
-            values = {}
-            for key, field in wfs_source.items():
-                values[key] = data.get(field, '')
-            if all(v != '' for v in values.values()):
-                if 'format' in mapping:
-                    return mapping['format'].format(**values)
-                return values
+            
+        mapping = self.field_mappings[field_name]
+        source_mapping = mapping.get(source, {})
+        
+        if source == "citygml":
+            return self._map_citygml_field(field_name, data, source_mapping)
         else:
-            # Für einfache Felder
-            return data.get(wfs_source)
-
-        return None
-
-    def _transform_value(self, value: Any, mapping: Dict[str, Any]) -> Any:
-        """Transformiert einen Wert basierend auf der Mapping-Konfiguration."""
+            return self._map_source_field(field_name, data, source_mapping)
+            
+    def _map_citygml_field(self, field_name: str, xml: etree._Element, mapping: Dict[str, Any]) -> Any:
+        """
+        Mapped ein Feld aus CityGML-Daten.
+        
+        Args:
+            field_name: Name des Zielfelds
+            xml: CityGML XML-Element
+            mapping: Mapping-Konfiguration für das Feld
+            
+        Returns:
+            Any: Gemappter Wert
+        """
+        try:
+            # Spezialfall für Name-Generierung
+            if field_name == "Name":
+                street = self._get_street_name(xml)
+                number = self._get_building_number(xml)
+                if street and number:
+                    return f"{street}_{number}"
+                return None
+                
+            # Spezialfall für REFERENCE
+            if field_name == "REFERENCE":
+                return xml.get("{http://www.opengis.net/gml}id")
+                
+            # Normale Feldmappings
+            xpath = mapping.get("xpath")
+            if not xpath:
+                return None
+                
+            try:
+                value = xml.xpath(xpath, namespaces=self.namespaces)
+                if value:
+                    return self._convert_value(value[0], mapping.get("type", "str"))
+            except (IndexError, ValueError):
+                pass
+                
+            return mapping.get("default")
+            
+        except Exception as e:
+            logger.error(f"❌ Fehler beim Mapping von CityGML-Feld {field_name}: {str(e)}")
+            return None
+            
+    def _map_source_field(self, field_name: str, data: Dict[str, Any], mapping: Dict[str, Any]) -> Any:
+        """
+        Mapped ein Feld aus WFS/OSM-Daten.
+        
+        Args:
+            field_name: Name des Zielfelds
+            data: Quelldaten als Dictionary
+            mapping: Mapping-Konfiguration für das Feld
+            
+        Returns:
+            Any: Gemappter Wert
+        """
+        try:
+            source_field = mapping.get("field")
+            if not source_field:
+                return None
+                
+            value = data.get(source_field)
+            if value is None:
+                return mapping.get("default")
+                
+            return self._convert_value(value, mapping.get("type", "str"))
+            
+        except Exception as e:
+            logger.error(f"❌ Fehler beim Mapping von Feld {field_name}: {str(e)}")
+            return None
+            
+    def _get_street_name(self, xml: etree._Element) -> Optional[str]:
+        """
+        Extrahiert den Straßennamen aus CityGML-Daten.
+        
+        Args:
+            xml: CityGML XML-Element
+            
+        Returns:
+            Optional[str]: Straßenname oder None
+        """
+        try:
+            street_queries = [
+                ".//xAL:ThoroughfareName/text()",
+                ".//xAL:StreetNameElement/text()",
+                ".//gen:stringAttribute[@name='street']/gen:value/text()"
+            ]
+            
+            for query in street_queries:
+                try:
+                    result = xml.xpath(query, namespaces=self.namespaces)
+                    if result:
+                        return result[0]
+                except:
+                    continue
+                    
+            return None
+            
+        except Exception as e:
+            logger.error(f"❌ Fehler beim Extrahieren des Straßennamens: {str(e)}")
+            return None
+            
+    def _get_building_number(self, xml: etree._Element) -> Optional[str]:
+        """
+        Extrahiert die Hausnummer aus CityGML-Daten.
+        
+        Args:
+            xml: CityGML XML-Element
+            
+        Returns:
+            Optional[str]: Hausnummer oder None
+        """
+        try:
+            number_queries = [
+                ".//xAL:BuildingNumber/text()",
+                ".//xAL:ThoroughfareNumber/text()",
+                ".//gen:stringAttribute[@name='number']/gen:value/text()"
+            ]
+            
+            for query in number_queries:
+                try:
+                    result = xml.xpath(query, namespaces=self.namespaces)
+                    if result:
+                        return result[0]
+                except:
+                    continue
+                    
+            return None
+            
+        except Exception as e:
+            logger.error(f"❌ Fehler beim Extrahieren der Hausnummer: {str(e)}")
+            return None
+            
+    def _convert_value(self, value: Any, target_type: str) -> Any:
+        """
+        Konvertiert einen Wert in den Zieltyp.
+        
+        Args:
+            value: Zu konvertierender Wert
+            target_type: Zieltyp ('str', 'int', 'float', 'bool')
+            
+        Returns:
+            Any: Konvertierter Wert
+        """
         if value is None:
-            return mapping.get('default')
-
-        # Wenn ein Mapping definiert ist, wende es direkt an
-        if 'mapping' in mapping:
-            return mapping['mapping'].get(str(value), mapping.get('default'))
-
-        if 'transform' not in mapping:
-            return value
-
-        transform = mapping['transform']
-        if transform == 'to_int':
-            try:
-                return int(value)
-            except (ValueError, TypeError):
-                return mapping.get('default')
-        elif transform == 'to_float':
-            try:
+            return None
+            
+        try:
+            if target_type == "int":
+                return int(float(value))
+            elif target_type == "float":
                 return float(value)
-            except (ValueError, TypeError):
-                return mapping.get('default')
-        elif transform == 'combine_address':
-            if isinstance(value, dict):
-                return mapping['format'].format(**value)
-            elif isinstance(value, list):
-                return mapping['format'].format(*value)
-            return value
-        elif transform == 'none':
-            # Wenn ein Mapping definiert ist, wende es nach der Transformation an
-            if 'mapping' in mapping:
-                return mapping['mapping'].get(str(value), mapping.get('default'))
-            return value
-
-        return value
-
+            elif target_type == "bool":
+                return str(value).lower() in ("true", "1", "yes", "ja")
+            else:
+                return str(value)
+        except (ValueError, TypeError):
+            return None
+            
     def validate_field(self, field_name: str, value: Any) -> bool:
         """
         Validiert einen Feldwert gegen die definierten Regeln.
-
-        Args:
-            field_name: Name des Feldes
-            value: Zu validierender Wert
-
-        Returns:
-            True wenn valid, False sonst
-        """
-        mapping = (self.config['zone_mappings'].get(field_name) or 
-                  self.config['typology_mappings'].get(field_name))
         
-        if not mapping:
+        Args:
+            field_name: Name des Felds
+            value: Zu validierender Wert
+            
+        Returns:
+            bool: True wenn der Wert gültig ist
+        """
+        if field_name not in self.validation_rules:
             return True
-
-        # Prüfe ob das Feld required ist
-        if mapping.get('required', False) and value is None:
-            raise ValueError(f"Feld {field_name} ist erforderlich, aber kein Wert vorhanden")
-
-        return True 
+            
+        rules = self.validation_rules[field_name]
+        
+        try:
+            # Prüfe Minimum
+            if "min" in rules and value < rules["min"]:
+                logger.warning(f"⚠️ Wert {value} für {field_name} ist kleiner als Minimum {rules['min']}")
+                return False
+                
+            # Prüfe Maximum
+            if "max" in rules and value > rules["max"]:
+                logger.warning(f"⚠️ Wert {value} für {field_name} ist größer als Maximum {rules['max']}")
+                return False
+                
+            # Prüfe erlaubte Werte
+            if "allowed_values" in rules and value not in rules["allowed_values"]:
+                logger.warning(f"⚠️ Wert {value} für {field_name} ist nicht in erlaubten Werten {rules['allowed_values']}")
+                return False
+                
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Fehler bei der Feldvalidierung von {field_name}: {str(e)}")
+            return False 

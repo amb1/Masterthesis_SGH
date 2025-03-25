@@ -9,13 +9,14 @@ import geopandas as gpd
 from shapely.geometry import Polygon, MultiPolygon
 from shapely.ops import unary_union
 import logging
+import pandas as pd
 
 from .base_processor import BaseProcessor
 
 logger = logging.getLogger(__name__)
 
 class GeometryProcessor(BaseProcessor):
-    """Prozessor für geometrische Operationen."""
+    """Prozessor für Geometriedaten."""
     
     def __init__(self, config: Dict[str, Any]):
         """
@@ -25,45 +26,54 @@ class GeometryProcessor(BaseProcessor):
             config: Konfigurationsobjekt
         """
         super().__init__(config)
-        self.target_crs = config.get('crs', 'EPSG:31256')
+        self.simplify_tolerance = config.get('simplify_tolerance', 0.1)
+        self.crs = config.get('crs', 'EPSG:31256')  # MGI / Austria GK East als Standard
         
     def process(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Verarbeitet die Geometrien.
+        Verarbeitet Geometriedaten.
         
         Args:
-            data: Eingabedaten mit Geometrien
+            data: Eingabedaten mit Geometrie
             
         Returns:
-            Verarbeitete Daten
+            Verarbeitete Geometriedaten
         """
         try:
-            if not self.validate_data(data):
+            if not data or 'geometry' not in data:
+                self.logger.warning("⚠️ Keine Geometrie in den Daten gefunden")
                 return {}
                 
-            # Konvertiere zu GeoDataFrame wenn nötig
-            if isinstance(data, dict) and 'geometry' in data:
-                gdf = gpd.GeoDataFrame([data])
-            elif isinstance(data, gpd.GeoDataFrame):
-                gdf = data
-            else:
-                self.logger.error("❌ Ungültiges Eingabeformat")
+            geometry = data['geometry']
+            if not isinstance(geometry, (Polygon, MultiPolygon)):
+                self.logger.warning("⚠️ Ungültiger Geometrietyp")
                 return {}
                 
-            # Transformiere CRS wenn nötig
-            if gdf.crs != self.target_crs:
-                gdf = self.transform_crs(gdf)
-                
-            # Validiere und bereinige Geometrien
-            gdf = self.clean_geometries(gdf)
+            # Erstelle GeoDataFrame für CRS-Handling
+            gdf = gpd.GeoDataFrame(geometry=[geometry], crs=self.crs)
             
-            # Berechne geometrische Attribute
-            gdf = self.calculate_geometric_attributes(gdf)
+            # Vereinfache Geometrie
+            self.logger.info(f"🔄 Vereinfache Geometrien (Toleranz: {self.simplify_tolerance})")
+            gdf.geometry = gdf.geometry.simplify(self.simplify_tolerance)
             
-            return gdf.to_dict('records')[0] if len(gdf) == 1 else gdf.to_dict('records')
+            # Extrahiere die vereinfachte Geometrie
+            simplified = gdf.geometry.iloc[0]
+            
+            # Berechne Attribute
+            area = gdf.geometry.area.iloc[0]
+            orientation = self._calculate_orientation(simplified)
+            footprint = self._calculate_footprint(simplified)
+            
+            return {
+                'geometry': simplified,
+                'area': area,
+                'height': data.get('height', 0.0),
+                'orientation': orientation,
+                'footprint': footprint
+            }
             
         except Exception as e:
-            self.handle_error(e, "geometry_processing")
+            self.logger.error(f"❌ Fehler bei der Geometrieverarbeitung: {str(e)}")
             return {}
             
     def transform_crs(self, gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:

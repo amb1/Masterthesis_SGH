@@ -35,6 +35,7 @@ interface LayerSidebarProps {
   onUnloadAsset: (assetId: number) => void;
   selectedFeature: FeatureInfo | null;
   onFeaturePropertiesChange: (properties: string[]) => void;
+  onSettingsClick?: (assetId: number) => void;
 }
 
 const DEFAULT_PROPERTIES = [
@@ -91,7 +92,8 @@ const LayerSidebar: React.FC<LayerSidebarProps> = ({
   loadedAssets,
   onUnloadAsset,
   selectedFeature,
-  onFeaturePropertiesChange
+  onFeaturePropertiesChange,
+  onSettingsClick
 }) => {
   const [assets, setAssets] = useState<Asset[]>([]);
   const [loading, setLoading] = useState(false);
